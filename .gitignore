@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .env
 node_modules/
+
+# 執行時被 server 重寫，不適合 git
+command_center_state.json
+command_center_state.json.tmp
