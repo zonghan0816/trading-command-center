@@ -298,21 +298,37 @@ export class OfficeScene extends Phaser.Scene {
       if (!ch) return;
       const prev = ch.state;
       ch.state = mod.status;
-      if (mod.last_output) ch.bubbleText.setText(mod.last_output.slice(0, 50));
 
-      if (prev !== 'running' && mod.status === 'running' && !ch.isWalking && !this._chatInProgress) {
-        ch.sprite.play(`${id}_typing`);
-        if (mod.last_output) this._showBubble(id);   // 有內容才顯示泡泡
-        const targets = DATA_FLOWS[id] || [];
-        if (targets.length > 0 && this.characters[targets[0]]) {
-          this._walkTo(id, targets[0], () => this._walkHome(id));
+      const wasActive = prev === 'running' || prev === 'thinking';
+      const isActive = mod.status === 'running' || mod.status === 'thinking';
+      const justBecameActive = !wasActive && isActive;
+      const justBecameInactive = wasActive && !isActive;
+
+      // chat 進行中 → 狀態同步只更新內部 ch.state，完全不動 bubble / 動畫
+      // 避免每 5 秒輪詢時 status 文字插話 chat 對話
+      if (this._chatInProgress) return;
+
+      // 狀態變動才更新泡泡文字 + 顯示泡泡（不再每輪重新塞、不再重複打字）
+      if (justBecameActive) {
+        if (mod.last_output) {
+          ch.bubbleText.setText(mod.last_output.slice(0, 50));
+          this._showBubble(id);
         }
-      }
-      if (mod.status === 'thinking' && !this._chatInProgress) {
-        ch.sprite.play(`${id}_thinking`);
-        this._animateTyping(id);
-      }
-      if ((mod.status === 'idle' || mod.status === 'done') && !ch.isWalking) {
+        if (mod.status === 'running' && !ch.isWalking) {
+          ch.sprite.play(`${id}_typing`);
+          const targets = DATA_FLOWS[id] || [];
+          if (targets.length > 0 && this.characters[targets[0]]) {
+            this._walkTo(id, targets[0], () => this._walkHome(id));
+          }
+        } else if (mod.status === 'thinking') {
+          ch.sprite.play(`${id}_thinking`);
+          this._animateTyping(id);
+        }
+      } else if (justBecameInactive && !ch.isWalking) {
+        // 結束 → 收泡泡 + 回 idle 動畫（保留泡泡文字本身，下次需要時直接顯示）
+        ch.sprite.play(`${id}_idle`);
+        this._hideBubble(id);
+      } else if (mod.status === 'idle' && !ch.isWalking) {
         ch.sprite.play(`${id}_idle`);
       }
     });
