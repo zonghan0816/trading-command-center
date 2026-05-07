@@ -1,8 +1,8 @@
 // OfficeScene: 等角辦公室主場景
-const ISO_W = 64;  // 磚寬
-const ISO_H = 32;  // 磚高
+const ISO_W = 96;   // tile screen width  (64 × 1.5)
+const ISO_H = 48;   // tile screen height (32 × 1.5)
+const S     = 1.5;  // uniform sprite / texture scale
 
-// 等角座標 → 螢幕座標
 function isoToScreen(tx, ty, originX, originY) {
   return {
     x: originX + (tx - ty) * ISO_W / 2,
@@ -24,16 +24,16 @@ const MAP = [
 
 // 7 個模組的桌子位置（tile x, tile y）
 const DESK_POSITIONS = {
-  market:  { tx: 1, ty: 1, label: '📊 市場分析師' },
-  news:    { tx: 7, ty: 1, label: '📰 新聞記者'   },
-  swing:   { tx: 1, ty: 4, label: '📈 波段交易員' },
-  dca:     { tx: 7, ty: 4, label: '💰 定投經理'   },
-  ml:      { tx: 5, ty: 6, label: '🤖 ML 工程師'  },
-  agent:   { tx: 2, ty: 6, label: '🤖 AI 交易員'  },
-  boss:    { tx: 4, ty: 2, label: '🎯 策略長'      },
+  market: { tx: 1, ty: 1, label: '📊 市場分析師' },
+  news:   { tx: 7, ty: 1, label: '📰 新聞記者'   },
+  swing:  { tx: 1, ty: 4, label: '📈 波段交易員' },
+  dca:    { tx: 7, ty: 4, label: '💰 定投經理'   },
+  ml:     { tx: 5, ty: 6, label: '🤖 ML 工程師'  },
+  agent:  { tx: 2, ty: 6, label: '🤖 AI 交易員'  },
+  boss:   { tx: 4, ty: 2, label: '🎯 策略長'      },
 };
 
-// 資料流向（誰把資料送給誰）
+// 資料流向
 const DATA_FLOWS = {
   market: ['boss'],
   news:   ['boss'],
@@ -46,156 +46,142 @@ export class OfficeScene extends Phaser.Scene {
   constructor() { super('OfficeScene'); }
 
   create() {
-    const { width, height } = this.scale;
-    this.originX = width  * 0.5;
-    this.originY = height * 0.15;
+    try {
+      const { width, height } = this.scale;
+      // shift left so map doesn't overlap right-panel (~220px)
+      this.originX = width  * 0.40;
+      this.originY = height * 0.11;
 
-    this.characters = {};   // id → { sprite, desk, state, bubble }
-    this.state = null;      // 從 API 拿到的最新狀態
+      this.characters = {};
+      this.state = null;
 
-    this._buildFloor();
-    this._buildFurniture();
-    this._buildCharacters();
-    this._buildLighting();
+      this._buildFloor();
+      this._buildFurniture();
+      this._buildCharacters();
+      this._buildLighting();
 
-    // 每 5 秒 poll API
-    this._pollState();
-    this.time.addEvent({ delay: 5000, callback: this._pollState, callbackScope: this, loop: true });
+      // Poll API 每 5 秒
+      this._pollState();
+      this.time.addEvent({ delay: 5000, callback: this._pollState, callbackScope: this, loop: true });
 
-    // 互動：點角色放大泡泡
-    this.input.on('gameobjectdown', (ptr, obj) => {
-      if (obj.roleId) this._toggleBubble(obj.roleId);
-    });
+      // 點角色切換泡泡
+      this.input.on('gameobjectdown', (ptr, obj) => {
+        if (obj.roleId) this._toggleBubble(obj.roleId);
+      });
 
-    // 視窗縮放
-    this.scale.on('resize', this._onResize, this);
+      this.scale.on('resize', this._onResize, this);
+    } catch (e) {
+      console.error('OfficeScene create error:', e);
+    }
   }
 
-  // ── 地板 ────────────────────────────────────────────────────
+  // ── 地板 ──────────────────────────────────────────────────────
   _buildFloor() {
-    this.floorGroup = this.add.group();
     for (let ty = 0; ty < MAP.length; ty++) {
       for (let tx = 0; tx < MAP[ty].length; tx++) {
         const key = MAP[ty][tx] === 2 ? 'tile_aisle' : 'tile_floor';
         const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
-        const tile = this.add.image(x, y, key).setOrigin(0.5, 0.5);
-        tile.setDepth(tx + ty);
-        this.floorGroup.add(tile);
+        this.add.image(x, y, key).setOrigin(0.5, 0.5).setScale(S).setDepth(tx + ty);
       }
     }
   }
 
-  // ── 家具（桌子+椅子+螢幕）──────────────────────────────────
+  // ── 家具（桌子 + 椅子 + 螢幕）────────────────────────────────
   _buildFurniture() {
-    this.furnitureGroup = this.add.group();
     Object.entries(DESK_POSITIONS).forEach(([id, pos]) => {
       const { tx, ty } = pos;
       const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
       const depth = tx + ty + 0.5;
 
-      // 桌子
-      const desk = this.add.image(x, y - 8, 'desk').setOrigin(0.5, 0.5).setDepth(depth);
-      // 螢幕（桌上）
-      const mon = this.add.image(x - 6, y - 30, 'monitor').setOrigin(0.5, 0.5).setDepth(depth + 0.1);
-      // 第二個螢幕（大老闆有兩個）
+      this.add.image(x,      y - 12,  'desk'   ).setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth);
+      this.add.image(x - 9,  y - 45,  'monitor').setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth + 0.1);
       if (id === 'boss') {
-        this.add.image(x + 10, y - 32, 'monitor').setOrigin(0.5, 0.5).setDepth(depth + 0.1).setScale(0.85);
+        this.add.image(x + 15, y - 48, 'monitor').setOrigin(0.5, 0.5).setScale(S * 0.85).setDepth(depth + 0.1);
       }
-      // 椅子
-      const chair = this.add.image(x + 4, y + 14, 'chair').setOrigin(0.5, 0.5).setDepth(depth - 0.1);
+      this.add.image(x + 6,  y + 21,  'chair'  ).setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth - 0.1);
 
-      this.furnitureGroup.addMultiple([desk, mon, chair]);
-
-      // 桌子名稱標籤
-      this.add.text(x, y - 50, pos.label, {
-        fontSize: '10px',
-        color: '#6E8AA8',
-        fontFamily: 'Consolas, monospace',
+      this.add.text(x, y - 72, pos.label, {
+        fontSize: '12px', color: '#6E8AA8', fontFamily: 'Consolas, monospace',
       }).setOrigin(0.5, 1).setDepth(depth + 0.5);
     });
   }
 
-  // ── 角色 ────────────────────────────────────────────────────
+  // ── 角色 ──────────────────────────────────────────────────────
   _buildCharacters() {
     Object.entries(DESK_POSITIONS).forEach(([id, pos]) => {
       const { tx, ty } = pos;
       const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
 
-      // 角色 sprite（使用 spritesheet）
-      const sprite = this.add.sprite(x, y - 14, `char_${id}`, 0)
+      const sprite = this.add.sprite(x, y - 21, `char_${id}`, 0)
         .setOrigin(0.5, 1)
         .setDepth(tx + ty + 1)
+        .setScale(S)
         .setInteractive();
       sprite.roleId = id;
       sprite.play(`${id}_idle`);
 
-      // 輕微浮動動畫（idle 時上下晃動）
+      // 輕微浮動
       this.tweens.add({
         targets: sprite,
-        y: sprite.y - 2,
+        y: sprite.y - 3,
         duration: 800 + Math.random() * 400,
-        yoyo: true,
-        repeat: -1,
-        ease: 'Sine.easeInOut',
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
         delay: Math.random() * 800,
       });
 
-      // 思考泡泡
-      const bubbleBg = this.add.image(x, y - 68, 'bubble_bg')
-        .setOrigin(0.5, 1)
-        .setDepth(tx + ty + 2)
-        .setAlpha(0)
-        .setScale(0.8);
+      // 思考泡泡背景
+      const bubbleBg = this.add.image(x, y - 102, 'bubble_bg')
+        .setOrigin(0.5, 1).setDepth(tx + ty + 2).setAlpha(0).setScale(S * 0.8);
 
-      const bubbleText = this.add.text(x, y - 80, '...', {
-        fontSize: '9px',
-        color: '#D8EEFB',
+      // 泡泡文字
+      const bubbleText = this.add.text(x, y - 110, '...', {
+        fontSize: '10px', color: '#D8EEFB',
         fontFamily: 'Consolas, monospace',
-        wordWrap: { width: 140 },
-        align: 'center',
+        wordWrap: { width: 150 }, align: 'center',
       }).setOrigin(0.5, 1).setDepth(tx + ty + 2.1).setAlpha(0);
 
-      // 狀態指示燈（小圓點在角色頭上）
-      const statusDot = this.add.graphics().setDepth(tx + ty + 2.2);
-      this._drawStatusDot(statusDot, x + 6, y - 40, 'idle');
+      // 狀態指示燈
+      const statusDot = this.add.graphics()
+        .setDepth(tx + ty + 2.2)
+        .setPosition(x + 9, y - 60);
+      this._drawStatusDot(statusDot, 'idle');
 
       this.characters[id] = {
         sprite, bubbleBg, bubbleText, statusDot,
-        tx, ty, x, y,
+        homeX: x, homeY: y - 21,
+        tx, ty,
         state: 'idle',
         bubbleVisible: false,
         isWalking: false,
-        homeTx: tx, homeTy: ty,
       };
     });
   }
 
-  _drawStatusDot(g, x, y, status) {
-    g.clear();
+  _drawStatusDot(g, status) {
     const colors = { idle: 0x3a5068, running: 0xFFB300, done: 0x00E676, live: 0x00E5FF, thinking: 0xBB86FC };
+    g.clear();
     g.fillStyle(colors[status] || 0x3a5068, 1);
-    g.fillCircle(x, y, 4);
+    g.fillCircle(0, 0, 4);
   }
 
-  // ── 燈光效果 ────────────────────────────────────────────────
+  // ── 環境光層（最底層，略帶漸層）──────────────────────────────
   _buildLighting() {
-    // 頂部微光（像辦公室天花板燈）
-    const light = this.add.graphics().setDepth(0.1);
-    light.fillGradientStyle(0x001830, 0x001830, 0x0e1e30, 0x0e1e30, 0.3);
+    const light = this.add.graphics().setDepth(-1);
+    light.fillGradientStyle(0x001428, 0x001428, 0x0e1e30, 0x0e1e30, 0.25);
     light.fillRect(0, 0, this.scale.width, this.scale.height);
   }
 
-  // ── Poll API 狀態 ────────────────────────────────────────────
+  // ── Poll API 狀態 ─────────────────────────────────────────────
   async _pollState() {
     try {
       const res = await fetch('http://localhost:8765/api/state');
-      if (!res.ok) return;
-      const data = await res.json();
-      this._applyState(data);
-    } catch (e) {
-      // 離線時用假資料
-      this._applyState(this._demoState());
-    }
+      if (res.ok) {
+        const data = await res.json();
+        this._applyState(data);
+        return;
+      }
+    } catch (_) { /* 離線 */ }
+    this._applyState(this._demoState());
   }
 
   _applyState(data) {
@@ -209,41 +195,34 @@ export class OfficeScene extends Phaser.Scene {
       const prevState = ch.state;
       ch.state = mod.status;
 
-      // 更新狀態燈
-      this._drawStatusDot(ch.statusDot, ch.x + 6, ch.y - 40, mod.status);
+      this._drawStatusDot(ch.statusDot, mod.status);
 
-      // 更新泡泡文字
-      const txt = mod.last_output || '...';
+      const txt = (mod.last_output || '...').slice(0, 60);
       ch.bubbleText.setText(txt);
 
-      // 狀態剛變成 running → 開始走路到相關桌子
+      // 剛變成 running → 走路去目標桌
       if (prevState !== 'running' && mod.status === 'running' && !ch.isWalking) {
         const targets = DATA_FLOWS[id] || [];
         if (targets.length > 0) {
           this._walkTo(id, targets[0], () => this._walkHome(id));
         }
-        ch.sprite.play(`${id}_walk_s`);
-        // 顯示思考泡泡
         this._showBubble(id);
       }
 
-      // 狀態變成 done/idle → 回動畫
-      if (mod.status === 'idle' || mod.status === 'done') {
-        if (!ch.isWalking) ch.sprite.play(`${id}_idle`);
+      // 回 idle/done
+      if ((mod.status === 'idle' || mod.status === 'done') && !ch.isWalking) {
+        ch.sprite.play(`${id}_idle`);
       }
 
-      // running/thinking → 動畫顯示打字感覺
+      // thinking → 打字效果
       if (mod.status === 'thinking') {
         ch.sprite.play(`${id}_walk_n`);
-        this._showBubble(id);
         this._animateTyping(id);
       }
     });
 
-    // 更新 HTML 狀態面板
     this._updateHTMLPanel(data);
 
-    // 觸發資料流粒子效果
     if (data.data_flows) {
       data.data_flows.forEach(flow => {
         if (flow.active) this._triggerDataFlow(flow.from, flow.to);
@@ -251,33 +230,30 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  // ── 走路到指定桌子 ──────────────────────────────────────────
+  // ── 走路 ──────────────────────────────────────────────────────
   _walkTo(id, targetId, onComplete) {
-    const ch = this.characters[id];
+    const ch     = this.characters[id];
     const target = this.characters[targetId];
     if (!ch || !target || ch.isWalking) return;
 
     ch.isWalking = true;
-    const dx = target.x - ch.x;
-    // 選擇方向
-    const dir = dx > 0 ? 's' : 'w';
+    const dir = (target.homeX - ch.sprite.x) > 0 ? 's' : 'w';
     ch.sprite.play(`${id}_walk_${dir}`);
 
     this.tweens.add({
-      targets: [ch.sprite, ch.bubbleBg, ch.bubbleText, ch.statusDot],
-      x: target.x,
-      y: { value: `+=${target.y - ch.y}`, ease: 'Linear' },
+      targets: ch.sprite,
+      x: target.homeX,
+      y: target.homeY,
       duration: 1200,
       ease: 'Linear',
       onUpdate: () => {
-        // 保持泡泡在角色頭上
+        const sx = ch.sprite.x;
         const sy = ch.sprite.y;
-        ch.bubbleBg.y = sy - 54;
-        ch.bubbleText.y = sy - 66;
-        // 更新深度
-        const iso = this._screenToIso(ch.sprite.x, ch.sprite.y);
-        const d = iso.tx + iso.ty + 1;
-        ch.sprite.setDepth(d);
+        ch.bubbleBg.setPosition(sx, sy - 81);
+        ch.bubbleText.setPosition(sx, sy - 89);
+        ch.statusDot.setPosition(sx + 9, sy - 39);
+        const iso = this._screenToIso(sx, sy);
+        ch.sprite.setDepth(iso.tx + iso.ty + 1);
       },
       onComplete: () => {
         ch.isWalking = false;
@@ -294,20 +270,26 @@ export class OfficeScene extends Phaser.Scene {
     ch.sprite.play(`${id}_walk_e`);
     this.tweens.add({
       targets: ch.sprite,
-      x: ch.x,
-      y: ch.y - 14,
+      x: ch.homeX,
+      y: ch.homeY,
       duration: 1000,
       ease: 'Linear',
+      onUpdate: () => {
+        ch.bubbleBg.setPosition(ch.sprite.x, ch.sprite.y - 81);
+        ch.bubbleText.setPosition(ch.sprite.x, ch.sprite.y - 89);
+        ch.statusDot.setPosition(ch.sprite.x + 9, ch.sprite.y - 39);
+      },
       onComplete: () => {
         ch.isWalking = false;
-        ch.sprite.setPosition(ch.x, ch.y - 14);
         ch.sprite.play(`${id}_idle`);
+        ch.bubbleBg.setPosition(ch.homeX, ch.homeY - 81);
+        ch.bubbleText.setPosition(ch.homeX, ch.homeY - 89);
+        ch.statusDot.setPosition(ch.homeX + 9, ch.homeY - 39);
         this._hideBubble(id);
       },
     });
   }
 
-  // 粗略的 screen → iso 換算（用於深度排序）
   _screenToIso(sx, sy) {
     const rx = sx - this.originX;
     const ry = sy - this.originY;
@@ -317,25 +299,23 @@ export class OfficeScene extends Phaser.Scene {
     };
   }
 
-  // ── 泡泡顯示/隱藏 ─────────────────────────────────────────
+  // ── 泡泡 ──────────────────────────────────────────────────────
   _showBubble(id) {
     const ch = this.characters[id];
-    if (!ch) return;
+    if (!ch || ch.bubbleVisible) return;
     this.tweens.add({
       targets: [ch.bubbleBg, ch.bubbleText],
-      alpha: 1, scaleX: 1, scaleY: 1,
-      duration: 200, ease: 'Back.easeOut',
+      alpha: 1, duration: 200, ease: 'Back.easeOut',
     });
     ch.bubbleVisible = true;
   }
 
   _hideBubble(id) {
     const ch = this.characters[id];
-    if (!ch) return;
+    if (!ch || !ch.bubbleVisible) return;
     this.tweens.add({
       targets: [ch.bubbleBg, ch.bubbleText],
-      alpha: 0,
-      duration: 300,
+      alpha: 0, duration: 300,
     });
     ch.bubbleVisible = false;
   }
@@ -343,80 +323,69 @@ export class OfficeScene extends Phaser.Scene {
   _toggleBubble(id) {
     const ch = this.characters[id];
     if (!ch) return;
-    if (ch.bubbleVisible) this._hideBubble(id);
-    else this._showBubble(id);
+    ch.bubbleVisible ? this._hideBubble(id) : this._showBubble(id);
   }
 
-  // ── 打字動畫（泡泡文字逐字顯示）────────────────────────────
+  // ── 打字動畫 ──────────────────────────────────────────────────
   _animateTyping(id) {
     const ch = this.characters[id];
     if (!ch || !this.state) return;
-    const full = this.state.modules?.[id]?.last_output || '思考中...';
+    const full = (this.state.modules?.[id]?.last_output || '思考中...').slice(0, 60);
     let i = 0;
     this._showBubble(id);
-    const timer = this.time.addEvent({
-      delay: 60,
-      repeat: full.length - 1,
+    this.time.addEvent({
+      delay: 55, repeat: full.length - 1,
       callback: () => {
         i++;
-        ch.bubbleText.setText(full.slice(0, i) + '▌');
-        if (i >= full.length) ch.bubbleText.setText(full);
+        ch.bubbleText.setText(i < full.length ? full.slice(0, i) + '▌' : full);
       },
     });
   }
 
-  // ── 資料流粒子（從 A 飛向 B）───────────────────────────────
+  // ── 資料流粒子 ────────────────────────────────────────────────
   _triggerDataFlow(fromId, toId) {
     const from = this.characters[fromId];
     const to   = this.characters[toId];
     if (!from || !to) return;
-
-    const NUM = 5;
-    for (let i = 0; i < NUM; i++) {
-      this.time.delayedCall(i * 100, () => {
-        const dot = this.add.image(from.x, from.y - 20, 'particle')
-          .setDepth(99)
-          .setAlpha(0.9)
-          .setScale(0.8);
+    for (let i = 0; i < 5; i++) {
+      this.time.delayedCall(i * 110, () => {
+        const dot = this.add.image(from.sprite.x, from.sprite.y - 20, 'particle')
+          .setDepth(99).setAlpha(0.9).setScale(0.8);
         this.tweens.add({
           targets: dot,
-          x: to.x + Phaser.Math.Between(-8, 8),
-          y: (to.y - 20) + Phaser.Math.Between(-8, 8),
-          alpha: 0,
-          scale: 0.3,
-          duration: 800,
-          ease: 'Power2',
+          x: to.sprite.x + Phaser.Math.Between(-8, 8),
+          y: to.sprite.y - 20 + Phaser.Math.Between(-8, 8),
+          alpha: 0, scale: 0.3, duration: 800, ease: 'Power2',
           onComplete: () => dot.destroy(),
         });
       });
     }
   }
 
-  // ── 更新右側 HTML 狀態面板 ──────────────────────────────────
+  // ── HTML 狀態面板 ─────────────────────────────────────────────
   _updateHTMLPanel(data) {
-    const list = document.getElementById('module-list');
+    const list   = document.getElementById('module-list');
     const timeEl = document.getElementById('update-time');
     if (!list || !timeEl) return;
 
     const labels = {
       market: '📊 市場', news: '📰 新聞', boss: '🎯 策略長',
-      swing: '📈 波段',  dca: '💰 DCA',   ml: '🤖 ML', agent: '🤖 Agent',
+      swing:  '📈 波段', dca:  '💰 DCA',  ml:   '🤖 ML', agent: '🤖 Agent',
     };
     list.innerHTML = Object.entries(data.modules || {}).map(([id, mod]) => `
       <div class="module-status">
         <div class="status-dot ${mod.status}"></div>
         <div class="module-name">${labels[id] || id}</div>
       </div>
-      <div class="module-output">${mod.last_output || '—'}</div>
+      <div class="module-output">${(mod.last_output || '—').slice(0, 50)}</div>
     `).join('');
 
     timeEl.textContent = `更新 ${data.updated_at || '—'}`;
   }
 
-  // ── Demo 假資料（API 離線時）────────────────────────────────
+  // ── Demo 假資料（API 離線時）──────────────────────────────────
   _demoState() {
-    const t = Date.now();
-    const cycle = Math.floor(t / 3000) % 7;
+    const cycle = Math.floor(Date.now() / 3000) % 7;
     const ids = ['market', 'news', 'boss', 'swing', 'dca', 'ml', 'agent'];
     const outputs = {
       market: 'RISK_ON  VIX 14.2',
@@ -430,33 +399,31 @@ export class OfficeScene extends Phaser.Scene {
     const modules = {};
     ids.forEach((id, i) => {
       modules[id] = {
-        status: i === cycle ? 'running' : (i < cycle ? 'done' : 'idle'),
+        status:      i === cycle ? 'running' : (i < cycle ? 'done' : 'idle'),
         last_output: outputs[id],
-        confidence: 0.7,
+        confidence:  0.7,
       };
     });
-    modules['boss'].status = 'live';
+    modules['boss'].status  = 'live';
     modules['agent'].status = cycle === 6 ? 'thinking' : 'idle';
-
     return {
       updated_at: new Date().toLocaleTimeString('zh-TW'),
       modules,
       data_flows: [
-        { from: 'market', to: 'boss', active: cycle === 0 },
-        { from: 'news',   to: 'boss', active: cycle === 1 },
+        { from: 'market', to: 'boss',  active: cycle === 0 },
+        { from: 'news',   to: 'boss',  active: cycle === 1 },
         { from: 'ml',     to: 'agent', active: cycle === 5 },
-        { from: 'agent',  to: 'boss', active: cycle === 6 },
+        { from: 'agent',  to: 'boss',  active: cycle === 6 },
       ],
     };
   }
 
   _onResize(gameSize) {
-    this.originX = gameSize.width * 0.5;
-    this.originY = gameSize.height * 0.15;
+    this.originX = gameSize.width  * 0.40;
+    this.originY = gameSize.height * 0.11;
   }
 
   update() {
-    // 每幀確保角色深度排序正確
     Object.values(this.characters).forEach(ch => {
       if (!ch.isWalking) return;
       const iso = this._screenToIso(ch.sprite.x, ch.sprite.y);
