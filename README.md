@@ -21,5 +21,19 @@
 ## 依賴
 
 ```
-pip install fastapi uvicorn
+pip install -r requirements.txt
 ```
+
+或手動：`pip install fastapi uvicorn anthropic python-dotenv`
+
+`啟動.bat` 已內建自動安裝，雙擊執行即可。
+
+## 環境變數
+
+在專案根目錄建立 `.env`：
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+`/api/chat`（角色對話功能）需要這把 key，未設定時該端點會回 503。視覺場景（Phaser 等角辦公室）與 `/api/state` 端點不需 key 即可運作。
