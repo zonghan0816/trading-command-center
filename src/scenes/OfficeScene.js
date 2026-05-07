@@ -1,45 +1,20 @@
-// OfficeScene: 等角辦公室主場景
-const ISO_W = 96;   // tile screen width  (64 × 1.5)
-const ISO_H = 48;   // tile screen height (32 × 1.5)
-const S     = 1.5;  // uniform sprite / texture scale
+// OfficeScene: 前視角像素辦公室
+const WALL_H_RATIO = 0.44;   // 牆壁佔畫面高度比例
 
-function isoToScreen(tx, ty, originX, originY) {
-  return {
-    x: originX + (tx - ty) * ISO_W / 2,
-    y: originY + (tx + ty) * ISO_H / 2,
-  };
-}
-
-// 辦公室地圖（10×8），1=地板, 2=走道
-const MAP = [
-  [1,1,1,1,1,1,1,1,1,1],
-  [1,2,1,1,2,2,1,1,2,1],
-  [1,1,1,1,2,2,1,1,1,1],
-  [1,1,1,1,2,2,1,1,1,1],
-  [1,2,1,1,2,2,1,1,2,1],
-  [1,1,1,1,1,1,1,1,1,1],
-  [1,1,2,2,1,1,2,2,1,1],
-  [1,1,1,1,1,1,1,1,1,1],
-];
-
-// 7 個模組的桌子位置（tile x, tile y）
-const DESK_POSITIONS = {
-  market: { tx: 1, ty: 1, label: '📊 市場分析師' },
-  news:   { tx: 7, ty: 1, label: '📰 新聞記者'   },
-  swing:  { tx: 1, ty: 4, label: '📈 波段交易員' },
-  dca:    { tx: 7, ty: 4, label: '💰 定投經理'   },
-  ml:     { tx: 5, ty: 6, label: '🤖 ML 工程師'  },
-  agent:  { tx: 2, ty: 6, label: '🤖 AI 交易員'  },
-  boss:   { tx: 4, ty: 2, label: '🎯 策略長'      },
+// 工作站定義：前後兩排 + 特殊位置
+const STATIONS = {
+  market: { row: 'back',    col: 0, desk: 'desk',      mon: 'monitor_dual', label: '📊 市場分析師' },
+  boss:   { row: 'back',    col: 1, desk: 'desk_boss',  mon: 'monitor',      label: '🎯 策略長'     },
+  ml:     { row: 'back',    col: 2, desk: 'desk',       mon: 'monitor',      label: '🤖 ML 工程師'  },
+  news:   { row: 'front',   col: 0, desk: 'desk',       mon: 'monitor',      label: '📰 新聞記者'   },
+  swing:  { row: 'front',   col: 1, desk: 'desk',       mon: 'monitor',      label: '📈 波段交易員' },
+  dca:    { row: 'front',   col: 2, desk: 'desk',       mon: 'monitor',      label: '💰 定投經理'   },
+  agent:  { row: 'special', col: 0, desk: null,         mon: null,           label: '🤖 AI 交易員'  },
 };
 
-// 資料流向
 const DATA_FLOWS = {
-  market: ['boss'],
-  news:   ['boss'],
-  ml:     ['agent'],
-  agent:  ['boss'],
-  boss:   ['market', 'news', 'swing', 'dca'],
+  market: ['boss'], news: ['boss'], ml: ['agent'], agent: ['boss'],
+  boss: ['market', 'news', 'swing', 'dca'],
 };
 
 export class OfficeScene extends Phaser.Scene {
@@ -48,285 +23,319 @@ export class OfficeScene extends Phaser.Scene {
   create() {
     try {
       const { width, height } = this.scale;
-      // shift left so map doesn't overlap right-panel (~220px)
-      this.originX = width  * 0.40;
-      this.originY = height * 0.11;
+      this.W = width;
+      this.H = height;
+      this.wallH = height * WALL_H_RATIO;
 
       this.characters = {};
       this.state = null;
 
-      this._buildFloor();
-      this._buildFurniture();
-      this._buildCharacters();
-      this._buildLighting();
+      this._buildBackground();
+      this._buildDecorations();
+      this._buildWorkstations();
+      this._buildSign();
 
-      // Poll API 每 5 秒
       this._pollState();
       this.time.addEvent({ delay: 5000, callback: this._pollState, callbackScope: this, loop: true });
 
-      // 點角色切換泡泡
-      this.input.on('gameobjectdown', (ptr, obj) => {
+      this.input.on('gameobjectdown', (_, obj) => {
         if (obj.roleId) this._toggleBubble(obj.roleId);
       });
 
-      this.scale.on('resize', this._onResize, this);
+      this.scale.on('resize', (size) => {
+        this.W = size.width; this.H = size.height;
+        this.wallH = size.height * WALL_H_RATIO;
+      });
     } catch (e) {
-      console.error('OfficeScene create error:', e);
+      console.error('OfficeScene error:', e);
     }
   }
 
-  // ── 地板 ──────────────────────────────────────────────────────
-  _buildFloor() {
-    for (let ty = 0; ty < MAP.length; ty++) {
-      for (let tx = 0; tx < MAP[ty].length; tx++) {
-        const key = MAP[ty][tx] === 2 ? 'tile_aisle' : 'tile_floor';
-        const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
-        this.add.image(x, y, key).setOrigin(0.5, 0.5).setScale(S).setDepth(tx + ty);
+  // ── 背景（磚牆 + 木地板）─────────────────────────────────────
+  _buildBackground() {
+    const g = this.add.graphics().setDepth(0);
+
+    // 天花板（深色木梁）
+    g.fillStyle(0x1e1008, 1);
+    g.fillRect(0, 0, this.W, 22);
+
+    // 磚牆
+    const bW = 38, bH = 14, gap = 2;
+    const brickColors = [0x7a2d18, 0x8a3820, 0x6e2812, 0x7d3215, 0x852e18, 0x713015];
+    for (let row = 0; row * (bH + gap) < this.wallH + bH; row++) {
+      const offset = row % 2 === 0 ? 0 : (bW + gap) / 2;
+      const y = 22 + row * (bH + gap);
+      for (let col = -1; col * (bW + gap) < this.W + bW; col++) {
+        const x = col * (bW + gap) + offset;
+        const ci = (row * 7 + Math.abs(col) * 5) % brickColors.length;
+        g.fillStyle(brickColors[ci], 1);
+        g.fillRoundedRect(x, y, bW, bH, 1);
       }
     }
+
+    // 牆面漸暗遮罩（底部近地板處）
+    g.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.35, 0.35);
+    g.fillRect(0, this.wallH - 40, this.W, 40);
+
+    // 木地板
+    const plankH = 26;
+    const plankPalette = [0x8a5520, 0x9a6030, 0x7a4a18, 0x8e5825, 0x966232];
+    const floorStart = this.wallH;
+    for (let row = 0; row * plankH < this.H - floorStart + plankH; row++) {
+      const y = floorStart + row * plankH;
+      const offset = row % 2 === 0 ? 0 : 160;
+      for (let col = -1; col * 340 < this.W + 340; col++) {
+        const x = col * 340 + offset;
+        const ci = (row * 3 + Math.abs(col) * 11 + 7) % plankPalette.length;
+        g.fillStyle(plankPalette[ci], 1);
+        g.fillRect(x, y, 338, plankH - 2);
+        // 木紋
+        g.lineStyle(1, 0x4a2808, 0.25);
+        g.lineBetween(x + 20, y + 9, x + 310, y + 11);
+        g.lineBetween(x + 60, y + 18, x + 270, y + 20);
+      }
+    }
+
+    // 地板與牆壁交界陰影
+    g.fillStyle(0x000000, 0.3);
+    g.fillRect(0, this.wallH - 10, this.W, 10);
   }
 
-  // ── 家具（桌子 + 椅子 + 螢幕）────────────────────────────────
-  _buildFurniture() {
-    Object.entries(DESK_POSITIONS).forEach(([id, pos]) => {
-      const { tx, ty } = pos;
-      const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
-      const depth = tx + ty + 0.5;
+  // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
+  _buildDecorations() {
+    const { W, H, wallH } = this;
 
-      this.add.image(x,      y - 12,  'desk'   ).setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth);
-      this.add.image(x - 9,  y - 45,  'monitor').setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth + 0.1);
-      if (id === 'boss') {
-        this.add.image(x + 15, y - 48, 'monitor').setOrigin(0.5, 0.5).setScale(S * 0.85).setDepth(depth + 0.1);
-      }
-      this.add.image(x + 6,  y + 21,  'chair'  ).setOrigin(0.5, 0.5).setScale(S      ).setDepth(depth - 0.1);
-
-      this.add.text(x, y - 72, pos.label, {
-        fontSize: '12px', color: '#6E8AA8', fontFamily: 'Consolas, monospace',
-      }).setOrigin(0.5, 1).setDepth(depth + 0.5);
+    // 天花板吊燈
+    [0.16, 0.42, 0.68, 0.88].forEach(ratio => {
+      this.add.image(W * ratio, 14, 'ceiling_light')
+        .setOrigin(0.5, 0).setDepth(2);
+      // 燈光圓暈（Graphics）
+      const glow = this.add.graphics().setDepth(1);
+      glow.fillStyle(0xfff2aa, 0.06);
+      glow.fillCircle(W * ratio, 56, 80);
     });
+
+    // 牆面植物（後排）
+    this.add.image(55,  wallH + 5,  'plant_lg').setOrigin(0.5, 1).setDepth(8);
+    this.add.image(W - 50, wallH + 5, 'plant_lg').setOrigin(0.5, 1).setDepth(8);
+    this.add.image(W * 0.32, wallH + 5, 'plant_sm').setOrigin(0.5, 1).setDepth(8);
+    this.add.image(W * 0.70, wallH + 5, 'plant_sm').setOrigin(0.5, 1).setDepth(8);
+
+    // 地板植物（前排）
+    this.add.image(40,  H - 40, 'plant_lg').setOrigin(0.5, 1).setDepth(42);
+    this.add.image(W - 40, H - 40, 'plant_lg').setOrigin(0.5, 1).setDepth(42);
+
+    // 白板（右側，agent 旁邊）
+    this.add.image(W * 0.88, wallH + 20, 'whiteboard')
+      .setOrigin(0.5, 0).setScale(1.1).setDepth(28);
+
+    // 伺服器機架（最右側靠牆）
+    this.add.image(W - 48, wallH - 138, 'server_rack')
+      .setOrigin(0.5, 1).setDepth(10).setScale(1);
   }
 
-  // ── 角色 ──────────────────────────────────────────────────────
-  _buildCharacters() {
-    Object.entries(DESK_POSITIONS).forEach(([id, pos]) => {
-      const { tx, ty } = pos;
-      const { x, y } = isoToScreen(tx, ty, this.originX, this.originY);
+  // ── 各工作站（椅背 + 角色 + 桌子 + 螢幕 + 標籤）─────────────
+  _buildWorkstations() {
+    const { W, H, wallH } = this;
 
-      const sprite = this.add.sprite(x, y - 21, `char_${id}`, 0)
-        .setOrigin(0.5, 1)
-        .setDepth(tx + ty + 1)
-        .setScale(S)
-        .setInteractive();
+    // 後排 3 個工作站 y 基準（桌面 y）
+    const backY  = wallH + 50;
+    // 前排 y
+    const frontY = wallH + 220;
+
+    // 後排 x 位置
+    const backXs  = [W * 0.16, W * 0.46, W * 0.74];
+    // 前排 x 位置
+    const frontXs = [W * 0.22, W * 0.49, W * 0.72];
+
+    Object.entries(STATIONS).forEach(([id, st]) => {
+      if (st.row === 'special') return;
+
+      const isBack = st.row === 'back';
+      const x = isBack ? backXs[st.col] : frontXs[st.col];
+      const deskY = isBack ? backY : frontY;
+      const baseDepth = isBack ? 12 : 32;
+
+      // 椅背（在角色後面）
+      this.add.image(x, deskY - 8, 'chair_back')
+        .setOrigin(0.5, 1).setDepth(baseDepth - 1);
+
+      // 角色 sprite
+      const charY = deskY - 12;
+      const sprite = this.add.sprite(x, charY, `char_${id}`, 0)
+        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(1.4).setInteractive();
       sprite.roleId = id;
       sprite.play(`${id}_idle`);
 
-      // 輕微浮動
+      // 輕微 idle 浮動
       this.tweens.add({
-        targets: sprite,
-        y: sprite.y - 3,
-        duration: 800 + Math.random() * 400,
+        targets: sprite, y: charY - 2,
+        duration: 900 + Math.random() * 500,
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        delay: Math.random() * 800,
+        delay: Math.random() * 1000,
       });
 
-      // 思考泡泡背景
-      const bubbleBg = this.add.image(x, y - 102, 'bubble_bg')
-        .setOrigin(0.5, 1).setDepth(tx + ty + 2).setAlpha(0).setScale(S * 0.8);
+      // 桌子（蓋住角色下半身）
+      const deskTex = st.desk || 'desk';
+      const deskImg = this.add.image(x, deskY, deskTex)
+        .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(1.4);
 
-      // 泡泡文字
-      const bubbleText = this.add.text(x, y - 110, '...', {
-        fontSize: '10px', color: '#D8EEFB',
+      // 螢幕
+      if (st.mon) {
+        const monScaleX = id === 'market' ? 1.3 : 1.2;
+        this.add.image(x, deskY - 2, st.mon)
+          .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monScaleX, 1.2);
+      }
+
+      // 名稱標籤
+      this.add.text(x, deskY - (isBack ? 78 : 80), st.label, {
+        fontSize: '11px', color: '#8aabb8',
         fontFamily: 'Consolas, monospace',
-        wordWrap: { width: 150 }, align: 'center',
-      }).setOrigin(0.5, 1).setDepth(tx + ty + 2.1).setAlpha(0);
+        stroke: '#000000', strokeThickness: 2,
+      }).setOrigin(0.5, 1).setDepth(baseDepth + 2);
 
-      // 狀態指示燈
-      const statusDot = this.add.graphics()
-        .setDepth(tx + ty + 2.2)
-        .setPosition(x + 9, y - 60);
-      this._drawStatusDot(statusDot, 'idle');
+      // 泡泡 & 狀態燈
+      const bubbleBg = this.add.image(x, charY - 52, 'bubble_bg')
+        .setOrigin(0.5, 1).setDepth(baseDepth + 3).setAlpha(0);
+      const bubbleText = this.add.text(x, charY - 60, '...', {
+        fontSize: '9px', color: '#D8EEFB',
+        fontFamily: 'Consolas, monospace',
+        wordWrap: { width: 160 }, align: 'center',
+      }).setOrigin(0.5, 1).setDepth(baseDepth + 3.1).setAlpha(0);
+
+      const dot = this.add.graphics().setDepth(baseDepth + 4).setPosition(x + 11, charY - 58);
+      this._drawDot(dot, 'idle');
 
       this.characters[id] = {
-        sprite, bubbleBg, bubbleText, statusDot,
-        homeX: x, homeY: y - 21,
-        tx, ty,
-        state: 'idle',
-        bubbleVisible: false,
-        isWalking: false,
+        sprite, bubbleBg, bubbleText, dot,
+        x, homeY: charY, state: 'idle', bubbleVisible: false,
       };
     });
+
+    // AI 交易員（白板旁站立）
+    this._buildAgentStation();
   }
 
-  _drawStatusDot(g, status) {
-    const colors = { idle: 0x3a5068, running: 0xFFB300, done: 0x00E676, live: 0x00E5FF, thinking: 0xBB86FC };
+  _buildAgentStation() {
+    const { W, wallH } = this;
+    const x = W * 0.82;
+    const y = wallH + 155;
+    const depth = 30;
+
+    const sprite = this.add.sprite(x, y, 'char_agent', 0)
+      .setOrigin(0.5, 1).setDepth(depth).setScale(1.5).setInteractive();
+    sprite.roleId = 'agent';
+    sprite.play('agent_idle');
+
+    this.tweens.add({
+      targets: sprite, y: y - 2,
+      duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 200,
+    });
+
+    this.add.text(x, y - 68, STATIONS.agent.label, {
+      fontSize: '11px', color: '#8aabb8',
+      fontFamily: 'Consolas, monospace',
+      stroke: '#000000', strokeThickness: 2,
+    }).setOrigin(0.5, 1).setDepth(depth + 1);
+
+    const bubbleBg = this.add.image(x, y - 76, 'bubble_bg')
+      .setOrigin(0.5, 1).setDepth(depth + 2).setAlpha(0);
+    const bubbleText = this.add.text(x, y - 84, '...', {
+      fontSize: '9px', color: '#D8EEFB',
+      fontFamily: 'Consolas, monospace',
+      wordWrap: { width: 160 }, align: 'center',
+    }).setOrigin(0.5, 1).setDepth(depth + 2.1).setAlpha(0);
+
+    const dot = this.add.graphics().setDepth(depth + 3).setPosition(x + 11, y - 82);
+    this._drawDot(dot, 'idle');
+
+    this.characters['agent'] = {
+      sprite, bubbleBg, bubbleText, dot,
+      x, homeY: y, state: 'idle', bubbleVisible: false,
+    };
+  }
+
+  // ── 霓虹招牌 ─────────────────────────────────────────────────
+  _buildSign() {
+    const cx = this.W * 0.46;
+    // 主標題
+    this.add.text(cx, 32, 'AI TRADING COMMAND CENTER', {
+      fontSize: '18px', fontFamily: 'Consolas, monospace',
+      color: '#00E5FF',
+      shadow: { offsetX: 0, offsetY: 0, color: '#00E5FF', blur: 14, fill: true },
+    }).setOrigin(0.5, 0.5).setDepth(6);
+    // 副標題
+    this.add.text(cx, 54, 'TAIWAN STOCK MARKET · REAL-TIME', {
+      fontSize: '11px', fontFamily: 'Consolas, monospace',
+      color: '#0099aa',
+    }).setOrigin(0.5, 0.5).setDepth(6);
+  }
+
+  // ── 狀態燈 ───────────────────────────────────────────────────
+  _drawDot(g, status) {
+    const c = { idle:0x3a5068, running:0xFFB300, done:0x00E676, live:0x00E5FF, thinking:0xBB86FC };
     g.clear();
-    g.fillStyle(colors[status] || 0x3a5068, 1);
+    g.fillStyle(c[status] || 0x3a5068, 1);
     g.fillCircle(0, 0, 4);
   }
 
-  // ── 環境光層（最底層，略帶漸層）──────────────────────────────
-  _buildLighting() {
-    const light = this.add.graphics().setDepth(-1);
-    light.fillGradientStyle(0x001428, 0x001428, 0x0e1e30, 0x0e1e30, 0.25);
-    light.fillRect(0, 0, this.scale.width, this.scale.height);
-  }
-
-  // ── Poll API 狀態 ─────────────────────────────────────────────
+  // ── API Poll ─────────────────────────────────────────────────
   async _pollState() {
     try {
       const res = await fetch('http://localhost:8765/api/state');
-      if (res.ok) {
-        const data = await res.json();
-        this._applyState(data);
-        return;
-      }
-    } catch (_) { /* 離線 */ }
+      if (res.ok) { this._applyState(await res.json()); return; }
+    } catch (_) {}
     this._applyState(this._demoState());
   }
 
   _applyState(data) {
     this.state = data;
-    const modules = data.modules || {};
-
-    Object.entries(modules).forEach(([id, mod]) => {
+    Object.entries(data.modules || {}).forEach(([id, mod]) => {
       const ch = this.characters[id];
       if (!ch) return;
-
-      const prevState = ch.state;
+      const prev = ch.state;
       ch.state = mod.status;
+      this._drawDot(ch.dot, mod.status);
+      ch.bubbleText.setText((mod.last_output || '...').slice(0, 60));
 
-      this._drawStatusDot(ch.statusDot, mod.status);
-
-      const txt = (mod.last_output || '...').slice(0, 60);
-      ch.bubbleText.setText(txt);
-
-      // 剛變成 running → 走路去目標桌
-      if (prevState !== 'running' && mod.status === 'running' && !ch.isWalking) {
-        const targets = DATA_FLOWS[id] || [];
-        if (targets.length > 0) {
-          this._walkTo(id, targets[0], () => this._walkHome(id));
-        }
+      if (prev !== 'running' && mod.status === 'running') {
+        ch.sprite.play(`${id}_typing`);
         this._showBubble(id);
       }
-
-      // 回 idle/done
-      if ((mod.status === 'idle' || mod.status === 'done') && !ch.isWalking) {
-        ch.sprite.play(`${id}_idle`);
-      }
-
-      // thinking → 打字效果
       if (mod.status === 'thinking') {
-        ch.sprite.play(`${id}_walk_n`);
+        ch.sprite.play(`${id}_thinking`);
         this._animateTyping(id);
+      }
+      if (mod.status === 'idle' || mod.status === 'done') {
+        ch.sprite.play(`${id}_idle`);
       }
     });
 
     this._updateHTMLPanel(data);
 
-    if (data.data_flows) {
-      data.data_flows.forEach(flow => {
-        if (flow.active) this._triggerDataFlow(flow.from, flow.to);
-      });
-    }
-  }
-
-  // ── 走路 ──────────────────────────────────────────────────────
-  _walkTo(id, targetId, onComplete) {
-    const ch     = this.characters[id];
-    const target = this.characters[targetId];
-    if (!ch || !target || ch.isWalking) return;
-
-    ch.isWalking = true;
-    const dir = (target.homeX - ch.sprite.x) > 0 ? 's' : 'w';
-    ch.sprite.play(`${id}_walk_${dir}`);
-
-    this.tweens.add({
-      targets: ch.sprite,
-      x: target.homeX,
-      y: target.homeY,
-      duration: 1200,
-      ease: 'Linear',
-      onUpdate: () => {
-        const sx = ch.sprite.x;
-        const sy = ch.sprite.y;
-        ch.bubbleBg.setPosition(sx, sy - 81);
-        ch.bubbleText.setPosition(sx, sy - 89);
-        ch.statusDot.setPosition(sx + 9, sy - 39);
-        const iso = this._screenToIso(sx, sy);
-        ch.sprite.setDepth(iso.tx + iso.ty + 1);
-      },
-      onComplete: () => {
-        ch.isWalking = false;
-        ch.sprite.play(`${id}_idle`);
-        if (onComplete) onComplete();
-      },
+    (data.data_flows || []).forEach(f => {
+      if (f.active) this._triggerDataFlow(f.from, f.to);
     });
   }
 
-  _walkHome(id) {
-    const ch = this.characters[id];
-    if (!ch) return;
-    ch.isWalking = true;
-    ch.sprite.play(`${id}_walk_e`);
-    this.tweens.add({
-      targets: ch.sprite,
-      x: ch.homeX,
-      y: ch.homeY,
-      duration: 1000,
-      ease: 'Linear',
-      onUpdate: () => {
-        ch.bubbleBg.setPosition(ch.sprite.x, ch.sprite.y - 81);
-        ch.bubbleText.setPosition(ch.sprite.x, ch.sprite.y - 89);
-        ch.statusDot.setPosition(ch.sprite.x + 9, ch.sprite.y - 39);
-      },
-      onComplete: () => {
-        ch.isWalking = false;
-        ch.sprite.play(`${id}_idle`);
-        ch.bubbleBg.setPosition(ch.homeX, ch.homeY - 81);
-        ch.bubbleText.setPosition(ch.homeX, ch.homeY - 89);
-        ch.statusDot.setPosition(ch.homeX + 9, ch.homeY - 39);
-        this._hideBubble(id);
-      },
-    });
-  }
-
-  _screenToIso(sx, sy) {
-    const rx = sx - this.originX;
-    const ry = sy - this.originY;
-    return {
-      tx: Math.round((rx / (ISO_W / 2) + ry / (ISO_H / 2)) / 2),
-      ty: Math.round((ry / (ISO_H / 2) - rx / (ISO_W / 2)) / 2),
-    };
-  }
-
-  // ── 泡泡 ──────────────────────────────────────────────────────
+  // ── 泡泡 ─────────────────────────────────────────────────────
   _showBubble(id) {
     const ch = this.characters[id];
     if (!ch || ch.bubbleVisible) return;
-    this.tweens.add({
-      targets: [ch.bubbleBg, ch.bubbleText],
-      alpha: 1, duration: 200, ease: 'Back.easeOut',
-    });
+    this.tweens.add({ targets: [ch.bubbleBg, ch.bubbleText], alpha: 1, duration: 200 });
     ch.bubbleVisible = true;
   }
-
   _hideBubble(id) {
     const ch = this.characters[id];
     if (!ch || !ch.bubbleVisible) return;
-    this.tweens.add({
-      targets: [ch.bubbleBg, ch.bubbleText],
-      alpha: 0, duration: 300,
-    });
+    this.tweens.add({ targets: [ch.bubbleBg, ch.bubbleText], alpha: 0, duration: 300 });
     ch.bubbleVisible = false;
   }
-
   _toggleBubble(id) {
     const ch = this.characters[id];
-    if (!ch) return;
-    ch.bubbleVisible ? this._hideBubble(id) : this._showBubble(id);
+    if (ch) ch.bubbleVisible ? this._hideBubble(id) : this._showBubble(id);
   }
 
-  // ── 打字動畫 ──────────────────────────────────────────────────
   _animateTyping(id) {
     const ch = this.characters[id];
     if (!ch || !this.state) return;
@@ -335,99 +344,74 @@ export class OfficeScene extends Phaser.Scene {
     this._showBubble(id);
     this.time.addEvent({
       delay: 55, repeat: full.length - 1,
-      callback: () => {
-        i++;
-        ch.bubbleText.setText(i < full.length ? full.slice(0, i) + '▌' : full);
-      },
+      callback: () => { i++; ch.bubbleText.setText(i < full.length ? full.slice(0, i) + '▌' : full); },
     });
   }
 
-  // ── 資料流粒子 ────────────────────────────────────────────────
+  // ── 資料流粒子 ───────────────────────────────────────────────
   _triggerDataFlow(fromId, toId) {
     const from = this.characters[fromId];
     const to   = this.characters[toId];
     if (!from || !to) return;
     for (let i = 0; i < 5; i++) {
-      this.time.delayedCall(i * 110, () => {
-        const dot = this.add.image(from.sprite.x, from.sprite.y - 20, 'particle')
-          .setDepth(99).setAlpha(0.9).setScale(0.8);
+      this.time.delayedCall(i * 120, () => {
+        const dot = this.add.image(from.x, from.homeY - 30, 'particle')
+          .setDepth(99).setAlpha(0.9).setScale(0.9);
         this.tweens.add({
           targets: dot,
-          x: to.sprite.x + Phaser.Math.Between(-8, 8),
-          y: to.sprite.y - 20 + Phaser.Math.Between(-8, 8),
-          alpha: 0, scale: 0.3, duration: 800, ease: 'Power2',
+          x: to.x + Phaser.Math.Between(-10, 10),
+          y: to.homeY - 30 + Phaser.Math.Between(-10, 10),
+          alpha: 0, scale: 0.3, duration: 900, ease: 'Power2',
           onComplete: () => dot.destroy(),
         });
       });
     }
   }
 
-  // ── HTML 狀態面板 ─────────────────────────────────────────────
+  // ── HTML 狀態面板 ────────────────────────────────────────────
   _updateHTMLPanel(data) {
-    const list   = document.getElementById('module-list');
+    const list = document.getElementById('module-list');
     const timeEl = document.getElementById('update-time');
     if (!list || !timeEl) return;
-
     const labels = {
-      market: '📊 市場', news: '📰 新聞', boss: '🎯 策略長',
-      swing:  '📈 波段', dca:  '💰 DCA',  ml:   '🤖 ML', agent: '🤖 Agent',
+      market:'📊 市場', news:'📰 新聞', boss:'🎯 策略長',
+      swing:'📈 波段', dca:'💰 DCA', ml:'🤖 ML', agent:'🤖 Agent',
     };
     list.innerHTML = Object.entries(data.modules || {}).map(([id, mod]) => `
       <div class="module-status">
         <div class="status-dot ${mod.status}"></div>
         <div class="module-name">${labels[id] || id}</div>
       </div>
-      <div class="module-output">${(mod.last_output || '—').slice(0, 50)}</div>
+      <div class="module-output">${(mod.last_output || '—').slice(0, 45)}</div>
     `).join('');
-
     timeEl.textContent = `更新 ${data.updated_at || '—'}`;
   }
 
-  // ── Demo 假資料（API 離線時）──────────────────────────────────
+  // ── Demo 假資料 ──────────────────────────────────────────────
   _demoState() {
     const cycle = Math.floor(Date.now() / 3000) % 7;
-    const ids = ['market', 'news', 'boss', 'swing', 'dca', 'ml', 'agent'];
-    const outputs = {
-      market: 'RISK_ON  VIX 14.2',
-      news:   '+0.82 台積電利多',
-      boss:   '建議買進 2330  停損 -5%',
-      swing:  'RSI 32 超賣訊號',
-      dca:    '0050 定期定額執行',
-      ml:     '漲機率 72%  未來3日',
-      agent:  '分析市場中...',
+    const ids = ['market','news','boss','swing','dca','ml','agent'];
+    const out = {
+      market:'RISK_ON  VIX 14.2', news:'+0.82 台積電利多',
+      boss:'建議買進 2330  停損 -5%', swing:'RSI 32 超賣訊號',
+      dca:'0050 定期定額執行', ml:'漲機率 72%  未來3日', agent:'分析市場中...',
     };
     const modules = {};
     ids.forEach((id, i) => {
-      modules[id] = {
-        status:      i === cycle ? 'running' : (i < cycle ? 'done' : 'idle'),
-        last_output: outputs[id],
-        confidence:  0.7,
-      };
+      modules[id] = { status: i===cycle?'running':(i<cycle?'done':'idle'), last_output:out[id], confidence:0.7 };
     });
-    modules['boss'].status  = 'live';
-    modules['agent'].status = cycle === 6 ? 'thinking' : 'idle';
+    modules.boss.status = 'live';
+    modules.agent.status = cycle===6 ? 'thinking' : 'idle';
     return {
-      updated_at: new Date().toLocaleTimeString('zh-TW'),
-      modules,
+      updated_at: new Date().toLocaleTimeString('zh-TW'), modules,
       data_flows: [
-        { from: 'market', to: 'boss',  active: cycle === 0 },
-        { from: 'news',   to: 'boss',  active: cycle === 1 },
-        { from: 'ml',     to: 'agent', active: cycle === 5 },
-        { from: 'agent',  to: 'boss',  active: cycle === 6 },
+        { from:'market', to:'boss',  active: cycle===0 },
+        { from:'news',   to:'boss',  active: cycle===1 },
+        { from:'ml',     to:'agent', active: cycle===5 },
+        { from:'agent',  to:'boss',  active: cycle===6 },
       ],
     };
   }
 
-  _onResize(gameSize) {
-    this.originX = gameSize.width  * 0.40;
-    this.originY = gameSize.height * 0.11;
-  }
-
-  update() {
-    Object.values(this.characters).forEach(ch => {
-      if (!ch.isWalking) return;
-      const iso = this._screenToIso(ch.sprite.x, ch.sprite.y);
-      ch.sprite.setDepth(iso.tx + iso.ty + 1);
-    });
-  }
+  update() {}
 }
