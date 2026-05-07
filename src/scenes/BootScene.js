@@ -1,3 +1,5 @@
+import { CONFIG } from '../config.js';
+
 export class BootScene extends Phaser.Scene {
   constructor() { super('BootScene'); }
 
@@ -6,21 +8,33 @@ export class BootScene extends Phaser.Scene {
       this.scale.width / 2, this.scale.height / 2,
       'Loading...', { color: '#00E5FF', fontSize: '18px', fontFamily: 'Consolas' }
     ).setOrigin(0.5);
+
+    // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
+    const ca = CONFIG.customAssets;
+    const assetKeys = [
+      'desk','desk_boss','monitor','monitor_dual','chair_back',
+      'plant_sm','plant_lg','ceiling_light','whiteboard','server_rack','bubble_bg',
+      'char_market','char_news','char_swing','char_dca','char_ml','char_agent','char_boss',
+    ];
+    assetKeys.forEach(key => {
+      if (ca[key]) this.load.image(key, `/assets/${key}.png`);
+    });
   }
 
   create() {
     try {
-      this._makeDesk();
-      this._makeDeskBoss();
-      this._makeMonitor();
-      this._makeMonitorDual();
-      this._makeChairBack();
-      this._makePlant(36, 52, 'plant_sm');
-      this._makePlant(44, 64, 'plant_lg');
-      this._makeCeilingLight();
-      this._makeWhiteboard();
-      this._makeServerRack();
-      this._makeBubble();
+      const ca = CONFIG.customAssets;
+      if (!ca.desk)           this._makeDesk();
+      if (!ca.desk_boss)      this._makeDeskBoss();
+      if (!ca.monitor)        this._makeMonitor();
+      if (!ca.monitor_dual)   this._makeMonitorDual();
+      if (!ca.chair_back)     this._makeChairBack();
+      if (!ca.plant_sm)       this._makePlant(36, 52, 'plant_sm');
+      if (!ca.plant_lg)       this._makePlant(44, 64, 'plant_lg');
+      if (!ca.ceiling_light)  this._makeCeilingLight();
+      if (!ca.whiteboard)     this._makeWhiteboard();
+      if (!ca.server_rack)    this._makeServerRack();
+      if (!ca.bubble_bg)      this._makeBubble();
       this._makeParticle();
       this._makeCharacters();
     } catch (e) {
@@ -257,19 +271,25 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  // ── 對話泡泡（180×52）────────────────────────────────────────
+  // ── 對話泡泡（185×46）────────────────────────────────────────
   _makeBubble() {
     const g = this.make.graphics({ add: false });
-    const W = 180, H = 44;
-    g.fillStyle(0x0d1f33, 0.94);
-    g.fillRoundedRect(0, 0, W, H, 6);
-    g.lineStyle(1, 0x00E5FF, 0.55);
-    g.strokeRoundedRect(0, 0, W, H, 6);
-    g.fillStyle(0x0d1f33, 0.94);
-    g.fillTriangle(W / 2 - 6, H, W / 2 + 6, H, W / 2, H + 8);
-    g.lineStyle(1, 0x00E5FF, 0.4);
-    g.lineBetween(W / 2 - 6, H, W / 2, H + 8);
-    g.lineBetween(W / 2 + 6, H, W / 2, H + 8);
+    const W = 185, H = 46;
+    // 背景
+    g.fillStyle(0x071828, 0.96);
+    g.fillRoundedRect(0, 0, W, H, 7);
+    // 外框
+    g.lineStyle(1.5, 0x00E5FF, 0.7);
+    g.strokeRoundedRect(0, 0, W, H, 7);
+    // 上方光邊
+    g.lineStyle(1, 0x80f0ff, 0.25);
+    g.lineBetween(10, 1, W - 10, 1);
+    // 尾巴
+    g.fillStyle(0x071828, 0.96);
+    g.fillTriangle(W / 2 - 7, H, W / 2 + 7, H, W / 2, H + 8);
+    g.lineStyle(1.5, 0x00E5FF, 0.5);
+    g.lineBetween(W / 2 - 7, H, W / 2, H + 8);
+    g.lineBetween(W / 2 + 7, H, W / 2, H + 8);
     g.generateTexture('bubble_bg', W, H + 8);
     g.destroy();
   }
@@ -282,26 +302,22 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  // ── 角色 Spritesheet（32×48，4 幀）───────────────────────────
+  // ── 角色 Spritesheet（48×64，4 幀）───────────────────────────
   _makeCharacters() {
-    const ROLES = [
-      { id:'market', shirt:0x1a6fbb, hair:0x1a0f08, skin:0xf5c8a0, acc:'none'       },
-      { id:'news',   shirt:0xd4930f, hair:0xdd4400, skin:0xf5c8a0, acc:'none'       },
-      { id:'swing',  shirt:0x20914d, hair:0x100800, skin:0xc8804a, acc:'none'       },
-      { id:'dca',    shirt:0x7d35a8, hair:0x111122, skin:0xf5c8a0, acc:'glasses'    },
-      { id:'ml',     shirt:0x0aabb8, hair:0x1a1a1a, skin:0xc8804a, acc:'headphones' },
-      { id:'agent',  shirt:0xc0392b, hair:0x100800, skin:0xf5c8a0, acc:'none'       },
-      { id:'boss',   shirt:0xd4850a, hair:0x2a1800, skin:0xf5c8a0, acc:'glasses'    },
-    ];
-    const FW = 32, FH = 48, FRAMES = 4;
+    const cfgChars = CONFIG.characters;
+    const ROLES = Object.entries(cfgChars).map(([id, c]) => ({ id, ...c }));
+    const FW = 48, FH = 64, FRAMES = 4;
 
     ROLES.forEach(role => {
-      const g = this.make.graphics({ add: false });
-      for (let f = 0; f < FRAMES; f++) {
-        this._drawChar(g, f * FW, 0, FW, FH, role, f);
+      // 若使用者上傳了自訂圖片，跳過程序生成（圖片已在 preload 載入）
+      if (!CONFIG.customAssets[`char_${role.id}`]) {
+        const g = this.make.graphics({ add: false });
+        for (let f = 0; f < FRAMES; f++) {
+          this._drawChar(g, f * FW, 0, FW, FH, role, f);
+        }
+        g.generateTexture(`char_${role.id}`, FW * FRAMES, FH);  // 192×64
+        g.destroy();
       }
-      g.generateTexture(`char_${role.id}`, FW * FRAMES, FH);
-      g.destroy();
 
       const tex = this.textures.get(`char_${role.id}`);
       for (let i = 0; i < FRAMES; i++) {
@@ -326,89 +342,110 @@ export class BootScene extends Phaser.Scene {
     });
   }
 
-  _drawChar(g, ox, oy, W, H, role, frame) {
-    const cx = ox + W / 2;
-    const bob  = [0, -1, 0, 1][frame];
-    const armY = [0,  2, 0, -1][frame];
+  _drawChar(g, ox, oy, FW, FH, role, frame) {
+    const cx   = ox + 24;
+    const bob  = [0, -1,  0,  1][frame];
+    const armS = [0,  3,  0, -2][frame];
+    const DARK = 0x080808;
 
-    // 頭髮（後層）
-    g.fillStyle(role.hair, 1);
-    g.fillRect(cx - 7, oy + bob, 14, 7);
+    // 快速填色 helper
+    const f  = (col, x, y, w, h, a = 1) => { g.fillStyle(col, a); g.fillRect(x, y, w, h); };
+    // 帶深色輪廓的填色 helper（讓形體輪廓清晰）
+    const ol = (col, x, y, w, h) => { f(DARK, x-1, y-1, w+2, h+2); f(col, x, y, w, h); };
 
-    // 頭部
-    g.fillStyle(role.skin, 1);
-    g.fillRect(cx - 6, oy + 4 + bob, 12, 11);
+    // ── 頭髮 ──────────────────────────────────────────────────
+    ol(role.hair, cx - 14, oy + bob,     28, 12);
+    f(role.hair,  cx - 15, oy + 4 + bob,  3,  8);  // 左鬢
+    f(role.hair,  cx + 12, oy + 4 + bob,  3,  8);  // 右鬢
+    f(0xffffff,   cx - 10, oy + 1 + bob,  6,  3, 0.18);  // 髮光
 
-    // 頭髮（前層）
-    g.fillStyle(role.hair, 1);
-    g.fillRect(cx - 7, oy + bob, 14, 4);
-    g.fillRect(cx - 7, oy + 3 + bob, 2, 4);
-    g.fillRect(cx + 5, oy + 3 + bob, 2, 4);
+    // ── 臉 ───────────────────────────────────────────────────
+    ol(role.skin, cx - 12, oy + 10 + bob, 24, 17);
+    f(0xffffff,   cx - 10, oy + 11 + bob,  7,  5, 0.12);  // 臉部光澤
 
     // 耳朵
-    g.fillStyle(role.skin, 1);
-    g.fillRect(cx - 8, oy + 7 + bob, 2, 4);
-    g.fillRect(cx + 6, oy + 7 + bob, 2, 4);
+    ol(role.skin, cx - 16, oy + 15 + bob, 4, 7);
+    ol(role.skin, cx + 12, oy + 15 + bob, 4, 7);
 
-    // 眼睛
-    g.fillStyle(0x111111, 1);
-    g.fillRect(cx - 4, oy + 8 + bob, 2, 2);
-    g.fillRect(cx + 2, oy + 8 + bob, 2, 2);
+    // 眉毛
+    f(role.hair, cx - 10, oy + 14 + bob, 7, 2);
+    f(role.hair, cx +  3, oy + 14 + bob, 7, 2);
+
+    // 眼睛（眼白 + 虹膜 + 瞳孔 + 亮點）
+    f(0xf0f0f0,  cx - 10, oy + 17 + bob,  8, 5);   // 左眼白
+    f(0xf0f0f0,  cx +  2, oy + 17 + bob,  8, 5);   // 右眼白
+    f(0x4477cc,  cx -  9, oy + 18 + bob,  6, 3);   // 虹膜
+    f(0x4477cc,  cx +  3, oy + 18 + bob,  6, 3);
+    f(DARK,      cx -  8, oy + 18 + bob,  4, 3);   // 瞳孔
+    f(DARK,      cx +  4, oy + 18 + bob,  4, 3);
+    f(0xffffff,  cx -  7, oy + 18 + bob,  1, 1);   // 亮點
+    f(0xffffff,  cx +  5, oy + 18 + bob,  1, 1);
 
     // 嘴巴
-    if (frame === 0 || frame === 3) {
-      g.fillStyle(0xaa4433, 1);
-      g.fillRect(cx - 2, oy + 13 + bob, 4, 1);
+    if (frame === 1 || frame === 2) {
+      f(DARK,    cx - 5, oy + 24 + bob, 10, 5);
+      f(0xcc4433,cx - 4, oy + 25 + bob,  8, 3);
+      f(0xffffff,cx - 3, oy + 25 + bob,  6, 1, 0.5);
+    } else {
+      f(DARK,    cx - 4, oy + 24 + bob,  8, 2);
+      f(0xaa3322,cx - 3, oy + 25 + bob,  6, 1);
     }
 
-    // 頸部
-    g.fillStyle(role.skin, 1);
-    g.fillRect(cx - 2, oy + 15 + bob, 4, 4);
+    // ── 頸部 ─────────────────────────────────────────────────
+    f(DARK,     cx - 4, oy + 26 + bob, 8, 8);
+    f(role.skin,cx - 3, oy + 27 + bob, 6, 7);
 
-    // 上衣
-    g.fillStyle(role.shirt, 1);
-    g.fillRect(cx - 10, oy + 18, 20, 18);
+    // ── 上衣 ─────────────────────────────────────────────────
+    const bY = oy + 33;
+    ol(role.shirt, cx - 14, bY, 28, 18);
+    f(0xffffff,    cx - 12, bY + 1, 10,  7, 0.13);  // 衣服亮部
+    f(0x000000,    cx - 14, bY + 13, 28,  5, 0.18); // 衣服暗部
+    // V 領
+    f(role.skin,   cx - 5, bY,     10,  9, 0.9);
+    f(role.skin,   cx - 3, bY + 1,  6,  8, 0.9);
 
-    // 領口
-    g.fillStyle(role.skin, 0.7);
-    g.fillTriangle(cx, oy + 19, cx - 3, oy + 19, cx, oy + 25);
-    g.fillTriangle(cx, oy + 19, cx + 3, oy + 19, cx, oy + 25);
+    // ── 手臂 ─────────────────────────────────────────────────
+    ol(role.shirt, cx - 23, bY + 2 + armS,  9, 14);
+    ol(role.skin,  cx - 22, bY + 15 + armS, 7,  5);  // 左手
+    ol(role.shirt, cx + 14, bY + 2 - armS,  9, 14);
+    ol(role.skin,  cx + 15, bY + 15 - armS, 7,  5);  // 右手
 
-    // 左臂
-    g.fillStyle(role.shirt, 1);
-    g.fillRect(cx - 14, oy + 19 + armY, 5, 12);
-    // 右臂
-    g.fillRect(cx + 9, oy + 19 - armY, 5, 12);
+    // ── 褲子 ─────────────────────────────────────────────────
+    const pY    = bY + 18;
+    const legS  = [0, 2, 0, -2][frame];
+    const pants = role.pants ?? 0x1a2a4a;
+    const shoes = role.shoes ?? 0x1a0a00;
+    ol(pants, cx - 13, pY + legS,      11, 7);   // 左腿
+    ol(pants, cx +  2, pY - legS,      11, 7);   // 右腿
+    // 鞋子
+    f(shoes, cx - 14, pY + 6 + legS,  13, 5);    // 左鞋
+    f(shoes, cx +  1, pY + 6 - legS,  13, 5);    // 右鞋
+    f(0x3a2010, cx - 13, pY + 6 + legS,   3, 2, 0.5);  // 左鞋亮部
+    f(0x3a2010, cx +  2, pY + 6 - legS,   3, 2, 0.5);  // 右鞋亮部
 
-    // 手
-    g.fillStyle(role.skin, 1);
-    g.fillRect(cx - 14, oy + 30 + armY, 5, 4);
-    g.fillRect(cx + 9, oy + 30 - armY, 5, 4);
-
-    // 配件：眼鏡
+    // ── 配件 ─────────────────────────────────────────────────
     if (role.acc === 'glasses') {
-      g.lineStyle(1, 0xaaaaaa, 1);
-      g.strokeRect(cx - 5, oy + 7 + bob, 4, 3);
-      g.strokeRect(cx + 1, oy + 7 + bob, 4, 3);
-      g.lineBetween(cx - 1, oy + 8 + bob, cx + 1, oy + 8 + bob);
+      g.lineStyle(1.5, 0xcccccc, 1);
+      g.strokeRect(cx - 11, oy + 16 + bob,  8, 6);
+      g.strokeRect(cx +  3, oy + 16 + bob,  8, 6);
+      g.lineBetween(cx - 3, oy + 19 + bob, cx + 3, oy + 19 + bob);
+      f(0xcccccc, cx - 15, oy + 18 + bob, 4, 2);
+      f(0xcccccc, cx + 11, oy + 18 + bob, 4, 2);
     }
-
-    // 配件：耳機
     if (role.acc === 'headphones') {
-      g.fillStyle(0x2a2a3a, 1);
-      g.fillRect(cx - 9, oy + 5 + bob, 3, 7);
-      g.fillRect(cx + 6, oy + 5 + bob, 3, 7);
-      g.lineStyle(2, 0x3a3a4a, 1);
-      g.beginPath();
-      g.arc(cx, oy + 6 + bob, 8, Math.PI, 0, false);
-      g.strokePath();
+      f(0x1a1a2e, cx - 18, oy + 8 + bob,  5, 12);
+      f(0x1a1a2e, cx + 13, oy + 8 + bob,  5, 12);
+      g.lineStyle(3, 0x2a2a4e, 1);
+      g.beginPath(); g.arc(cx, oy + 8 + bob, 16, Math.PI, 0, false); g.strokePath();
+      f(0x5555bb, cx - 19, oy + 11 + bob,  5,  8);
+      f(0x5555bb, cx + 14, oy + 11 + bob,  5,  8);
     }
-
-    // 特殊：策略長加領帶
     if (role.id === 'boss') {
-      g.fillStyle(0x880000, 1);
-      g.fillTriangle(cx, oy + 19, cx - 2, oy + 22, cx, oy + 32);
-      g.fillTriangle(cx, oy + 19, cx + 2, oy + 22, cx, oy + 32);
+      f(DARK,    cx - 5, bY,      10,  4);
+      f(0xaa0000,cx - 4, bY + 1,   8,  2);
+      f(DARK,    cx - 4, bY + 3,   8, 14);
+      f(0xcc1111,cx - 3, bY + 4,   6, 12);
+      f(0xee3333,cx - 1, bY + 5,   2,  5);
     }
   }
 }
