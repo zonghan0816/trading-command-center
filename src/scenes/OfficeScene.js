@@ -60,78 +60,23 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── 背景（磚牆 + 木地板）─────────────────────────────────────
   _buildBackground() {
-    const g = this.add.graphics().setDepth(0);
+    this.add.image(0, 0, 'office_bg')
+      .setOrigin(0, 0)
+      .setDepth(0)
+      .setDisplaySize(this.W, this.H);
 
-    const { ceilingColor, brickColors, floorColors } = CONFIG.background;
-
-    // 天花板（深色木梁）
-    g.fillStyle(ceilingColor, 1);
-    g.fillRect(0, 0, this.W, 22);
-
-    // 磚牆
-    const bW = 38, bH = 14, gap = 2;
-    for (let row = 0; row * (bH + gap) < this.wallH + bH; row++) {
-      const offset = row % 2 === 0 ? 0 : (bW + gap) / 2;
-      const y = 22 + row * (bH + gap);
-      for (let col = -1; col * (bW + gap) < this.W + bW; col++) {
-        const x = col * (bW + gap) + offset;
-        const ci = (row * 7 + Math.abs(col) * 5) % brickColors.length;
-        g.fillStyle(brickColors[ci], 1);
-        g.fillRoundedRect(x, y, bW, bH, 1);
-      }
-    }
-
-    // 牆面漸暗遮罩（底部近地板處）
-    g.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.35, 0.35);
-    g.fillRect(0, this.wallH - 40, this.W, 40);
-
-    // 木地板
-    const plankH = 26;
-    const plankPalette = floorColors;
-    const floorStart = this.wallH;
-    for (let row = 0; row * plankH < this.H - floorStart + plankH; row++) {
-      const y = floorStart + row * plankH;
-      const offset = row % 2 === 0 ? 0 : 160;
-      for (let col = -1; col * 340 < this.W + 340; col++) {
-        const x = col * 340 + offset;
-        const ci = (row * 3 + Math.abs(col) * 11 + 7) % plankPalette.length;
-        g.fillStyle(plankPalette[ci], 1);
-        g.fillRect(x, y, 338, plankH - 2);
-        // 木紋
-        g.lineStyle(1, 0x4a2808, 0.25);
-        g.lineBetween(x + 20, y + 9, x + 310, y + 11);
-        g.lineBetween(x + 60, y + 18, x + 270, y + 20);
-      }
-    }
-
-    // 地板與牆壁交界陰影
-    g.fillStyle(0x000000, 0.3);
-    g.fillRect(0, this.wallH - 10, this.W, 10);
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
   _buildDecorations() {
     const { W, H, wallH } = this;
 
-    // 天花板吊燈
-    CONFIG.layout.lightsXRatios.forEach(ratio => {
-      this.add.image(W * ratio, 14, 'ceiling_light')
-        .setOrigin(0.5, 0).setDepth(2);
-      // 燈光圓暈（Graphics）
-      const glow = this.add.graphics().setDepth(1);
-      glow.fillStyle(0xfff2aa, 0.06);
-      glow.fillCircle(W * ratio, 56, 80);
-    });
+    // 中央牆壁股市螢幕
+    this.add.image(W * 0.565, H * 0.50, 'wall_screen')
+      .setOrigin(0.5, 0.5)
+      .setDisplaySize(W * 0.18, W * 0.18 * (9 / 16))
+      .setDepth(3);
 
-    // 牆面植物（後排）
-    this.add.image(55,  wallH + 5,  'plant_lg').setOrigin(0.5, 1).setDepth(8);
-    this.add.image(W - 50, wallH + 5, 'plant_lg').setOrigin(0.5, 1).setDepth(8);
-    this.add.image(W * 0.32, wallH + 5, 'plant_sm').setOrigin(0.5, 1).setDepth(8);
-    this.add.image(W * 0.70, wallH + 5, 'plant_sm').setOrigin(0.5, 1).setDepth(8);
-
-    // 地板植物（前排）
-    this.add.image(40,  H - 40, 'plant_lg').setOrigin(0.5, 1).setDepth(42);
-    this.add.image(W - 40, H - 40, 'plant_lg').setOrigin(0.5, 1).setDepth(42);
 
     // 白板（agent 右側）
     const wbX = CONFIG.layout.whiteboardXRatio ?? 0.94;
@@ -163,36 +108,44 @@ export class OfficeScene extends Phaser.Scene {
       const deskY = isBack ? backY : frontY;
       const baseDepth = isBack ? 12 : 32;
 
-      // 椅背（在角色後面）
-      this.add.image(x, deskY - 8, 'chair_back')
-        .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
-
-      // 角色 sprite
       const charY = deskY - 12;
-      const sprite = this.add.sprite(x, charY, `char_${id}`, 0)
-        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(S.character).setInteractive();
-      sprite.roleId = id;
-      sprite.play(`${id}_idle`);
+      let sprite;
 
-      // 輕微 idle 浮動
-      this.tweens.add({
-        targets: sprite, y: charY - 2,
-        duration: 900 + Math.random() * 500,
-        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-        delay: Math.random() * 1000,
-      });
+      if (id === 'boss' && CONFIG.customAssets.char_boss) {
+        // 策略長：合體圖（角色＋桌子），不畫椅背/桌/螢幕
+        sprite = this.add.image(x, deskY + 290, 'char_boss')
+          .setOrigin(0.5, 1).setDisplaySize(290, 234).setDepth(baseDepth).setInteractive();
+      } else {
+        // 一般角色：椅背 + 動畫 sprite + 桌子 + 螢幕
+        this.add.image(x, deskY - 8, 'chair_back')
+          .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
 
-      // 桌子（蓋住角色下半身）
-      const deskTex = st.desk || 'desk';
-      this.add.image(x, deskY, deskTex)
-        .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(S.desk);
+        sprite = this.add.sprite(x, charY, `char_${id}`, 0)
+          .setOrigin(0.5, 1).setDepth(baseDepth).setScale(S.character).setInteractive();
+        sprite.play(`${id}_idle`);
 
-      // 螢幕
-      if (st.mon) {
-        const monSX = (id === 'market' ? 1.1 : 1.0) * S.monitor;
-        this.add.image(x, deskY - 2, st.mon)
-          .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
+        this.tweens.add({
+          targets: sprite, y: charY - 2,
+          duration: 900 + Math.random() * 500,
+          yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+          delay: Math.random() * 1000,
+        });
+
+        const deskTex = st.desk || 'desk';
+        const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
+        if (deskTex) {
+          this.add.image(x, deskY, deskTex)
+            .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(deskScale);
+        }
+
+        if (st.mon) {
+          const monSX = (id === 'market' ? 1.1 : 1.0) * S.monitor;
+          this.add.image(x, deskY - 2, st.mon)
+            .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
+        }
       }
+
+      sprite.roleId = id;
 
       // 名稱標籤
       this.add.text(x, deskY - (isBack ? 78 : 80), st.label, {

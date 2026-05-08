@@ -13,7 +13,7 @@ export const CONFIG = {
     agentOffsetY:    155,           // AI 交易員站立位置：距牆底部多少 px
 
     // 後排 3 個工作站 X 位置（0=最左，1=最右）
-    backXRatios:  [0.16, 0.46, 0.74],
+    backXRatios:  [0.16, 0.57, 0.74],
     // 前排 3 個工作站 X 位置
     frontXRatios: [0.22, 0.49, 0.72],
     // AI 交易員（白板旁）X 位置
@@ -33,6 +33,7 @@ export const CONFIG = {
   scale: {
     character: 1.1,    // 角色大小（sprite 已升級為 48×64）
     desk:      1.4,    // 桌子大小
+    deskBoss:  0.8,    // 策略長專用桌（PNG 自定義資源）
     monitor:   1.2,    // 螢幕大小
     chairBack: 1.0,    // 椅背大小
     plant:     1.0,    // 植物大小
@@ -118,7 +119,7 @@ export const CONFIG = {
     char_dca:       false,
     char_ml:        false,
     char_agent:     false,
-    char_boss:      false,
+    char_boss:      true,
     desk:           false,
     desk_boss:      false,
     monitor:        false,

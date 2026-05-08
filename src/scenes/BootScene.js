@@ -9,6 +9,11 @@ export class BootScene extends Phaser.Scene {
       'Loading...', { color: '#00E5FF', fontSize: '18px', fontFamily: 'Consolas' }
     ).setOrigin(0.5);
 
+    // 背景圖片
+    this.load.image('office_bg', '/assets/office-complete.png');
+    // 中央牆壁股市螢幕
+    this.load.image('wall_screen', '/assets/1.png');
+
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;
     const assetKeys = [
@@ -319,26 +324,28 @@ export class BootScene extends Phaser.Scene {
         g.destroy();
       }
 
-      const tex = this.textures.get(`char_${role.id}`);
-      for (let i = 0; i < FRAMES; i++) {
-        tex.add(i, 0, i * FW, 0, FW, FH);
-      }
+      if (!CONFIG.customAssets[`char_${role.id}`]) {
+        const tex = this.textures.get(`char_${role.id}`);
+        for (let i = 0; i < FRAMES; i++) {
+          tex.add(i, 0, i * FW, 0, FW, FH);
+        }
 
-      this.anims.create({
-        key: `${role.id}_idle`,
-        frames: [{ key: `char_${role.id}`, frame: 0 }],
-        frameRate: 1, repeat: -1,
-      });
-      this.anims.create({
-        key: `${role.id}_typing`,
-        frames: [0, 1, 2, 1].map(f => ({ key: `char_${role.id}`, frame: f })),
-        frameRate: 5, repeat: -1,
-      });
-      this.anims.create({
-        key: `${role.id}_thinking`,
-        frames: [0, 3].map(f => ({ key: `char_${role.id}`, frame: f })),
-        frameRate: 3, repeat: -1,
-      });
+        this.anims.create({
+          key: `${role.id}_idle`,
+          frames: [{ key: `char_${role.id}`, frame: 0 }],
+          frameRate: 1, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_typing`,
+          frames: [0, 1, 2, 1].map(f => ({ key: `char_${role.id}`, frame: f })),
+          frameRate: 5, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_thinking`,
+          frames: [0, 3].map(f => ({ key: `char_${role.id}`, frame: f })),
+          frameRate: 3, repeat: -1,
+        });
+      }
     });
   }
 
