@@ -59,6 +59,31 @@ NOC display wall / Mission Control UI / Datacenter Tycoon
 
 ---
 
+## 🆚 跟 Pixel Agents 對照（最像的同類專案）
+
+[Pixel Agents](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents) 是 2026 年初在 Reddit 爆紅的 VS Code 擴充套件，把 Claude Code 的 coding agents 變成像素角色在虛擬辦公室工作。**精神跟本專案一樣**，但實作跟用途不同：
+
+| 項目 | Pixel Agents | 本專案（trading-command-center） |
+|---|---|---|
+| **形式** | VS Code 擴充套件 | 獨立網頁應用 (FastAPI + Phaser :8765) |
+| **角色代表什麼** | Claude Code 跑的 coding agents（動態，幾個就幾個） | 7 個**固定**模組（市場/新聞/策略/波段/DCA/ML/Agent） |
+| **資料來源** | Claude Code 的 JSONL transcript | 自寫的 `command_center_state.json` |
+| **領域** | 通用：寫程式、找檔案、等輸入 | **專屬**：台股交易 pipeline |
+| **角色會說話嗎** | 不會（只動畫 + 偶爾泡泡） | **會**（Claude Haiku 4.5 生成角色對話） |
+| **觀眾** | Claude Code 開發者 | 自己看 sibling repo `trading-system` 跑什麼 |
+| **授權** | MIT 開源（pablodelucca） | 私人專案 |
+
+### 跟人介紹時的速講
+> 「類似最近紅的 Pixel Agents，但我的是**專門給台股交易 pipeline 的版本**，角色會用 LLM 互相聊天。」
+
+### 參考連結
+- [Pixel Agents — VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents)
+- [HowWorks 介紹文](https://howworks.ai/projects/i-built-a-vs-code-extension-that-turns-your-claude-code-agents-into-pixel-art-ch)
+- [Fast Company 報導](https://www.fastcompany.com/91497413/this-charming-pixel-art-game-solves-one-of-ai-codings-most-annoying-ux-problems)
+- [Reddit 原文](https://www.reddit.com/r/ClaudeCode/comments/1rbs0gx/i_built_a_vs_code_extension_that_turns_your/)
+
+---
+
 ## 📍 目前進度（每次工作結束前更新）
 
 **最後更新**：2026-05-08（Claude session 整理 — 兩 repo 各補完整 CLAUDE.md）
