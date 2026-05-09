@@ -22,6 +22,43 @@
 
 ---
 
+## 🌐 這類專案在世界上叫什麼（業界術語對照）
+
+**老實說沒有單一公認名稱** — 這是混合類別。下次跟別人介紹時可以挑一個：
+
+### 業界 / 學術用語（最精準）
+| 術語 | 中文 | 適用場合 |
+|---|---|---|
+| Multi-Agent System Dashboard | 多代理人系統儀表板 | 學術、技術論文 |
+| AI Agent Orchestration Visualizer | AI Agent 協作視覺化 | 跟工程師講 |
+| Real-time Operations Dashboard | 即時運維儀表板 | 一般 IT 場合 |
+| Pipeline Status Visualization | 流程狀態視覺化 | 描述功能用 |
+
+### 描述外觀的詞
+| 術語 | 中文 | 重點 |
+|---|---|---|
+| Anthropomorphic UI | 擬人化介面 | 強調「用人物代表系統模組」 |
+| Pixel art dashboard | 像素風儀表板 | 強調美術風格 |
+| Game-style monitoring | 遊戲風監控 | 強調玩感 |
+| Tycoon-style visualization | 模擬經營風視覺化 | 像「主題公園」「電廠模擬器」 |
+
+### 同類靈感關鍵字（搜尋用）
+```
+"agent orchestration" pixel art dashboard
+"multi-agent visualization" anthropomorphic
+"AI agent" "office sim" monitoring
+"LLM" pipeline visualization phaser
+NOC display wall / Mission Control UI / Datacenter Tycoon
+```
+
+### 如果只能挑一個
+- **正式版**：LLM agent orchestration dashboard with anthropomorphic pixel-art office UI
+- **中文正式**：擬人化像素辦公室 LLM Agent 協作視覺化儀表板
+- **日常版**：**像素辦公室風格的 AI Agent 儀表板**
+- **最短**：**Multi-agent 視覺化**
+
+---
+
 ## 📍 目前進度（每次工作結束前更新）
 
 **最後更新**：2026-05-08（Claude session 整理 — 兩 repo 各補完整 CLAUDE.md）
