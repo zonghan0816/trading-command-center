@@ -8,34 +8,74 @@ export const CONFIG = {
   // ── 辦公室佈局 ────────────────────────────────────────────────
   layout: {
     wallHeightRatio: 0.44,          // 牆壁高度（佔畫面比例，0.3~0.6）
-    backRowOffsetY:  50,            // 後排桌子：距牆底部多少 px
-    frontRowOffsetY: 220,           // 前排桌子：距牆底部多少 px
-    agentOffsetY:    155,           // AI 交易員站立位置：距牆底部多少 px
+    backRowOffsetY:  250,            // 後排桌子：距牆底部多少 px
+    frontRowOffsetY: 360,           // 前排桌子：距牆底部多少 px
+    agentOffsetY:    420,           // AI 交易員站立位置：距牆底部多少 px
 
     // 後排 3 個工作站 X 位置（0=最左，1=最右）
-    backXRatios:  [0.16, 0.57, 0.74],
+    backXRatios:  [0.36, 0.57, 0.77],
     // 前排 3 個工作站 X 位置
-    frontXRatios: [0.22, 0.49, 0.72],
+    frontXRatios: [0.25, 0.46, 0.68],
     // AI 交易員（白板旁）X 位置
     agentXRatio:  0.82,
     // 白板 X 位置（要比 agentXRatio 大，才不會擋到對話泡泡）
-    whiteboardXRatio: 0.94,
+    whiteboardXRatio: 0.86,
+    // 白板距牆底部距離（px，正值往下移）
+    whiteboardOffsetY: 260,
 
     // 裝飾品位置（X 比例）
     lightsXRatios: [0.16, 0.42, 0.68, 0.88],   // 吊燈
     signXRatio:    0.46,                          // 招牌
 
-    // 走路時靠近對方的距離（px）。數字越大站越遠，避免重疊
-    walkOffset: 36,
+    // 走路時停在對方旁邊的距離（px）。數字越大站越遠
+    walkOffset: 46,
+
+    // 個別角色 sprite 微調（不影響桌子）正值 x=右/y=下，負值 x=左/y=上
+    charOffsets: {
+      market: { x:   0, y:  30 },
+      boss:   { x:   0, y:  25 },
+      ml:     { x:   0, y:  30 },
+      news:   { x:   0, y:  10 },
+      swing:  { x:   0, y:  10 },
+      dca:    { x:   0, y:  10 },
+      agent:  { x:   0, y:  0 },
+    },
+
+    // 個別工作站（桌子＋椅背＋螢幕）微調（不影響角色 sprite）
+    stationOffsets: {
+      market: { x:   0, y:  40 },
+      boss:   { x:   0, y:  0.20 },
+      ml:     { x:   0, y:  40 },
+      news:   { x:   0, y:  20 },
+      swing:  { x:   0, y:  20 },
+      dca:    { x:   0, y:  20 },
+    },
+
+    // 裝飾物個別微調
+    decorOffsets: {
+      wallScreen:  { x:  0, y:  0 },   // 牆面股市螢幕
+      whiteboard:  { x:  0, y:  0 },   // 白板
+      serverRack:  { x:  0, y:  0 },   // 伺服器機架
+    },
+
+    // 資料流走位：key 走向 value 的角色（調整誰走去找誰）
+    // 角色代號：market / news / swing / dca / ml / agent / boss
+    dataFlows: {
+      market: ['boss'],
+      news:   ['boss'],
+      ml:     ['agent'],
+      agent:  ['boss'],
+      boss:   ['market', 'news', 'swing', 'dca'],
+    },
   },
 
   // ── 縮放比例 ──────────────────────────────────────────────────
   scale: {
-    character: 1.1,    // 角色大小（sprite 已升級為 48×64）
-    desk:      1.4,    // 桌子大小
-    deskBoss:  0.8,    // 策略長專用桌（PNG 自定義資源）
-    monitor:   1.2,    // 螢幕大小
-    chairBack: 1.0,    // 椅背大小
+    character: 4.0,    // 角色大小（Pixel Agents sprite 16×32，放大 2.5×）
+    desk:      1.2,    // 桌子大小
+    deskBoss:  1.3,    // 策略長專用桌（程序生成 132×48）
+    monitor:   1.1,    // 螢幕大小
+    chairBack: 1.8,    // 椅背大小
     plant:     1.0,    // 植物大小
     whiteboard:1.1,    // 白板大小
     serverRack:1.0,    // 機架大小
@@ -113,13 +153,13 @@ export const CONFIG = {
   //    assets/bubble_bg.png     對話泡泡（185×54px）
   //
   customAssets: {
-    char_market:    false,
-    char_news:      false,
-    char_swing:     false,
-    char_dca:       false,
-    char_ml:        false,
-    char_agent:     false,
-    char_boss:      true,
+    char_market:    true,
+    char_news:      true,
+    char_swing:     true,
+    char_dca:       true,
+    char_ml:        true,
+    char_agent:     true,
+    char_boss:      false,
     desk:           false,
     desk_boss:      false,
     monitor:        false,

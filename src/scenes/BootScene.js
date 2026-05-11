@@ -16,13 +16,16 @@ export class BootScene extends Phaser.Scene {
 
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;
-    const assetKeys = [
+    const furnitureKeys = [
       'desk','desk_boss','monitor','monitor_dual','chair_back',
       'plant_sm','plant_lg','ceiling_light','whiteboard','server_rack','bubble_bg',
-      'char_market','char_news','char_swing','char_dca','char_ml','char_agent','char_boss',
     ];
-    assetKeys.forEach(key => {
+    furnitureKeys.forEach(key => {
       if (ca[key]) this.load.image(key, `/assets/${key}.png`);
+    });
+    // 所有角色（boss 共用 char_ml）：Pixel Agents spritesheet（16×32 per frame）
+    ['char_market','char_news','char_swing','char_dca','char_ml','char_agent'].forEach(key => {
+      if (ca[key]) this.load.spritesheet(key, `/assets/${key}.png?v=2`, { frameWidth: 16, frameHeight: 32 });
     });
   }
 
@@ -307,24 +310,27 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  // ── 角色 Spritesheet（48×64，4 幀）───────────────────────────
+  // ── 角色 Spritesheet ───────────────────────────────────────────
   _makeCharacters() {
     const cfgChars = CONFIG.characters;
     const ROLES = Object.entries(cfgChars).map(([id, c]) => ({ id, ...c }));
     const FW = 48, FH = 64, FRAMES = 4;
 
     ROLES.forEach(role => {
-      // 若使用者上傳了自訂圖片，跳過程序生成（圖片已在 preload 載入）
-      if (!CONFIG.customAssets[`char_${role.id}`]) {
+      const isCustom = CONFIG.customAssets[`char_${role.id}`];
+
+      // boss 共用 char_ml（同為 Pixel Agents char_3），不需獨立檔案
+      const texKey = (role.id === 'boss' && !isCustom) ? 'char_ml' : `char_${role.id}`;
+
+      if (!isCustom && role.id !== 'boss') {
+        // 程序生成（48×64，4 幀）
         const g = this.make.graphics({ add: false });
         for (let f = 0; f < FRAMES; f++) {
           this._drawChar(g, f * FW, 0, FW, FH, role, f);
         }
-        g.generateTexture(`char_${role.id}`, FW * FRAMES, FH);  // 192×64
+        g.generateTexture(`char_${role.id}`, FW * FRAMES, FH);
         g.destroy();
-      }
 
-      if (!CONFIG.customAssets[`char_${role.id}`]) {
         const tex = this.textures.get(`char_${role.id}`);
         for (let i = 0; i < FRAMES; i++) {
           tex.add(i, 0, i * FW, 0, FW, FH);
@@ -332,17 +338,35 @@ export class BootScene extends Phaser.Scene {
 
         this.anims.create({
           key: `${role.id}_idle`,
-          frames: [{ key: `char_${role.id}`, frame: 0 }],
+          frames: [{ key: texKey, frame: 0 }],
           frameRate: 1, repeat: -1,
         });
         this.anims.create({
           key: `${role.id}_typing`,
-          frames: [0, 1, 2, 1].map(f => ({ key: `char_${role.id}`, frame: f })),
+          frames: [0, 1, 2, 1].map(f => ({ key: texKey, frame: f })),
           frameRate: 5, repeat: -1,
         });
         this.anims.create({
           key: `${role.id}_thinking`,
-          frames: [0, 3].map(f => ({ key: `char_${role.id}`, frame: f })),
+          frames: [0, 3].map(f => ({ key: texKey, frame: f })),
+          frameRate: 3, repeat: -1,
+        });
+      } else {
+        // Pixel Agents spritesheet（16×32，7 cols × 3 rows）
+        // Row 0（朝下）：col 0,1,2 = 走路；col 5,6 = 打字/動作
+        this.anims.create({
+          key: `${role.id}_idle`,
+          frames: [{ key: texKey, frame: 1 }],
+          frameRate: 1, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_typing`,
+          frames: [0, 1, 2, 1].map(f => ({ key: texKey, frame: f })),
+          frameRate: 6, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_thinking`,
+          frames: [5, 6].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
         });
       }

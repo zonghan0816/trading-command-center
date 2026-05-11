@@ -1,5 +1,6 @@
 // OfficeScene: 前視角像素辦公室
 import { CONFIG } from '../config.js';
+const S = CONFIG.scale;
 const WALL_H_RATIO = CONFIG.layout.wallHeightRatio;
 
 // 工作站定義：前後兩排 + 特殊位置
@@ -13,10 +14,7 @@ const STATIONS = {
   agent:  { row: 'special', col: 0, desk: null,         mon: null,           label: '🤖 AI 交易員'  },
 };
 
-const DATA_FLOWS = {
-  market: ['boss'], news: ['boss'], ml: ['agent'], agent: ['boss'],
-  boss: ['market', 'news', 'swing', 'dca'],
-};
+const DATA_FLOWS = CONFIG.layout.dataFlows;
 
 export class OfficeScene extends Phaser.Scene {
   constructor() { super('OfficeScene'); }
@@ -71,20 +69,25 @@ export class OfficeScene extends Phaser.Scene {
   _buildDecorations() {
     const { W, H, wallH } = this;
 
-    // 中央牆壁股市螢幕
-    this.add.image(W * 0.565, H * 0.50, 'wall_screen')
+    const dOff = CONFIG.layout.decorOffsets ?? {};
+    const wsOff = dOff.wallScreen  ?? { x: 0, y: 0 };
+    const wbOff = dOff.whiteboard  ?? { x: 0, y: 0 };
+    const srOff = dOff.serverRack  ?? { x: 0, y: 0 };
+
+    // 牆面股市螢幕
+    this.add.image(W * 0.565 + wsOff.x, H * 0.50 + wsOff.y, 'wall_screen')
       .setOrigin(0.5, 0.5)
       .setDisplaySize(W * 0.18, W * 0.18 * (9 / 16))
       .setDepth(3);
 
-
-    // 白板（agent 右側）
-    const wbX = CONFIG.layout.whiteboardXRatio ?? 0.94;
-    this.add.image(W * wbX, wallH + 20, 'whiteboard')
+    // 白板
+    const wbX   = CONFIG.layout.whiteboardXRatio  ?? 0.94;
+    const wbOffY = CONFIG.layout.whiteboardOffsetY ?? 20;
+    this.add.image(W * wbX + wbOff.x, wallH + wbOffY + wbOff.y, 'whiteboard')
       .setOrigin(0.5, 0).setScale(CONFIG.scale.whiteboard).setDepth(28);
 
-    // 伺服器機架（最右側靠牆）
-    this.add.image(W - 48, wallH - 138, 'server_rack')
+    // 伺服器機架
+    this.add.image(W - 48 + srOff.x, wallH - 138 + srOff.y, 'server_rack')
       .setOrigin(0.5, 1).setDepth(10).setScale(CONFIG.scale.serverRack);
   }
 
@@ -93,7 +96,6 @@ export class OfficeScene extends Phaser.Scene {
     const { W, H, wallH } = this;
 
     const { backRowOffsetY, frontRowOffsetY, backXRatios, frontXRatios } = CONFIG.layout;
-    const S = CONFIG.scale;
 
     const backY  = wallH + backRowOffsetY;
     const frontY = wallH + frontRowOffsetY;
@@ -104,60 +106,61 @@ export class OfficeScene extends Phaser.Scene {
       if (st.row === 'special') return;
 
       const isBack = st.row === 'back';
-      const x = isBack ? backXs[st.col] : frontXs[st.col];
-      const deskY = isBack ? backY : frontY;
+      const off = CONFIG.layout.charOffsets?.[id] ?? { x: 0, y: 0 };
+      // 桌子/椅背/螢幕基準 + 工作站偏移
+      const stOff = CONFIG.layout.stationOffsets?.[id] ?? { x: 0, y: 0 };
+      const baseX = (isBack ? backXs[st.col] : frontXs[st.col]) + (stOff.x ?? 0);
+      const deskY = (isBack ? backY : frontY) + (stOff.y ?? 0);
+      // 角色 sprite 獨立微調
+      const charX = baseX + (off.x ?? 0);
+      const charY = deskY - 12 + (off.y ?? 0);
       const baseDepth = isBack ? 12 : 32;
 
-      const charY = deskY - 12;
       let sprite;
 
-      if (id === 'boss' && CONFIG.customAssets.char_boss) {
-        // 策略長：合體圖（角色＋桌子），不畫椅背/桌/螢幕
-        sprite = this.add.image(x, deskY + 290, 'char_boss')
-          .setOrigin(0.5, 1).setDisplaySize(290, 234).setDepth(baseDepth).setInteractive();
-      } else {
-        // 一般角色：椅背 + 動畫 sprite + 桌子 + 螢幕
-        this.add.image(x, deskY - 8, 'chair_back')
-          .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
+      // 椅背 + 動畫 sprite + 桌子 + 螢幕
+      this.add.image(baseX, deskY - 8, 'chair_back')
+        .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
 
-        sprite = this.add.sprite(x, charY, `char_${id}`, 0)
-          .setOrigin(0.5, 1).setDepth(baseDepth).setScale(S.character).setInteractive();
-        sprite.play(`${id}_idle`);
+      // boss 共用 char_ml 材質（同為 Pixel Agents char_3）
+      const texKey = (id === 'boss' && !CONFIG.customAssets.char_boss) ? 'char_ml' : `char_${id}`;
+      sprite = this.add.sprite(charX, charY, texKey, 0)
+        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(S.character).setInteractive();
+      sprite.play(`${id}_idle`);
 
-        this.tweens.add({
-          targets: sprite, y: charY - 2,
-          duration: 900 + Math.random() * 500,
-          yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
-          delay: Math.random() * 1000,
-        });
+      this.tweens.add({
+        targets: sprite, y: charY - 2,
+        duration: 900 + Math.random() * 500,
+        yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+        delay: Math.random() * 1000,
+      });
 
-        const deskTex = st.desk || 'desk';
-        const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
-        if (deskTex) {
-          this.add.image(x, deskY, deskTex)
-            .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(deskScale);
-        }
+      const deskTex = st.desk || 'desk';
+      const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
+      if (deskTex) {
+        this.add.image(baseX, deskY, deskTex)
+          .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(deskScale);
+      }
 
-        if (st.mon) {
-          const monSX = (id === 'market' ? 1.1 : 1.0) * S.monitor;
-          this.add.image(x, deskY - 2, st.mon)
-            .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
-        }
+      if (st.mon) {
+        const monSX = (id === 'market' ? 1.1 : 1.0) * S.monitor;
+        this.add.image(baseX, deskY - 2, st.mon)
+          .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
       }
 
       sprite.roleId = id;
 
-      // 名稱標籤
-      this.add.text(x, deskY - (isBack ? 78 : 80), st.label, {
+      // 名稱標籤跟著角色走
+      this.add.text(charX, deskY - (isBack ? 78 : 80), st.label, {
         fontSize: '11px', color: '#8aabb8',
         fontFamily: 'Consolas, monospace',
         stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5, 1).setDepth(baseDepth + 2);
 
-      // 泡泡 & 狀態燈（bubble_bg 185×54, origin底部）
-      const bubbleBg = this.add.image(x, charY - 52, 'bubble_bg')
+      // 泡泡跟著角色走
+      const bubbleBg = this.add.image(charX, charY - 52, 'bubble_bg')
         .setOrigin(0.5, 1).setDepth(baseDepth + 3).setAlpha(0);
-      const bubbleText = this.add.text(x, charY - 83, '', {
+      const bubbleText = this.add.text(charX, charY - 83, '', {
         fontSize: '12px', color: '#D8EEFB',
         fontFamily: 'Consolas, monospace',
         wordWrap: { width: 158, useAdvancedWrap: true }, align: 'center',
@@ -165,7 +168,7 @@ export class OfficeScene extends Phaser.Scene {
 
       this.characters[id] = {
         sprite, bubbleBg, bubbleText,
-        x, homeY: charY, state: 'idle', bubbleVisible: false,
+        x: charX, homeY: charY, state: 'idle', bubbleVisible: false,
         isWalking: false, floatTween: null,
         depth: baseDepth,
       };
@@ -177,12 +180,13 @@ export class OfficeScene extends Phaser.Scene {
 
   _buildAgentStation() {
     const { W, wallH } = this;
-    const x = W * CONFIG.layout.agentXRatio;
-    const y = wallH + CONFIG.layout.agentOffsetY;
+    const agOff = CONFIG.layout.charOffsets?.agent ?? { x: 0, y: 0 };
+    const x = W * CONFIG.layout.agentXRatio + (agOff.x ?? 0);
+    const y = wallH + CONFIG.layout.agentOffsetY + (agOff.y ?? 0);
     const depth = 30;
 
     const sprite = this.add.sprite(x, y, 'char_agent', 0)
-      .setOrigin(0.5, 1).setDepth(depth).setScale(1.5).setInteractive();
+      .setOrigin(0.5, 1).setDepth(depth).setScale(S.character).setInteractive();
     sprite.roleId = 'agent';
     sprite.play('agent_idle');
 
@@ -330,7 +334,8 @@ export class OfficeScene extends Phaser.Scene {
       duration: 280,
       ease: 'Back.easeOut',
       onComplete: () => {
-        const stopX = target.x + (target.x > ch.x ? -36 : 36);
+        const wo = CONFIG.layout.walkOffset ?? 36;
+        const stopX = target.x + (target.x > ch.x ? -wo : wo);
         const dist  = Math.abs(stopX - ch.sprite.x);
         this.tweens.add({
           targets: ch.sprite,
