@@ -8,7 +8,7 @@ export const CONFIG = {
   // ── 辦公室佈局 ────────────────────────────────────────────────
   layout: {
     wallHeightRatio: 0.44,          // 牆壁高度（佔畫面比例，0.3~0.6）
-    backRowOffsetY:  250,            // 後排桌子：距牆底部多少 px
+    backRowOffsetY:  190,            // 後排桌子：距牆底部多少 px
     frontRowOffsetY: 360,           // 前排桌子：距牆底部多少 px
     agentOffsetY:    420,           // AI 交易員站立位置：距牆底部多少 px
 
@@ -28,12 +28,12 @@ export const CONFIG = {
     signXRatio:    0.46,                          // 招牌
 
     // 走路時停在對方旁邊的距離（px）。數字越大站越遠
-    walkOffset: 46,
+    walkOffset: 96,
 
     // 個別角色 sprite 微調（不影響桌子）正值 x=右/y=下，負值 x=左/y=上
     charOffsets: {
       market: { x:   0, y:  30 },
-      boss:   { x:   0, y:  25 },
+      boss:   { x:   0, y:  40 },
       ml:     { x:   0, y:  30 },
       news:   { x:   0, y:  10 },
       swing:  { x:   0, y:  10 },
@@ -44,7 +44,7 @@ export const CONFIG = {
     // 個別工作站（桌子＋椅背＋螢幕）微調（不影響角色 sprite）
     stationOffsets: {
       market: { x:   0, y:  40 },
-      boss:   { x:   0, y:  0.20 },
+      boss:   { x:   0, y:  50 },
       ml:     { x:   0, y:  40 },
       news:   { x:   0, y:  20 },
       swing:  { x:   0, y:  20 },
@@ -72,7 +72,8 @@ export const CONFIG = {
   // ── 縮放比例 ──────────────────────────────────────────────────
   scale: {
     character: 4.0,    // 角色大小（Pixel Agents sprite 16×32，放大 2.5×）
-    desk:      1.2,    // 桌子大小
+    characterBoss: 0.33, // Boss 專用縮放（396×448 frame，角色可見約 47×141px）
+    desk:      0.5,    // 桌子大小（desk.png 70×20）
     deskBoss:  1.3,    // 策略長專用桌（程序生成 132×48）
     monitor:   1.1,    // 螢幕大小
     chairBack: 1.8,    // 椅背大小
@@ -159,8 +160,8 @@ export const CONFIG = {
     char_dca:       true,
     char_ml:        true,
     char_agent:     true,
-    char_boss:      false,
-    desk:           false,
+    char_boss:      true,
+    desk:           true,
     desk_boss:      false,
     monitor:        false,
     monitor_dual:   false,

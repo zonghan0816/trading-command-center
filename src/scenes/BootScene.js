@@ -23,10 +23,14 @@ export class BootScene extends Phaser.Scene {
     furnitureKeys.forEach(key => {
       if (ca[key]) this.load.image(key, `/assets/${key}.png`);
     });
-    // 所有角色（boss 共用 char_ml）：Pixel Agents spritesheet（16×32 per frame）
+    // 所有角色：Pixel Agents spritesheet（16×32 per frame）
     ['char_market','char_news','char_swing','char_dca','char_ml','char_agent'].forEach(key => {
       if (ca[key]) this.load.spritesheet(key, `/assets/${key}.png?v=2`, { frameWidth: 16, frameHeight: 32 });
     });
+    // Boss 使用高解析度 spritesheet（396×448 per frame，8 cols × 3 rows）
+    if (ca['char_boss']) {
+      this.load.spritesheet('char_boss', '/assets/char_boss.png', { frameWidth: 396, frameHeight: 448 });
+    }
   }
 
   create() {
@@ -51,28 +55,33 @@ export class BootScene extends Phaser.Scene {
     this.scene.start('OfficeScene');
   }
 
-  // ── 桌子（前視角，96×44）──────────────────────────────────────
+  // ── 桌子（背面視角，96×44）─────────────────────────────────────
   _makeDesk() {
     const g = this.make.graphics({ add: false });
     const W = 96, H = 44;
+    // 桌腳（左右外側兩支）
+    g.fillStyle(0x888899, 1);
+    g.fillRect(3,  12, 5, H - 12);
+    g.fillRect(W - 8, 12, 5, H - 12);
+    // 桌面高光
+    g.fillStyle(0xd8d8e0, 1);
+    g.fillRect(0, 0, W, 2);
     // 桌面
-    g.fillStyle(0x7a5530, 1);
-    g.fillRect(0, 0, W, 8);
-    // 前板
-    g.fillStyle(0x5e3f20, 1);
-    g.fillRect(0, 8, W, H - 8);
-    // 抽屜
-    g.fillStyle(0x4a3018, 1);
-    g.fillRect(5, 14, 38, 22);
-    g.fillRect(53, 14, 38, 22);
-    // 拉手
-    g.fillStyle(0x9a7050, 1);
-    g.fillRect(20, 24, 12, 3);
-    g.fillRect(67, 24, 12, 3);
-    // 左右邊緣
-    g.fillStyle(0x8a6040, 1);
-    g.fillRect(0, 0, 3, H);
-    g.fillRect(W - 3, 0, 3, H);
+    g.fillStyle(0xb0b0be, 1);
+    g.fillRect(0, 2, W, 10);
+    // 桌面後緣壓條
+    g.fillStyle(0x7a7a8a, 1);
+    g.fillRect(0, 11, W, 2);
+    // 桌身背板（深灰，無抽屜）
+    g.fillStyle(0x606070, 1);
+    g.fillRect(0, 13, W, H - 13);
+    // 背板中段加線（結構橫條）
+    g.fillStyle(0x505060, 1);
+    g.fillRect(0, 26, W, 2);
+    // 左右端蓋
+    g.fillStyle(0x909098, 1);
+    g.fillRect(0,   2, 4, 10);
+    g.fillRect(W - 4, 2, 4, 10);
     g.generateTexture('desk', W, H);
     g.destroy();
   }
@@ -350,6 +359,32 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if (role.id === 'boss' && CONFIG.customAssets.char_boss) {
+        // Boss 高解析度 spritesheet（396×448，8 cols × 3 rows）
+        // Row 0: 0=正面站, 1-2=走路, 3=站立, 4=放鬆站, 5=看平板, 6=指向, 7=雙手舉
+        this.anims.create({
+          key: 'boss_idle',
+          frames: [{ key: 'char_boss', frame: 0 }],
+          frameRate: 1, repeat: -1,
+        });
+        // typing（running 狀態）：看平板 → 站立 → 看平板，全正面
+        this.anims.create({
+          key: 'boss_typing',
+          frames: [5, 0, 5, 3].map(f => ({ key: 'char_boss', frame: f })),
+          frameRate: 2, repeat: -1,
+        });
+        // thinking 狀態：指向 → 放鬆
+        this.anims.create({
+          key: 'boss_thinking',
+          frames: [6, 4].map(f => ({ key: 'char_boss', frame: f })),
+          frameRate: 2, repeat: -1,
+        });
+        // 走路動畫（_walkTo 時使用）
+        this.anims.create({
+          key: 'boss_walk',
+          frames: [1, 2, 1, 0].map(f => ({ key: 'char_boss', frame: f })),
+          frameRate: 5, repeat: -1,
         });
       } else {
         // Pixel Agents spritesheet（16×32，7 cols × 3 rows）

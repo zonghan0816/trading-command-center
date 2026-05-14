@@ -122,10 +122,10 @@ export class OfficeScene extends Phaser.Scene {
       this.add.image(baseX, deskY - 8, 'chair_back')
         .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
 
-      // boss 共用 char_ml 材質（同為 Pixel Agents char_3）
       const texKey = (id === 'boss' && !CONFIG.customAssets.char_boss) ? 'char_ml' : `char_${id}`;
+      const charScale = (id === 'boss' && CONFIG.customAssets.char_boss) ? S.characterBoss : S.character;
       sprite = this.add.sprite(charX, charY, texKey, 0)
-        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(S.character).setInteractive();
+        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(charScale).setInteractive();
       sprite.play(`${id}_idle`);
 
       this.tweens.add({
@@ -356,7 +356,8 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch) { if (onComplete) onComplete(); return; }
 
-    ch.sprite.play(`${id}_typing`);
+    const walkAnim = (id === 'boss' && CONFIG.customAssets.char_boss) ? 'boss_walk' : `${id}_typing`;
+    ch.sprite.play(walkAnim);
     const dist = Math.abs(ch.x - ch.sprite.x);
     this.tweens.add({
       targets: ch.sprite,
@@ -450,6 +451,35 @@ export class OfficeScene extends Phaser.Scene {
       <div class="module-output">${['running','thinking'].includes(mod.status) ? (mod.last_output || '').slice(0, 45) : '—'}</div>
     `).join('');
     timeEl.textContent = `更新 ${data.updated_at || '—'}`;
+
+    // ── 持倉損益面板 ──
+    const panel = document.getElementById('portfolio-panel');
+    const portSummary = document.getElementById('port-summary');
+    const portPositions = document.getElementById('port-positions');
+    const pf = data.portfolio;
+    if (panel && pf && pf.positions && pf.positions.length > 0) {
+      panel.style.display = 'block';
+      const pnlClass = pf.total_pnl_pct >= 0 ? 'pos' : 'neg';
+      const pnlSign  = pf.total_pnl_pct >= 0 ? '+' : '';
+      portSummary.innerHTML = `
+        <div class="port-summary">
+          <div><div class="label">總資產</div><div class="value neu">${(pf.total_value / 10000).toFixed(1)}萬</div></div>
+          <div><div class="label">現金</div><div class="value neu">${(pf.cash / 10000).toFixed(1)}萬</div></div>
+          <div><div class="label">總損益</div><div class="value ${pnlClass}">${pnlSign}${pf.total_pnl_pct.toFixed(2)}%</div></div>
+        </div>`;
+      portPositions.innerHTML = pf.positions.map(p => {
+        const cls = p.pnl_pct >= 0 ? 'pos' : 'neg';
+        const sign = p.pnl_pct >= 0 ? '+' : '';
+        return `<div class="pos-row">
+          <span class="pos-sym">${p.symbol}</span>
+          <span class="pos-sh">${p.shares}股</span>
+          <span class="pos-price">${p.current_price}</span>
+          <span class="pos-pnl ${cls}">${sign}${p.pnl_pct.toFixed(1)}%</span>
+        </div>`;
+      }).join('');
+    } else if (panel) {
+      panel.style.display = 'none';
+    }
   }
 
   // ── AI 即時對話系統 ──────────────────────────────────────────
@@ -483,7 +513,8 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     // 走路時不顯示泡泡 — 到達後才開始逐句對話
-    walker.sprite.play(`${walkerId}_typing`);
+    const walkerAnim = (walkerId === 'boss' && CONFIG.customAssets.char_boss) ? 'boss_walk' : `${walkerId}_typing`;
+    walker.sprite.play(walkerAnim);
     this._updateHTMLPanel(this._buildPanelData());
 
     const afterWalk = () => {
