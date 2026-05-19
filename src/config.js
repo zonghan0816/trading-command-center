@@ -30,11 +30,23 @@ export const CONFIG = {
     // 走路時停在對方旁邊的距離（px）。數字越大站越遠
     walkOffset: 96,
 
+    // 走路時的 Y 位置（相對 homeY，正值往下=地板，負值往上）
+    // 預設 -28 = 往上跳 28px；後排角色要走到地板需設正值
+    walkYOffsets: {
+      market: 60,    // 後排：往下走到地板
+      boss:   60,    // 後排：往下走到地板
+      ml:     80,    // 後排：往下走到地板
+      news:  -28,    // 前排：保持原有行為
+      swing: -28,    // 前排：保持原有行為
+      dca:   -28,    // 前排：保持原有行為
+      agent: -28,    // AI 交易員
+    },
+
     // 個別角色 sprite 微調（不影響桌子）正值 x=右/y=下，負值 x=左/y=上
     charOffsets: {
-      market: { x:   0, y:  30 },
+      market: { x:   0, y:  160 },
       boss:   { x:   0, y:  40 },
-      ml:     { x:   0, y:  30 },
+      ml:     { x:   0, y:  100 },
       news:   { x:   0, y:  10 },
       swing:  { x:   0, y:  10 },
       dca:    { x:   0, y:  10 },
@@ -43,7 +55,7 @@ export const CONFIG = {
 
     // 個別工作站（桌子＋椅背＋螢幕）微調（不影響角色 sprite）
     stationOffsets: {
-      market: { x:   0, y:  40 },
+      market: { x:   0, y:  -30 },
       boss:   { x:   0, y:  50 },
       ml:     { x:   0, y:  40 },
       news:   { x:   0, y:  20 },
@@ -75,6 +87,8 @@ export const CONFIG = {
     characterBoss: 0.33, // Boss 專用縮放（396×448 frame，角色可見約 47×141px）
     desk:      0.5,    // 桌子大小（desk.png 70×20）
     deskBoss:  1.3,    // 策略長專用桌（程序生成 132×48）
+    deskMarket:      0.8,  // 市場分析師組合工作站（桌+三螢幕）整體縮放
+    deskMarketMonH:  36,   // desk_market.png 中「螢幕區」高度（px），用於對齊桌面位置
     monitor:   1.1,    // 螢幕大小
     chairBack: 1.8,    // 椅背大小
     plant:     1.0,    // 植物大小
@@ -163,6 +177,7 @@ export const CONFIG = {
     char_boss:      true,
     desk:           true,
     desk_boss:      false,
+    desk_market:    true,   // 市場分析師三螢幕工作站（false=程序生成；放 desk_market.png 後改 true）
     monitor:        false,
     monitor_dual:   false,
     chair_back:     false,

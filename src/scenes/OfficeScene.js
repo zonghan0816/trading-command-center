@@ -5,7 +5,7 @@ const WALL_H_RATIO = CONFIG.layout.wallHeightRatio;
 
 // 工作站定義：前後兩排 + 特殊位置
 const STATIONS = {
-  market: { row: 'back',    col: 0, desk: 'desk',      mon: 'monitor_dual', label: '📊 市場分析師' },
+  market: { row: 'back',    col: 0, desk: 'desk_market', mon: null,           label: '📊 市場分析師' },
   boss:   { row: 'back',    col: 1, desk: 'desk_boss',  mon: 'monitor',      label: '🎯 策略長'     },
   ml:     { row: 'back',    col: 2, desk: 'desk',       mon: 'monitor',      label: '🤖 ML 工程師'  },
   news:   { row: 'front',   col: 0, desk: 'desk',       mon: 'monitor',      label: '📰 新聞記者'   },
@@ -119,13 +119,17 @@ export class OfficeScene extends Phaser.Scene {
       let sprite;
 
       // 椅背 + 動畫 sprite + 桌子 + 螢幕
-      this.add.image(baseX, deskY - 8, 'chair_back')
-        .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
+      if (id !== 'market') {
+        this.add.image(baseX, deskY - 8, 'chair_back')
+          .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
+      }
 
       const texKey = (id === 'boss' && !CONFIG.customAssets.char_boss) ? 'char_ml' : `char_${id}`;
       const charScale = (id === 'boss' && CONFIG.customAssets.char_boss) ? S.characterBoss : S.character;
+      // market 使用組合工作站圖片，角色需在桌子圖層之上才不會被遮住
+      const charDepth = (id === 'market') ? baseDepth + 2 : baseDepth;
       sprite = this.add.sprite(charX, charY, texKey, 0)
-        .setOrigin(0.5, 1).setDepth(baseDepth).setScale(charScale).setInteractive();
+        .setOrigin(0.5, 1).setDepth(charDepth).setScale(charScale).setInteractive();
       sprite.play(`${id}_idle`);
 
       this.tweens.add({
@@ -136,16 +140,22 @@ export class OfficeScene extends Phaser.Scene {
       });
 
       const deskTex = st.desk || 'desk';
-      const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
-      if (deskTex) {
+      if (deskTex === 'desk_market') {
+        // 組合工作站：螢幕區在上（monH px）+ 桌子區在下
+        // 以 origin(0.5, 0) 放在 deskY - monH*scale，讓桌面線對齊 deskY
+        const dmScale = CONFIG.scale.deskMarket ?? 0.8;
+        const monPartH = CONFIG.scale.deskMarketMonH ?? 36;
+        this.add.image(baseX, deskY - monPartH * dmScale, deskTex)
+          .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(dmScale);
+      } else {
+        const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
         this.add.image(baseX, deskY, deskTex)
           .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(deskScale);
-      }
-
-      if (st.mon) {
-        const monSX = (id === 'market' ? 1.1 : 1.0) * S.monitor;
-        this.add.image(baseX, deskY - 2, st.mon)
-          .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
+        if (st.mon) {
+          const monSX = S.monitor;
+          this.add.image(baseX, deskY - 2, st.mon)
+            .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
+        }
       }
 
       sprite.roleId = id;
@@ -328,9 +338,10 @@ export class OfficeScene extends Phaser.Scene {
     ch.isWalking = true;
     this.tweens.killTweensOf(ch.sprite);
 
+    const walkYOff = CONFIG.layout.walkYOffsets?.[id] ?? -28;
     this.tweens.add({
       targets: ch.sprite,
-      y: ch.homeY - 28,
+      y: ch.homeY + walkYOff,
       duration: 280,
       ease: 'Back.easeOut',
       onComplete: () => {

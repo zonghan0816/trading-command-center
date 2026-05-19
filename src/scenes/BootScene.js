@@ -17,7 +17,7 @@ export class BootScene extends Phaser.Scene {
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;
     const furnitureKeys = [
-      'desk','desk_boss','monitor','monitor_dual','chair_back',
+      'desk','desk_boss','desk_market','monitor','monitor_dual','chair_back',
       'plant_sm','plant_lg','ceiling_light','whiteboard','server_rack','bubble_bg',
     ];
     furnitureKeys.forEach(key => {
@@ -38,6 +38,7 @@ export class BootScene extends Phaser.Scene {
       const ca = CONFIG.customAssets;
       if (!ca.desk)           this._makeDesk();
       if (!ca.desk_boss)      this._makeDeskBoss();
+      if (!ca.desk_market)    this._makeDeskMarket();
       if (!ca.monitor)        this._makeMonitor();
       if (!ca.monitor_dual)   this._makeMonitorDual();
       if (!ca.chair_back)     this._makeChairBack();
@@ -103,6 +104,142 @@ export class BootScene extends Phaser.Scene {
     g.fillRect(0, 0, 4, H);
     g.fillRect(W - 4, 0, 4, H);
     g.generateTexture('desk_boss', W, H);
+    g.destroy();
+  }
+
+  // ── 市場分析師三螢幕工作站（96×80）──────────────────────────
+  // 上半部（y=0~36）：三個螢幕 + 底座；下半部（y=36~80）：桌子本體
+  _makeDeskMarket() {
+    const g = this.make.graphics({ add: false });
+    const TW = 96, TH = 80;
+    const deskY = 36;  // 桌面頂端 y（螢幕區 / 桌子區分界）
+
+    // ── 三個螢幕 ────────────────────────────────────────────────
+    // 每個螢幕 28px 寬，間距 2px，左右各留 1px margin
+    const mW = 28, mFaceH = 28, mGap = 2;
+    const DARK = 0x080808;
+
+    for (let i = 0; i < 3; i++) {
+      const ox = 1 + i * (mW + mGap);
+
+      // 螢幕外框
+      g.fillStyle(0x1a1a2e, 1);
+      g.fillRect(ox, 0, mW, mFaceH);
+      // 外框亮邊
+      g.fillStyle(0x2a2a44, 1);
+      g.fillRect(ox, 0, mW, 1);
+      g.fillRect(ox, 0, 1, mFaceH);
+
+      // 螢幕面板
+      const bgColor = [0x000c18, 0x000c08, 0x120008][i];
+      g.fillStyle(bgColor, 1);
+      g.fillRect(ox + 2, 2, mW - 4, mFaceH - 4);
+
+      if (i === 0) {
+        // 左螢幕：K 線走勢圖
+        // 格線
+        g.lineStyle(1, 0x002233, 1);
+        [9, 14, 19, 24].forEach(y => g.lineBetween(ox + 3, y, ox + 25, y));
+        // 走勢線（青色）
+        g.lineStyle(1, 0x00E5FF, 1);
+        g.beginPath();
+        const pts = [[3,24],[6,20],[9,22],[13,14],[16,17],[20,11],[24,14]];
+        g.moveTo(ox + pts[0][0], pts[0][1]);
+        pts.slice(1).forEach(([x, y]) => g.lineTo(ox + x, y));
+        g.strokePath();
+        // 綠 K 棒
+        g.fillStyle(0x00E676, 1);
+        g.fillRect(ox + 13, 14, 2, 7);
+        g.lineStyle(1, 0x00E676, 1);
+        g.lineBetween(ox + 14, 12, ox + 14, 22);
+        // 紅 K 棒
+        g.fillStyle(0xFF5252, 1);
+        g.fillRect(ox + 18, 12, 2, 8);
+        g.lineStyle(1, 0xFF5252, 1);
+        g.lineBetween(ox + 19, 10, ox + 19, 21);
+
+      } else if (i === 1) {
+        // 中螢幕：程式碼終端機
+        const lines = [
+          { c: 0x00E5FF, y: 5,  w: 20 },
+          { c: 0xFFB300, y: 9,  w: 14 },
+          { c: 0x00E676, y: 13, w: 18 },
+          { c: 0x666680, y: 17, w: 9  },
+          { c: 0x00E5FF, y: 21, w: 22 },
+        ];
+        lines.forEach(({ c, y, w }) => {
+          g.fillStyle(c, 0.85);
+          g.fillRect(ox + 3, y, w, 2);
+        });
+        // 命令提示字元 '>' 的像素方塊
+        g.fillStyle(0x00E676, 0.9);
+        g.fillRect(ox + 3, 25, 2, 2);
+        g.fillRect(ox + 5, 26, 2, 1);
+        // 游標
+        g.fillStyle(0xffffff, 0.9);
+        g.fillRect(ox + 8, 25, 4, 2);
+
+      } else {
+        // 右螢幕：Alerts（橘色警示）
+        // 閃爍紅點（警報指示燈）
+        g.fillStyle(0xFF2200, 1);
+        g.fillCircle(ox + 23, 5, 2);
+        // "!" 主體
+        g.fillStyle(0xFF6600, 1);
+        g.fillRect(ox + 12, 5, 4, 11);
+        g.fillRect(ox + 12, 19, 4, 4);
+        // 側欄警示橫條
+        g.fillStyle(0xFF6600, 0.55);
+        g.fillRect(ox + 3,  6, 7, 1);
+        g.fillRect(ox + 3,  9, 5, 1);
+        g.fillRect(ox + 20, 6, 5, 1);
+        g.fillRect(ox + 20, 9, 7, 1);
+        // 底部數據列
+        g.fillStyle(0xFF6600, 0.4);
+        g.fillRect(ox + 3, 22, 22, 1);
+        g.fillRect(ox + 3, 24, 14, 1);
+      }
+
+      // 螢幕底座（頸部 + 底盤）
+      g.fillStyle(0x141420, 1);
+      g.fillRect(ox + 11, mFaceH, 6, 4);
+      g.fillStyle(0x1c1c2e, 1);
+      g.fillRect(ox + 5, mFaceH + 4, 18, 3);
+    }
+
+    // ── 桌子本體（y=36~80）──────────────────────────────────────
+    // 桌面高光
+    g.fillStyle(0xd8d8e0, 1);
+    g.fillRect(0, deskY, TW, 2);
+    // 桌面
+    g.fillStyle(0xb0b0be, 1);
+    g.fillRect(0, deskY + 2, TW, 9);
+    // 鍵盤
+    g.fillStyle(0x2e2e38, 1);
+    g.fillRect(26, deskY + 3, 44, 7);
+    g.fillStyle(0x3a3a44, 1);
+    for (let k = 0; k < 6; k++) {
+      g.fillRect(28 + k * 7, deskY + 4, 5, 5);
+    }
+    // 桌面後緣壓條
+    g.fillStyle(0x7a7a8a, 1);
+    g.fillRect(0, deskY + 11, TW, 2);
+    // 桌身背板
+    g.fillStyle(0x606070, 1);
+    g.fillRect(0, deskY + 13, TW, TH - deskY - 13);
+    // 結構橫條
+    g.fillStyle(0x505060, 1);
+    g.fillRect(0, deskY + 27, TW, 2);
+    // 桌腳
+    g.fillStyle(0x888899, 1);
+    g.fillRect(3,      deskY + 12, 5, TH - deskY - 12);
+    g.fillRect(TW - 8, deskY + 12, 5, TH - deskY - 12);
+    // 端蓋
+    g.fillStyle(0x909098, 1);
+    g.fillRect(0,      deskY + 2, 4, 9);
+    g.fillRect(TW - 4, deskY + 2, 4, 9);
+
+    g.generateTexture('desk_market', TW, TH);
     g.destroy();
   }
 
