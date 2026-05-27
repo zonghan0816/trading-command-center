@@ -23,13 +23,13 @@ export class BootScene extends Phaser.Scene {
     furnitureKeys.forEach(key => {
       if (ca[key]) this.load.image(key, `/assets/${key}.png`);
     });
-    // 所有角色：Pixel Agents spritesheet（16×32 per frame）
-    ['char_market','char_news','char_swing','char_dca','char_ml','char_agent'].forEach(key => {
-      if (ca[key]) this.load.spritesheet(key, `/assets/${key}.png?v=2`, { frameWidth: 16, frameHeight: 32 });
-    });
-    // Boss 使用高解析度 spritesheet（396×448 per frame，8 cols × 3 rows）
-    if (ca['char_boss']) {
-      this.load.spritesheet('char_boss', '/assets/char_boss.png', { frameWidth: 396, frameHeight: 448 });
+    // 角色 spritesheet（false = 程序生成色塊，不載入 PNG；true = 載入 assets/ 中對應檔案）
+    // MVP 預設兩人都是 false，_makeCharacters() 會根據 CONFIG.characters 自動生成
+    if (ca.char_aming) {
+      this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 16, frameHeight: 32 });
+    }
+    if (ca.char_xiaomei) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 16, frameHeight: 32 });
     }
   }
 
@@ -368,35 +368,39 @@ export class BootScene extends Phaser.Scene {
     g.destroy();
   }
 
-  // ── 白板（124×108）───────────────────────────────────────────
+  // ── 熱門關鍵字板（124×108）───────────────────────────────────
   _makeWhiteboard() {
     const g = this.make.graphics({ add: false });
     const W = 124, H = 90;
-    // 外框
-    g.fillStyle(0x777777, 1);
+    // outer frame
+    g.fillStyle(0x2a3050, 1);
     g.fillRect(0, 0, W, H);
-    // 板面
-    g.fillStyle(0xf2f2f0, 1);
+    // board face
+    g.fillStyle(0x060d1e, 1);
     g.fillRect(4, 4, W - 8, H - 10);
-    // 支架
-    g.fillStyle(0x555555, 1);
+    // header bar
+    g.fillStyle(0x0e1830, 1);
+    g.fillRect(4, 4, W - 8, 20);
+    // orange left accent + top rule
+    g.fillStyle(0xFF6B35, 1);
+    g.fillRect(4, 4, 3, 20);
+    g.fillStyle(0xFF6B35, 0.5);
+    g.fillRect(7, 22, W - 11, 2);
+    // keyword tag rows (left accent + dim background)
+    const tagColors = [0xFF6B35, 0x00E5FF, 0x00E676, 0xFFB300, 0xBB86FC];
+    tagColors.forEach((col, i) => {
+      const ty = 30 + i * 12;
+      g.fillStyle(col, 0.9);
+      g.fillRect(8, ty, 3, 9);
+      g.fillStyle(col, 0.08);
+      g.fillRect(11, ty, W - 23, 9);
+      g.lineStyle(1, col, 0.25);
+      g.strokeRect(11, ty, W - 23, 9);
+    });
+    // supports
+    g.fillStyle(0x404060, 1);
     g.fillRect(22, H - 2, 6, 18);
     g.fillRect(W - 28, H - 2, 6, 18);
-    // 流程圖
-    g.lineStyle(1, 0x1133aa, 0.7);
-    g.strokeRect(47, 10, 30, 12);
-    g.strokeRect(18, 34, 26, 12);
-    g.strokeRect(80, 34, 26, 12);
-    g.strokeRect(47, 56, 30, 12);
-    g.lineBetween(62, 22, 31, 34);
-    g.lineBetween(62, 22, 93, 34);
-    g.lineBetween(31, 46, 62, 56);
-    g.lineBetween(93, 46, 62, 56);
-    g.fillStyle(0x2244cc, 0.35);
-    g.fillRect(48, 11, 28, 10);
-    g.fillRect(19, 35, 24, 10);
-    g.fillRect(81, 35, 24, 10);
-    g.fillRect(48, 57, 28, 10);
     g.generateTexture('whiteboard', W, H + 18);
     g.destroy();
   }

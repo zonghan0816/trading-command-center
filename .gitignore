@@ -6,3 +6,5 @@ node_modules/
 # 執行時被 server 重寫，不適合 git
 command_center_state.json
 command_center_state.json.tmp
+wwt_state.json
+wwt_state.json.tmp

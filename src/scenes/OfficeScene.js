@@ -3,15 +3,10 @@ import { CONFIG } from '../config.js';
 const S = CONFIG.scale;
 const WALL_H_RATIO = CONFIG.layout.wallHeightRatio;
 
-// 工作站定義：前後兩排 + 特殊位置
+// WWT 主持人座位
 const STATIONS = {
-  market: { row: 'back',    col: 0, desk: 'desk_market', mon: null,           label: '📊 市場分析師' },
-  boss:   { row: 'back',    col: 1, desk: 'desk_boss',  mon: 'monitor',      label: '🎯 策略長'     },
-  ml:     { row: 'back',    col: 2, desk: 'desk',       mon: 'monitor',      label: '🤖 ML 工程師'  },
-  news:   { row: 'front',   col: 0, desk: 'desk',       mon: 'monitor',      label: '📰 新聞記者'   },
-  swing:  { row: 'front',   col: 1, desk: 'desk',       mon: 'monitor',      label: '📈 波段交易員' },
-  dca:    { row: 'front',   col: 2, desk: 'desk',       mon: 'monitor',      label: '💰 定投經理'   },
-  agent:  { row: 'special', col: 0, desk: null,         mon: null,           label: '🤖 AI 交易員'  },
+  aming:   { desk: 'desk', mon: 'monitor', label: '🎙 阿明哥' },
+  xiaomei: { desk: 'desk', mon: 'monitor', label: '🎙 小美姐' },
 };
 
 const DATA_FLOWS = CONFIG.layout.dataFlows;
@@ -86,51 +81,49 @@ export class OfficeScene extends Phaser.Scene {
     this.add.image(W * wbX + wbOff.x, wallH + wbOffY + wbOff.y, 'whiteboard')
       .setOrigin(0.5, 0).setScale(CONFIG.scale.whiteboard).setDepth(28);
 
+    // 熱門關鍵字標題 + 標籤文字
+    const wbCX   = W * wbX + wbOff.x;
+    const wbTopY = wallH + wbOffY + wbOff.y;
+    this.add.text(wbCX, wbTopY + 8, '# 熱門', {
+      fontSize: '9px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
+    }).setOrigin(0.5, 0).setDepth(28.5);
+    const kws = ['台北房價', 'AI工作', '演唱會', '健保費', '物價指數'];
+    const kwCols = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
+    kws.forEach((kw, i) => {
+      this.add.text(wbCX, wbTopY + 28 + i * 13, kw, {
+        fontSize: '9px', color: kwCols[i], fontFamily: 'Consolas, monospace',
+      }).setOrigin(0.5, 0).setDepth(28.5);
+    });
+
     // 伺服器機架
     this.add.image(W - 48 + srOff.x, wallH - 138 + srOff.y, 'server_rack')
       .setOrigin(0.5, 1).setDepth(10).setScale(CONFIG.scale.serverRack);
   }
 
-  // ── 各工作站（椅背 + 角色 + 桌子 + 螢幕 + 標籤）─────────────
+  // ── 各工作站（主持人座位 左/右）──────────────────────────────
   _buildWorkstations() {
-    const { W, H, wallH } = this;
-
-    const { backRowOffsetY, frontRowOffsetY, backXRatios, frontXRatios } = CONFIG.layout;
-
-    const backY  = wallH + backRowOffsetY;
-    const frontY = wallH + frontRowOffsetY;
-    const backXs  = backXRatios.map(r => W * r);
-    const frontXs = frontXRatios.map(r => W * r);
+    const { W, wallH } = this;
 
     Object.entries(STATIONS).forEach(([id, st]) => {
-      if (st.row === 'special') return;
+      const hostCfg = CONFIG.layout.hosts?.[id]          ?? {};
+      const stOff   = CONFIG.layout.stationOffsets?.[id]  ?? { x: 0, y: 0 };
+      const charOff = CONFIG.layout.charOffsets?.[id]     ?? { x: 0, y: 0 };
 
-      const isBack = st.row === 'back';
-      const off = CONFIG.layout.charOffsets?.[id] ?? { x: 0, y: 0 };
-      // 桌子/椅背/螢幕基準 + 工作站偏移
-      const stOff = CONFIG.layout.stationOffsets?.[id] ?? { x: 0, y: 0 };
-      const baseX = (isBack ? backXs[st.col] : frontXs[st.col]) + (stOff.x ?? 0);
-      const deskY = (isBack ? backY : frontY) + (stOff.y ?? 0);
-      // 角色 sprite 獨立微調
-      const charX = baseX + (off.x ?? 0);
-      const charY = deskY - 12 + (off.y ?? 0);
-      const baseDepth = isBack ? 12 : 32;
+      const baseX = W * (hostCfg.xRatio ?? 0.5) + (stOff.x ?? 0);
+      const deskY = wallH + (hostCfg.yOffsetFromWall ?? 360) + (stOff.y ?? 0);
+      const charX = baseX + (charOff.x ?? 0);
+      const charY = deskY - 12 + (charOff.y ?? 0);
+      const depth = 30;
 
-      let sprite;
+      // 椅背
+      this.add.image(baseX, deskY - 8, 'chair_back')
+        .setOrigin(0.5, 1).setDepth(depth - 1).setScale(S.chairBack);
 
-      // 椅背 + 動畫 sprite + 桌子 + 螢幕
-      if (id !== 'market') {
-        this.add.image(baseX, deskY - 8, 'chair_back')
-          .setOrigin(0.5, 1).setDepth(baseDepth - 1).setScale(S.chairBack);
-      }
-
-      const texKey = (id === 'boss' && !CONFIG.customAssets.char_boss) ? 'char_ml' : `char_${id}`;
-      const charScale = (id === 'boss' && CONFIG.customAssets.char_boss) ? S.characterBoss : S.character;
-      // market 使用組合工作站圖片，角色需在桌子圖層之上才不會被遮住
-      const charDepth = (id === 'market') ? baseDepth + 2 : baseDepth;
-      sprite = this.add.sprite(charX, charY, texKey, 0)
-        .setOrigin(0.5, 1).setDepth(charDepth).setScale(charScale).setInteractive();
+      // 角色 sprite
+      const sprite = this.add.sprite(charX, charY, `char_${id}`, 0)
+        .setOrigin(0.5, 1).setDepth(depth).setScale(S.character).setInteractive();
       sprite.play(`${id}_idle`);
+      sprite.roleId = id;
 
       this.tweens.add({
         targets: sprite, y: charY - 2,
@@ -139,53 +132,67 @@ export class OfficeScene extends Phaser.Scene {
         delay: Math.random() * 1000,
       });
 
-      const deskTex = st.desk || 'desk';
-      if (deskTex === 'desk_market') {
-        // 組合工作站：螢幕區在上（monH px）+ 桌子區在下
-        // 以 origin(0.5, 0) 放在 deskY - monH*scale，讓桌面線對齊 deskY
-        const dmScale = CONFIG.scale.deskMarket ?? 0.8;
-        const monPartH = CONFIG.scale.deskMarketMonH ?? 36;
-        this.add.image(baseX, deskY - monPartH * dmScale, deskTex)
-          .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(dmScale);
-      } else {
-        const deskScale = (deskTex === 'desk_boss') ? S.deskBoss : S.desk;
-        this.add.image(baseX, deskY, deskTex)
-          .setOrigin(0.5, 0).setDepth(baseDepth + 1).setScale(deskScale);
-        if (st.mon) {
-          const monSX = S.monitor;
-          this.add.image(baseX, deskY - 2, st.mon)
-            .setOrigin(0.5, 1).setDepth(baseDepth + 1.5).setScale(monSX, S.monitor);
-        }
+      // 桌子
+      this.add.image(baseX, deskY, st.desk || 'desk')
+        .setOrigin(0.5, 0).setDepth(depth + 1).setScale(S.desk);
+
+      // 螢幕
+      if (st.mon) {
+        this.add.image(baseX, deskY - 2, st.mon)
+          .setOrigin(0.5, 1).setDepth(depth + 1.5).setScale(S.monitor, S.monitor);
       }
 
-      sprite.roleId = id;
-
-      // 名稱標籤跟著角色走
-      this.add.text(charX, deskY - (isBack ? 78 : 80), st.label, {
-        fontSize: '11px', color: '#8aabb8',
+      // 名稱標籤
+      this.add.text(charX, deskY - 80, st.label, {
+        fontSize: '11px', color: '#FF8C55',
         fontFamily: 'Consolas, monospace',
         stroke: '#000000', strokeThickness: 2,
-      }).setOrigin(0.5, 1).setDepth(baseDepth + 2);
+      }).setOrigin(0.5, 1).setDepth(depth + 2);
 
-      // 泡泡跟著角色走
+      // 對話泡泡
       const bubbleBg = this.add.image(charX, charY - 52, 'bubble_bg')
-        .setOrigin(0.5, 1).setDepth(baseDepth + 3).setAlpha(0);
+        .setOrigin(0.5, 1).setDepth(depth + 3).setAlpha(0);
       const bubbleText = this.add.text(charX, charY - 83, '', {
         fontSize: '12px', color: '#D8EEFB',
         fontFamily: 'Consolas, monospace',
         wordWrap: { width: 158, useAdvancedWrap: true }, align: 'center',
-      }).setOrigin(0.5, 0.5).setDepth(baseDepth + 3.1).setAlpha(0);
+      }).setOrigin(0.5, 0.5).setDepth(depth + 3.1).setAlpha(0);
 
       this.characters[id] = {
         sprite, bubbleBg, bubbleText,
         x: charX, homeY: charY, state: 'idle', bubbleVisible: false,
         isWalking: false, floatTween: null,
-        depth: baseDepth,
+        depth,
       };
     });
 
-    // AI 交易員（白板旁站立）
-    this._buildAgentStation();
+    // 中央主持桌（寬版）
+    const centerX    = W * 0.5;
+    const centerDeskY = wallH + 380;
+    const deskW      = Math.floor(W * 0.46);
+
+    this.add.rectangle(centerX + 3, centerDeskY + 3, deskW + 4, 26, 0x050a14)
+      .setOrigin(0.5, 0).setDepth(28).setAlpha(0.5);
+    this.add.rectangle(centerX, centerDeskY, deskW, 22, 0x16233e)
+      .setOrigin(0.5, 0).setDepth(29);
+    this.add.rectangle(centerX, centerDeskY, deskW, 3, 0x2e4a72)
+      .setOrigin(0.5, 0).setDepth(29);
+    this.add.rectangle(centerX, centerDeskY + 19, deskW, 4, 0x0e1628)
+      .setOrigin(0.5, 0).setDepth(29);
+
+    // 左右麥克風架
+    [W * 0.36, W * 0.64].forEach(mx => {
+      this.add.rectangle(mx, centerDeskY + 2, 20, 4, 0x8899aa)
+        .setOrigin(0.5, 0).setDepth(30);
+      this.add.rectangle(mx, centerDeskY - 40, 3, 44, 0x778899)
+        .setOrigin(0.5, 1).setDepth(30);
+      this.add.ellipse(mx, centerDeskY - 40, 16, 12, 0x99aabb)
+        .setDepth(30);
+      this.add.ellipse(mx, centerDeskY - 40, 10, 8, 0x1a2a3a)
+        .setDepth(30);
+      this.add.rectangle(mx, centerDeskY - 40, 10, 1, 0x6688aa)
+        .setDepth(30);
+    });
   }
 
   _buildAgentStation() {
@@ -260,39 +267,38 @@ export class OfficeScene extends Phaser.Scene {
 
   _applyState(data) {
     this.state = data;
-    Object.entries(data.modules || {}).forEach(([id, mod]) => {
+    const ACTIVE = ['talking', 'thinking', 'researching', 'reacting'];
+
+    Object.entries(data.hosts || {}).forEach(([id, mod]) => {
       const ch = this.characters[id];
       if (!ch) return;
       const prev = ch.state;
-      ch.state = mod.status;
+      ch.state   = mod.status;
 
-      const wasActive = prev === 'running' || prev === 'thinking';
-      const isActive = mod.status === 'running' || mod.status === 'thinking';
-      const justBecameActive = !wasActive && isActive;
+      const wasActive          = ACTIVE.includes(prev);
+      const isActive           = ACTIVE.includes(mod.status);
+      const justBecameActive   = !wasActive && isActive;
       const justBecameInactive = wasActive && !isActive;
 
       // chat 進行中 → 狀態同步只更新內部 ch.state，完全不動 bubble / 動畫
-      // 避免每 5 秒輪詢時 status 文字插話 chat 對話
       if (this._chatInProgress) return;
 
-      // 狀態變動才更新泡泡文字 + 顯示泡泡（不再每輪重新塞、不再重複打字）
       if (justBecameActive) {
         if (mod.last_output) {
           ch.bubbleText.setText(mod.last_output.slice(0, 50));
           this._showBubble(id);
         }
-        if (mod.status === 'running' && !ch.isWalking) {
+        if (['talking', 'researching'].includes(mod.status) && !ch.isWalking) {
           ch.sprite.play(`${id}_typing`);
           const targets = DATA_FLOWS[id] || [];
           if (targets.length > 0 && this.characters[targets[0]]) {
             this._walkTo(id, targets[0], () => this._walkHome(id));
           }
-        } else if (mod.status === 'thinking') {
+        } else if (['thinking', 'reacting'].includes(mod.status)) {
           ch.sprite.play(`${id}_thinking`);
           this._animateTyping(id);
         }
       } else if (justBecameInactive && !ch.isWalking) {
-        // 結束 → 收泡泡 + 回 idle 動畫（保留泡泡文字本身，下次需要時直接顯示）
         ch.sprite.play(`${id}_idle`);
         this._hideBubble(id);
       } else if (mod.status === 'idle' && !ch.isWalking) {
@@ -367,7 +373,7 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch) { if (onComplete) onComplete(); return; }
 
-    const walkAnim = (id === 'boss' && CONFIG.customAssets.char_boss) ? 'boss_walk' : `${id}_typing`;
+    const walkAnim = `${id}_typing`;
     ch.sprite.play(walkAnim);
     const dist = Math.abs(ch.x - ch.sprite.x);
     this.tweens.add({
@@ -412,7 +418,7 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch || !this.state) return;
     if (ch.typingTimer) { ch.typingTimer.remove(); ch.typingTimer = null; }
-    const full = (this.state.modules?.[id]?.last_output || '思考中...').slice(0, 60);
+    const full = (this.state.hosts?.[id]?.last_output || '思考中...').slice(0, 60);
     let i = 0;
     this._showBubble(id);
     ch.typingTimer = this.time.addEvent({
@@ -447,50 +453,34 @@ export class OfficeScene extends Phaser.Scene {
 
   // ── HTML 狀態面板 ────────────────────────────────────────────
   _updateHTMLPanel(data) {
-    const list = document.getElementById('module-list');
+    const list   = document.getElementById('module-list');
     const timeEl = document.getElementById('update-time');
     if (!list || !timeEl) return;
-    const labels = {
-      market:'📊 市場', news:'📰 新聞', boss:'🎯 策略長',
-      swing:'📈 波段', dca:'💰 DCA', ml:'🤖 ML', agent:'🤖 Agent',
-    };
-    list.innerHTML = Object.entries(data.modules || {}).map(([id, mod]) => `
+
+    const labels  = { aming: '🎙 阿明哥', xiaomei: '🎙 小美姐' };
+    const modeMap = { discussion: '討論中', working: '工作中', coffee: '茶水間', idle: '待機' };
+
+    // 話題列
+    const topicLine = data.topic
+      ? `<div class="module-output" style="color:#FF8C55;margin-bottom:6px;white-space:normal;">📌 ${data.topic}</div>`
+      : '';
+
+    // 模式 + 活動
+    const modeLabel    = modeMap[data.mode] || data.mode || '—';
+    const activityNote = (data.activity && data.activity !== 'idle') ? ` · ${data.activity}` : '';
+    const modeLine     = `<div class="module-output" style="margin-bottom:8px;">模式：${modeLabel}${activityNote}</div>`;
+
+    // 主持人狀態
+    const hostLines = Object.entries(data.hosts || {}).map(([id, mod]) => `
       <div class="module-status">
         <div class="status-dot ${mod.status}"></div>
         <div class="module-name">${labels[id] || id}</div>
       </div>
-      <div class="module-output">${['running','thinking'].includes(mod.status) ? (mod.last_output || '').slice(0, 45) : '—'}</div>
+      <div class="module-output">${mod.last_output ? mod.last_output.slice(0, 45) : '—'}</div>
     `).join('');
-    timeEl.textContent = `更新 ${data.updated_at || '—'}`;
 
-    // ── 持倉損益面板 ──
-    const panel = document.getElementById('portfolio-panel');
-    const portSummary = document.getElementById('port-summary');
-    const portPositions = document.getElementById('port-positions');
-    const pf = data.portfolio;
-    if (panel && pf && pf.positions && pf.positions.length > 0) {
-      panel.style.display = 'block';
-      const pnlClass = pf.total_pnl_pct >= 0 ? 'pos' : 'neg';
-      const pnlSign  = pf.total_pnl_pct >= 0 ? '+' : '';
-      portSummary.innerHTML = `
-        <div class="port-summary">
-          <div><div class="label">總資產</div><div class="value neu">${(pf.total_value / 10000).toFixed(1)}萬</div></div>
-          <div><div class="label">現金</div><div class="value neu">${(pf.cash / 10000).toFixed(1)}萬</div></div>
-          <div><div class="label">總損益</div><div class="value ${pnlClass}">${pnlSign}${pf.total_pnl_pct.toFixed(2)}%</div></div>
-        </div>`;
-      portPositions.innerHTML = pf.positions.map(p => {
-        const cls = p.pnl_pct >= 0 ? 'pos' : 'neg';
-        const sign = p.pnl_pct >= 0 ? '+' : '';
-        return `<div class="pos-row">
-          <span class="pos-sym">${p.symbol}</span>
-          <span class="pos-sh">${p.shares}股</span>
-          <span class="pos-price">${p.current_price}</span>
-          <span class="pos-pnl ${cls}">${sign}${p.pnl_pct.toFixed(1)}%</span>
-        </div>`;
-      }).join('');
-    } else if (panel) {
-      panel.style.display = 'none';
-    }
+    list.innerHTML = topicLine + modeLine + hostLines;
+    timeEl.textContent = `更新 ${data.updated_at || '—'}`;
   }
 
   // ── AI 即時對話系統 ──────────────────────────────────────────
@@ -524,7 +514,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     // 走路時不顯示泡泡 — 到達後才開始逐句對話
-    const walkerAnim = (walkerId === 'boss' && CONFIG.customAssets.char_boss) ? 'boss_walk' : `${walkerId}_typing`;
+    const walkerAnim = `${walkerId}_typing`;
     walker.sprite.play(walkerAnim);
     this._updateHTMLPanel(this._buildPanelData());
 
@@ -580,12 +570,10 @@ export class OfficeScene extends Phaser.Scene {
   _runDemoStep() {
     this._chatInProgress = true;   // 避免 pollState 插入
     const DEMO_SEQ = [
-      { id: 'market', out: 'RISK_ON  VIX 14.2  台積電+0.8%', flow: 'boss'  },
-      { id: 'news',   out: '+0.82 台積電 AI 訂單利多',         flow: 'boss'  },
-      { id: 'swing',  out: 'RSI 32 超賣  均線支撐',             flow: null    },
-      { id: 'dca',    out: '0050 定期定額本月執行',             flow: null    },
-      { id: 'ml',     out: '漲機率 72%  未來 3 日 2330',        flow: 'agent' },
-      { id: 'agent',  out: '分析中…建議買進 2330  停損 -5%',    flow: 'boss'  },
+      { id: 'aming',   out: '甘有可能，這也太扯了吧',       flow: 'xiaomei' },
+      { id: 'xiaomei', out: '不意外啊，早就說了',            flow: 'aming'   },
+      { id: 'aming',   out: '我跟你講喔，以前不是這樣',     flow: null      },
+      { id: 'xiaomei', out: '留言區炸鍋了啦，靠夭喔',       flow: 'aming'   },
     ];
 
     const { id, out, flow } = DEMO_SEQ[this._demoStep % DEMO_SEQ.length];
@@ -597,7 +585,7 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
-    const text = (this._usingRealAPI && this.state?.modules?.[id]?.last_output) || out;
+    const text = (this._usingRealAPI && this.state?.hosts?.[id]?.last_output) || out;
     ch.state = 'running';
     ch.bubbleText.setText(text.slice(0, 60));
     ch.sprite.play(`${id}_typing`);
@@ -622,20 +610,23 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   _buildPanelData() {
-    const labels = {
-      market: 'RISK_ON VIX14.2', news: '+0.82 台積電',
-      boss: '策略長待命', swing: 'RSI分析', dca: '定投執行',
-      ml: 'ML預測', agent: 'Agent決策',
-    };
-    const modules = {};
+    const hosts = {};
     Object.entries(this.characters).forEach(([id, ch]) => {
-      modules[id] = {
-        status: ch.state,
-        last_output: ch.bubbleText.text || labels[id] || '',
-        confidence: 0,
+      hosts[id] = {
+        status:      ch.state,
+        last_output: ch.bubbleText.text || '',
+        emotion:     'neutral',
       };
     });
-    return { updated_at: new Date().toLocaleTimeString('zh-TW'), modules, data_flows: [] };
+    return {
+      updated_at: new Date().toLocaleTimeString('zh-TW'),
+      scene: 'studio',
+      mode: 'idle',
+      topic: '',
+      activity: 'idle',
+      hosts,
+      data_flows: [],
+    };
   }
 
   update() {}
