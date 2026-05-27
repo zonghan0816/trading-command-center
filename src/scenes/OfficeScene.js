@@ -11,6 +11,17 @@ const STATIONS = {
 
 const DATA_FLOWS = CONFIG.layout.dataFlows;
 
+// 熱門關鍵字（state.keywords 不存在時的預設值、最多顯示 5 個）
+const DEFAULT_KEYWORDS = ['台北房價', 'AI工作', '演唱會', '健保費', '物價指數'];
+const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
+const KEYWORD_MAX      = 5;
+
+// 任務 4.5: 主持人碰撞避免
+// HOST_MIN_DISTANCE 是兩主持人之間至少要保持的水平距離（px）
+const HOST_MIN_DISTANCE = 180;
+// discussion mode 下強制站位（畫面寬度比例、不動 config.js）
+const DISCUSSION_HOST_X_RATIOS = { aming: 0.35, xiaomei: 0.65 };
+
 export class OfficeScene extends Phaser.Scene {
   constructor() { super('OfficeScene'); }
 
@@ -81,19 +92,19 @@ export class OfficeScene extends Phaser.Scene {
     this.add.image(W * wbX + wbOff.x, wallH + wbOffY + wbOff.y, 'whiteboard')
       .setOrigin(0.5, 0).setScale(CONFIG.scale.whiteboard).setDepth(28);
 
-    // 熱門關鍵字標題 + 標籤文字
+    // 熱門關鍵字標題 + 標籤文字（動態化：state.keywords 變化時 _renderKeywords 重畫）
     const wbCX   = W * wbX + wbOff.x;
     const wbTopY = wallH + wbOffY + wbOff.y;
     this.add.text(wbCX, wbTopY + 8, '# 熱門', {
       fontSize: '9px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
     }).setOrigin(0.5, 0).setDepth(28.5);
-    const kws = ['台北房價', 'AI工作', '演唱會', '健保費', '物價指數'];
-    const kwCols = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
-    kws.forEach((kw, i) => {
-      this.add.text(wbCX, wbTopY + 28 + i * 13, kw, {
-        fontSize: '9px', color: kwCols[i], fontFamily: 'Consolas, monospace',
-      }).setOrigin(0.5, 0).setDepth(28.5);
-    });
+
+    // 儲存座標、給 _renderKeywords / state poll 用
+    this._kwBaseX        = wbCX;
+    this._kwBaseY        = wbTopY;
+    this._kwTexts        = [];     // 當前渲染的 text 物件陣列、用來 destroy 重畫
+    this._currentKeywordsSig = null;  // 防抖簽章
+    this._renderKeywords(DEFAULT_KEYWORDS);
 
     // 伺服器機架
     this.add.image(W - 48 + srOff.x, wallH - 138 + srOff.y, 'server_rack')
@@ -252,6 +263,45 @@ export class OfficeScene extends Phaser.Scene {
 
 
   // ── API Poll ─────────────────────────────────────────────────
+  /**
+   * 動態渲染熱門關鍵字（給 state.keywords 變化時呼叫）
+   * - 傳 null / undefined / 空陣列 → 用預設關鍵字
+   * - 超過 KEYWORD_MAX 個只取前 5 個
+   * - 防抖：跟上次內容相同就 skip 重畫
+   */
+  _renderKeywords(keywords) {
+    // 預設值 fallback
+    let kws = (Array.isArray(keywords) && keywords.length > 0)
+      ? keywords.slice(0, KEYWORD_MAX)
+      : DEFAULT_KEYWORDS;
+    // 全部轉字串、防止 server 推非字串值
+    kws = kws.map(k => String(k));
+
+    // 防抖簽章：內容相同就不重畫、避免每 5 秒 destroy + recreate text
+    const sig = JSON.stringify(kws);
+    if (sig === this._currentKeywordsSig) return;
+    this._currentKeywordsSig = sig;
+
+    // 清除舊 text 物件
+    this._kwTexts.forEach(t => t.destroy());
+    this._kwTexts = [];
+
+    // 渲染新 text 物件、用顏色陣列循環配色
+    kws.forEach((kw, i) => {
+      const t = this.add.text(
+        this._kwBaseX,
+        this._kwBaseY + 28 + i * 13,
+        kw,
+        {
+          fontSize: '9px',
+          color: KEYWORD_COLORS[i % KEYWORD_COLORS.length],
+          fontFamily: 'Consolas, monospace',
+        }
+      ).setOrigin(0.5, 0).setDepth(28.5);
+      this._kwTexts.push(t);
+    });
+  }
+
   async _pollState() {
     try {
       const res = await fetch('http://localhost:8765/api/state');
@@ -268,6 +318,16 @@ export class OfficeScene extends Phaser.Scene {
   _applyState(data) {
     this.state = data;
     const ACTIVE = ['talking', 'thinking', 'researching', 'reacting'];
+
+    // 熱門關鍵字：state.keywords 變化時動態重繪（_renderKeywords 內含防抖）
+    if (data.keywords !== undefined) {
+      this._renderKeywords(data.keywords);
+    }
+
+    // 任務 4.5: discussion mode 強制阿明/小美 35% / 65% 站位（內含防抖、已在位就 skip）
+    if (data.mode === 'discussion') {
+      this._enforceDiscussionPositions();
+    }
 
     Object.entries(data.hosts || {}).forEach(([id, mod]) => {
       const ch = this.characters[id];
@@ -331,12 +391,64 @@ export class OfficeScene extends Phaser.Scene {
     if (ch) ch.bubbleVisible ? this._hideBubble(id) : this._showBubble(id);
   }
 
+  // ── 任務 4.5: 主持人碰撞避免 helpers ───────────────────────────
+
+  /** 回傳指定主持人與另一主持人的水平距離（px）。
+   *  id 不是 aming/xiaomei 或角色不存在 → Infinity（不啟用碰撞）*/
+  _distanceToOtherHost(id) {
+    const otherId = id === 'aming' ? 'xiaomei' : (id === 'xiaomei' ? 'aming' : null);
+    if (!otherId) return Infinity;
+    const ch    = this.characters[id];
+    const other = this.characters[otherId];
+    if (!ch || !other) return Infinity;
+    return Math.abs(ch.sprite.x - other.sprite.x);
+  }
+
+  /** discussion mode 進入時、強制兩主持人 X 移到 35% / 65%、kill 既有 tween */
+  _enforceDiscussionPositions() {
+    if (!this.W) return;
+    const targets = {
+      aming:   this.W * DISCUSSION_HOST_X_RATIOS.aming,
+      xiaomei: this.W * DISCUSSION_HOST_X_RATIOS.xiaomei,
+    };
+    for (const id of ['aming', 'xiaomei']) {
+      const ch = this.characters[id];
+      if (!ch) continue;
+      const targetX = targets[id];
+      // 已在目標 ±5px 內、不動
+      if (Math.abs(ch.sprite.x - targetX) <= 5) continue;
+
+      // kill 既有走路 tween + 重設 isWalking、避免狀態卡住
+      this.tweens.killTweensOf(ch.sprite);
+      ch.isWalking = false;
+
+      // 平滑移到目標位置（200ms 短 tween、避免突然 snap）
+      this.tweens.add({
+        targets: ch.sprite,
+        x: targetX,
+        y: ch.homeY,    // 同時把 Y 拉回 home（避免停留在「跳起」狀態）
+        duration: 200,
+        ease: 'Power2',
+        onUpdate: () => this._syncBubble(id),
+        onComplete: () => {
+          ch.sprite.play(`${id}_idle`);
+        },
+      });
+    }
+  }
+
   // ── 走路動畫 ──────────────────────────────────────────────────
   _walkTo(id, targetId, onComplete) {
     const ch     = this.characters[id];
     const target = this.characters[targetId];
     // target 正在走路時不靠近，避免重疊
     if (!ch || !target || ch.isWalking || target.isWalking) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    // 任務 4.5: discussion mode 禁止主持人走動（必須固定 35%/65% 站位）
+    if (this.state?.mode === 'discussion' && (id === 'aming' || id === 'xiaomei')) {
       if (onComplete) onComplete();
       return;
     }
@@ -352,15 +464,31 @@ export class OfficeScene extends Phaser.Scene {
       ease: 'Back.easeOut',
       onComplete: () => {
         const wo = CONFIG.layout.walkOffset ?? 36;
-        const stopX = target.x + (target.x > ch.x ? -wo : wo);
+        // 任務 4.5: 走向另一主持人時、確保停下時距離 >= HOST_MIN_DISTANCE
+        const targetIsHost = (targetId === 'aming' || targetId === 'xiaomei');
+        const safeOffset   = targetIsHost ? Math.max(wo, HOST_MIN_DISTANCE) : wo;
+        const stopX = target.x + (target.x > ch.x ? -safeOffset : safeOffset);
         const dist  = Math.abs(stopX - ch.sprite.x);
-        this.tweens.add({
+
+        // 任務 4.5: tween 進行中、即時檢查與另一主持人距離、太近就立即停止
+        let aborted = false;
+        const walkTween = this.tweens.add({
           targets: ch.sprite,
           x: stopX,
           duration: dist * 2.2,
           ease: 'Linear',
-          onUpdate: () => this._syncBubble(id),
+          onUpdate: () => {
+            this._syncBubble(id);
+            if (!aborted && this._distanceToOtherHost(id) < HOST_MIN_DISTANCE) {
+              aborted = true;
+              walkTween.stop();
+              ch.sprite.play(`${id}_idle`);
+              ch.isWalking = false;
+              if (onComplete) onComplete();
+            }
+          },
           onComplete: () => {
+            if (aborted) return;  // 已被距離檢查中止、不再執行正常流程
             ch.sprite.play(`${id}_thinking`);
             this.time.delayedCall(400, () => { if (onComplete) onComplete(); });
           },

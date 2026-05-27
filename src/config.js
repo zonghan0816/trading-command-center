@@ -126,9 +126,9 @@ export const CONFIG = {
   //  true  = 載入 assets/ 資料夾中對應的 .png 檔
   //
   customAssets: {
-    // 角色（MVP 先用程序生成色塊）
-    char_aming:   false,
-    char_xiaomei: false,
+    // 角色（Phase 2C Step 1 完成、PNG 已生成於 assets/）
+    char_aming:   true,
+    char_xiaomei: true,
 
     // 家具
     desk:          true,   // assets/desk.png 已存在

@@ -168,7 +168,10 @@
       align-items: center;
       gap: 8px;
       z-index: 10;
+      opacity: 1;
+      transition: opacity 0.35s ease;
     }
+    #led-overlay.fading { opacity: 0; }
     #led-topic-label {
       color: #FF6B35;
       font-size: 1.2vw;
@@ -208,6 +211,18 @@
       text-shadow: 0 0 8px rgba(255,107,53,0.7);
       background: rgba(30, 8, 2, 0.85);
     }
+    #led-mode-badge.working {
+      color: #FFB300;
+      border-color: rgba(255,179,0,0.55);
+      text-shadow: 0 0 8px rgba(255,179,0,0.65);
+      background: rgba(30, 22, 2, 0.85);
+    }
+    #led-mode-badge.coffee {
+      color: #C8A07A;
+      border-color: rgba(200,160,122,0.55);
+      text-shadow: 0 0 8px rgba(200,160,122,0.5);
+      background: rgba(24, 18, 12, 0.85);
+    }
   </style>
 </head>
 <body>
@@ -241,21 +256,52 @@
 
   <script>
     (function ledOverlay() {
-      const label  = document.getElementById('led-topic-label');
-      const text   = document.getElementById('led-topic-text');
-      const badge  = document.getElementById('led-mode-badge');
-      const MODE_LABELS = { idle: 'STANDBY', discussion: 'ON AIR', casual: 'CHAT' };
+      const overlay = document.getElementById('led-overlay');
+      const label   = document.getElementById('led-topic-label');
+      const text    = document.getElementById('led-topic-text');
+      const badge   = document.getElementById('led-mode-badge');
+
+      // mode → LED 顯示模板（依 GPT Phase 2C Step 4 指令）
+      const MODE_VIEWS = {
+        idle:       { label: '◆ WWT  Taiwan Tonight', text: '晚晚嘴台灣',   badge: 'STANDBY',      badgeClass: '' },
+        discussion: { label: '📌 今日話題',             text: null,           badge: 'ON AIR',       badgeClass: 'discussing' },
+        working:    { label: '⚙ 後台準備中',            text: '準備下一話題',  badge: 'WORKING',      badgeClass: 'working' },
+        coffee:     { label: '☕ 休息片刻',               text: '茶水間閒聊',   badge: 'COFFEE BREAK', badgeClass: 'coffee' },
+      };
+
+      let lastMode  = null;
+      let lastTopic = null;
+
+      function applyView(mode, topic) {
+        const view = MODE_VIEWS[mode] || MODE_VIEWS.idle;
+        label.textContent = view.label;
+        // discussion 時用實際 topic（空則退回標題）、其他 mode 用各自固定文字
+        text.textContent  = mode === 'discussion' ? (topic || '尚未設定話題') : view.text;
+        badge.textContent = view.badge;
+        badge.className   = 'led-mode-badge ' + view.badgeClass;
+      }
 
       async function poll() {
         try {
           const r = await fetch('/api/state');
           const d = await r.json();
-          const topic = d.topic || '';
           const mode  = d.mode  || 'idle';
-          text.textContent  = topic || '晚晚嘴台灣';
-          badge.textContent = MODE_LABELS[mode] || mode.toUpperCase();
-          badge.className   = mode === 'discussion' ? 'led-mode-badge discussing' : 'led-mode-badge';
-          label.textContent = topic ? '📌 今日話題' : '◆ WWT  Taiwan Tonight';
+          const topic = d.topic || '';
+          if (mode === lastMode && topic === lastTopic) return;  // 沒變不觸發動畫
+
+          // 首次載入（lastMode 為 null）直接套用、不淡出
+          if (lastMode === null) {
+            applyView(mode, topic);
+          } else {
+            // 淡出 → swap 內容 → 淡入
+            overlay.classList.add('fading');
+            setTimeout(() => {
+              applyView(mode, topic);
+              overlay.classList.remove('fading');
+            }, 350);
+          }
+          lastMode  = mode;
+          lastTopic = topic;
         } catch (_) {}
       }
       poll();

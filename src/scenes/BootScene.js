@@ -26,10 +26,10 @@ export class BootScene extends Phaser.Scene {
     // 角色 spritesheet（false = 程序生成色塊，不載入 PNG；true = 載入 assets/ 中對應檔案）
     // MVP 預設兩人都是 false，_makeCharacters() 會根據 CONFIG.characters 自動生成
     if (ca.char_aming) {
-      this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 16, frameHeight: 32 });
+      this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
     if (ca.char_xiaomei) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 16, frameHeight: 32 });
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 48, frameHeight: 64 });
     }
   }
 
@@ -500,6 +500,30 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming) ||
+                 (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei)) {
+        // 阿明哥 / 小美姐 spritesheet（192×64，4 幀 × 48×64）
+        // Frame 0 = idle / Frame 1 = talk / Frame 2 = react / Frame 3 = think
+        this.anims.create({
+          key: `${role.id}_idle`,
+          frames: [{ key: texKey, frame: 0 }],
+          frameRate: 1, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_typing`,           // talking = typing 動畫
+          frames: [0, 1, 1, 0].map(f => ({ key: texKey, frame: f })),
+          frameRate: 5, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_thinking`,
+          frames: [2, 3].map(f => ({ key: texKey, frame: f })),
+          frameRate: 3, repeat: -1,
+        });
+        this.anims.create({
+          key: `${role.id}_reacting`,
+          frames: [{ key: texKey, frame: 2 }],
+          frameRate: 1, repeat: -1,
         });
       } else if (role.id === 'boss' && CONFIG.customAssets.char_boss) {
         // Boss 高解析度 spritesheet（396×448，8 cols × 3 rows）
