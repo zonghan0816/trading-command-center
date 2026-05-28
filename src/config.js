@@ -11,8 +11,8 @@ export const CONFIG = {
 
     // WWT 主持人座位（OfficeScene.js 更新後使用）
     hosts: {
-      aming:   { xRatio: 0.35, yOffsetFromWall: 360, seat: 'left'  },
-      xiaomei: { xRatio: 0.65, yOffsetFromWall: 360, seat: 'right' },
+      aming:   { xRatio: 0.35, yOffsetFromWall: 440, seat: 'left'  },
+      xiaomei: { xRatio: 0.68, yOffsetFromWall: 440, seat: 'right' },
     },
 
     // 舊版排列數值（OfficeScene.js 更新前保留，避免 undefined 報錯）
@@ -73,6 +73,7 @@ export const CONFIG = {
   // ── 縮放比例 ──────────────────────────────────────────────────
   scale: {
     character:    4.0,
+    characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
@@ -126,7 +127,11 @@ export const CONFIG = {
   //  true  = 載入 assets/ 資料夾中對應的 .png 檔
   //
   customAssets: {
-    // 角色（Phase 2C Step 1 完成、PNG 已生成於 assets/）
+    // 角色 v2 draft（Phase 3 Step 1.2 測試用，優先於 v1）
+    char_aming_v2:   true,
+    char_xiaomei_v2: true,
+
+    // 角色 v1（保留，v2 啟用時不載入）
     char_aming:   true,
     char_xiaomei: true,
 

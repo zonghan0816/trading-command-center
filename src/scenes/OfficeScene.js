@@ -43,7 +43,7 @@ export class OfficeScene extends Phaser.Scene {
       this._buildBackground();
       this._buildDecorations();
       this._buildWorkstations();
-      this._buildSign();
+      // this._buildSign(); // Phase 3: 新背景已有完整節目棚，暫停舊招牌
 
       // 嘗試連 API；離線時自動啟動 Demo 步驟序列
       this._pollState();
@@ -60,13 +60,13 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  // ── 背景（磚牆 + 木地板）─────────────────────────────────────
+  // ── 背景 ──────────────────────────────────────────────────────
   _buildBackground() {
-    this.add.image(0, 0, 'office_bg')
+    // Phase 3 Step 2：WWT 節目棚背景（夜晚版），舊 office_bg 已停用
+    this.add.image(0, 0, 'studio_bg_night')
       .setOrigin(0, 0)
       .setDepth(0)
       .setDisplaySize(this.W, this.H);
-
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
@@ -77,23 +77,14 @@ export class OfficeScene extends Phaser.Scene {
     const wsOff = dOff.wallScreen  ?? { x: 0, y: 0 };
     const wbOff = dOff.whiteboard  ?? { x: 0, y: 0 };
 
-    // 牆面股市螢幕
-    this.add.image(W * 0.565 + wsOff.x, H * 0.50 + wsOff.y, 'wall_screen')
-      .setOrigin(0.5, 0.5)
-      .setDisplaySize(W * 0.18, W * 0.18 * (9 / 16))
-      .setDepth(3);
+    // wall_screen 已停用（新背景 studio_bg_night 已內建 LED 螢幕框）
 
     // TOP5 資訊板（純色面板，不用 whiteboard texture 以免烘焙彩色列框）
     const wbOffY = CONFIG.layout.whiteboardOffsetY ?? 20;
     const wbCX   = W - 214 + (CONFIG.layout.decorOffsets?.whiteboard?.x ?? 0);
     const wbTopY = wallH + wbOffY + (CONFIG.layout.decorOffsets?.whiteboard?.y ?? 0);
-    const brd = this.add.graphics().setDepth(28);
-    brd.fillStyle(0x060d1e, 0.97);
-    brd.fillRect(wbCX - 204, wbTopY, 408, 321);
-    brd.lineStyle(2, 0xFF6B35, 0.75);
-    brd.strokeRect(wbCX - 204, wbTopY, 408, 321);
-    brd.lineStyle(1, 0xFF6B35, 0.35);
-    brd.lineBetween(wbCX - 200, wbTopY + 44, wbCX + 200, wbTopY + 44);
+    // TOP5 背景/外框已停用（新背景內建右下框，避免雙框）
+    // 文字元素保留在下方
 
     // TOP5 標題
     this.add.text(wbCX, wbTopY + 14, '▸ TOP 5', {
@@ -125,13 +116,15 @@ export class OfficeScene extends Phaser.Scene {
       const charY = deskY - 12 + (charOff.y ?? 0);
       const depth = 30;
 
-      // 椅背
-      this.add.image(baseX, deskY - 8, 'chair_back')
-        .setOrigin(0.5, 1).setDepth(depth - 1).setScale(S.chairBack);
+      // 椅背已停用（新背景 studio 內建舞台設備）
+      // this.add.image(baseX, deskY - 8, 'chair_back')
+      //   .setOrigin(0.5, 1).setDepth(depth - 1).setScale(S.chairBack);
 
-      // 角色 sprite
+      // 角色 sprite（v2 draft 用 characterV2 scale）
+      const isV2 = CONFIG.customAssets[`char_${id}_v2`];
+      const charScale = isV2 ? (S.characterV2 ?? 0.28) : S.character;
       const sprite = this.add.sprite(charX, charY, `char_${id}`, 0)
-        .setOrigin(0.5, 1).setDepth(depth).setScale(S.character).setInteractive();
+        .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
       sprite.play(`${id}_idle`);
       sprite.roleId = id;
 
@@ -142,9 +135,9 @@ export class OfficeScene extends Phaser.Scene {
         delay: Math.random() * 1000,
       });
 
-      // 桌子
-      this.add.image(baseX, deskY, st.desk || 'desk')
-        .setOrigin(0.5, 0).setDepth(depth + 1).setScale(S.desk);
+      // 桌子已停用（新背景 studio 內建舞台設備）
+      // this.add.image(baseX, deskY, st.desk || 'desk')
+      //   .setOrigin(0.5, 0).setDepth(depth + 1).setScale(S.desk);
 
       // 名稱標籤（降飽和度、無 stroke）
       this.add.text(charX, deskY - 80, st.label, {
@@ -171,33 +164,7 @@ export class OfficeScene extends Phaser.Scene {
       };
     });
 
-    // 中央主持桌（寬版）
-    const centerX    = W * 0.5;
-    const centerDeskY = wallH + 380;
-    const deskW      = Math.floor(W * 0.46);
-
-    this.add.rectangle(centerX + 3, centerDeskY + 3, deskW + 4, 26, 0x050a14)
-      .setOrigin(0.5, 0).setDepth(28).setAlpha(0.5);
-    this.add.rectangle(centerX, centerDeskY, deskW, 22, 0x16233e)
-      .setOrigin(0.5, 0).setDepth(29);
-    this.add.rectangle(centerX, centerDeskY, deskW, 3, 0x2e4a72)
-      .setOrigin(0.5, 0).setDepth(29);
-    this.add.rectangle(centerX, centerDeskY + 19, deskW, 4, 0x0e1628)
-      .setOrigin(0.5, 0).setDepth(29);
-
-    // 左右麥克風架
-    [W * 0.36, W * 0.64].forEach(mx => {
-      this.add.rectangle(mx, centerDeskY + 2, 20, 4, 0x8899aa)
-        .setOrigin(0.5, 0).setDepth(30);
-      this.add.rectangle(mx, centerDeskY - 40, 3, 44, 0x778899)
-        .setOrigin(0.5, 1).setDepth(30);
-      this.add.ellipse(mx, centerDeskY - 40, 16, 12, 0x99aabb)
-        .setDepth(30);
-      this.add.ellipse(mx, centerDeskY - 40, 10, 8, 0x1a2a3a)
-        .setDepth(30);
-      this.add.rectangle(mx, centerDeskY - 40, 10, 1, 0x6688aa)
-        .setDepth(30);
-    });
+    // 中央主持桌 + 麥克風架已停用（新背景 studio_bg_night 已內建舞台設備）
   }
 
   // ── 霓虹招牌 ─────────────────────────────────────────────────

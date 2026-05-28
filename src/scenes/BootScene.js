@@ -9,10 +9,11 @@ export class BootScene extends Phaser.Scene {
       'Loading...', { color: '#00E5FF', fontSize: '18px', fontFamily: 'Consolas' }
     ).setOrigin(0.5);
 
-    // 背景圖片
+    // 背景圖片（舊版保留不刪，但 OfficeScene 已不使用）
     this.load.image('office_bg', '/assets/office-complete.png');
-    // 中央牆壁股市螢幕
     this.load.image('wall_screen', '/assets/1.png');
+    // Phase 3 Step 2：新版 WWT 節目棚背景（夜晚版）
+    this.load.image('studio_bg_night', '/assets/wwt_studio_background_night_v1.png');
 
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;
@@ -25,10 +26,15 @@ export class BootScene extends Phaser.Scene {
     });
     // 角色 spritesheet（false = 程序生成色塊，不載入 PNG；true = 載入 assets/ 中對應檔案）
     // MVP 預設兩人都是 false，_makeCharacters() 會根據 CONFIG.characters 自動生成
-    if (ca.char_aming) {
+    // v2 draft 優先（1024×1536 單張 PNG）
+    if (ca.char_aming_v2) {
+      this.load.spritesheet('char_aming', '/assets/char_aming_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
+    } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    if (ca.char_xiaomei) {
+    if (ca.char_xiaomei_v2) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
+    } else if (ca.char_xiaomei) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 48, frameHeight: 64 });
     }
   }
@@ -501,6 +507,16 @@ export class BootScene extends Phaser.Scene {
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
         });
+      } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming_v2) ||
+                 (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2)) {
+        // v2 draft 單張 PNG（1024×1536，只有 frame 0）
+        ['idle', 'typing', 'thinking', 'reacting'].forEach(anim => {
+          this.anims.create({
+            key: `${role.id}_${anim}`,
+            frames: [{ key: texKey, frame: 0 }],
+            frameRate: 1, repeat: -1,
+          });
+        });
       } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming) ||
                  (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei)) {
         // 阿明哥 / 小美姐 spritesheet（192×64，4 幀 × 48×64）
@@ -511,7 +527,7 @@ export class BootScene extends Phaser.Scene {
           frameRate: 1, repeat: -1,
         });
         this.anims.create({
-          key: `${role.id}_typing`,           // talking = typing 動畫
+          key: `${role.id}_typing`,
           frames: [0, 1, 1, 0].map(f => ({ key: texKey, frame: f })),
           frameRate: 5, repeat: -1,
         });
