@@ -21,15 +21,15 @@ import { OfficeScene } from './scenes/OfficeScene.js';
 window.addEventListener('load', () => {
   const config = {
     type: Phaser.AUTO,
-    width:  window.innerWidth,
-    height: window.innerHeight - 52,
+    width:  1920,
+    height: 1080,
     backgroundColor: '#0e1e30',
     parent: 'game-container',
     pixelArt: true,
     antialias: false,
     scene: [BootScene, OfficeScene],
     scale: {
-      mode: Phaser.Scale.RESIZE,
+      mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
   };

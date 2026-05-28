@@ -21,16 +21,18 @@ const KEYWORD_MAX      = 5;
 const HOST_MIN_DISTANCE = 180;
 // discussion mode 下強制站位（畫面寬度比例、不動 config.js）
 const DISCUSSION_HOST_X_RATIOS = { aming: 0.35, xiaomei: 0.65 };
+// Phase 2F Step 3: 主持人 Lane 邊界（aming 永遠左半場、xiaomei 永遠右半場）
+const HOST_LANES = { aming: 0.35, xiaomei: 0.65 };
+const LANE_MARGIN = 20; // 距中線最小留白（px）
 
 export class OfficeScene extends Phaser.Scene {
   constructor() { super('OfficeScene'); }
 
   create() {
     try {
-      const { width, height } = this.scale;
-      this.W = width;
-      this.H = height;
-      this.wallH = height * WALL_H_RATIO;
+      this.W = 1920;
+      this.H = 1080;
+      this.wallH = this.H * WALL_H_RATIO;
 
       this.characters = {};
       this.state = null;
@@ -53,10 +55,6 @@ export class OfficeScene extends Phaser.Scene {
         if (obj.roleId) this._toggleBubble(obj.roleId);
       });
 
-      this.scale.on('resize', (size) => {
-        this.W = size.width; this.H = size.height;
-        this.wallH = size.height * WALL_H_RATIO;
-      });
     } catch (e) {
       console.error('OfficeScene error:', e);
     }
@@ -78,7 +76,6 @@ export class OfficeScene extends Phaser.Scene {
     const dOff = CONFIG.layout.decorOffsets ?? {};
     const wsOff = dOff.wallScreen  ?? { x: 0, y: 0 };
     const wbOff = dOff.whiteboard  ?? { x: 0, y: 0 };
-    const srOff = dOff.serverRack  ?? { x: 0, y: 0 };
 
     // 牆面股市螢幕
     this.add.image(W * 0.565 + wsOff.x, H * 0.50 + wsOff.y, 'wall_screen')
@@ -86,17 +83,22 @@ export class OfficeScene extends Phaser.Scene {
       .setDisplaySize(W * 0.18, W * 0.18 * (9 / 16))
       .setDepth(3);
 
-    // 白板
-    const wbX   = CONFIG.layout.whiteboardXRatio  ?? 0.94;
+    // TOP5 資訊板（純色面板，不用 whiteboard texture 以免烘焙彩色列框）
     const wbOffY = CONFIG.layout.whiteboardOffsetY ?? 20;
-    this.add.image(W * wbX + wbOff.x, wallH + wbOffY + wbOff.y, 'whiteboard')
-      .setOrigin(0.5, 0).setScale(CONFIG.scale.whiteboard).setDepth(28);
+    const wbCX   = W - 214 + (CONFIG.layout.decorOffsets?.whiteboard?.x ?? 0);
+    const wbTopY = wallH + wbOffY + (CONFIG.layout.decorOffsets?.whiteboard?.y ?? 0);
+    const brd = this.add.graphics().setDepth(28);
+    brd.fillStyle(0x060d1e, 0.97);
+    brd.fillRect(wbCX - 204, wbTopY, 408, 321);
+    brd.lineStyle(2, 0xFF6B35, 0.75);
+    brd.strokeRect(wbCX - 204, wbTopY, 408, 321);
+    brd.lineStyle(1, 0xFF6B35, 0.35);
+    brd.lineBetween(wbCX - 200, wbTopY + 44, wbCX + 200, wbTopY + 44);
 
-    // 熱門關鍵字標題 + 標籤文字（動態化：state.keywords 變化時 _renderKeywords 重畫）
-    const wbCX   = W * wbX + wbOff.x;
-    const wbTopY = wallH + wbOffY + wbOff.y;
-    this.add.text(wbCX, wbTopY + 8, '# 熱門', {
-      fontSize: '9px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
+    // TOP5 標題
+    this.add.text(wbCX, wbTopY + 14, '▸ TOP 5', {
+      fontSize: '18px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
+      shadow: { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 8, fill: true },
     }).setOrigin(0.5, 0).setDepth(28.5);
 
     // 儲存座標、給 _renderKeywords / state poll 用
@@ -106,9 +108,6 @@ export class OfficeScene extends Phaser.Scene {
     this._currentKeywordsSig = null;  // 防抖簽章
     this._renderKeywords(DEFAULT_KEYWORDS);
 
-    // 伺服器機架
-    this.add.image(W - 48 + srOff.x, wallH - 138 + srOff.y, 'server_rack')
-      .setOrigin(0.5, 1).setDepth(10).setScale(CONFIG.scale.serverRack);
   }
 
   // ── 各工作站（主持人座位 左/右）──────────────────────────────
@@ -147,26 +146,21 @@ export class OfficeScene extends Phaser.Scene {
       this.add.image(baseX, deskY, st.desk || 'desk')
         .setOrigin(0.5, 0).setDepth(depth + 1).setScale(S.desk);
 
-      // 螢幕
-      if (st.mon) {
-        this.add.image(baseX, deskY - 2, st.mon)
-          .setOrigin(0.5, 1).setDepth(depth + 1.5).setScale(S.monitor, S.monitor);
-      }
-
-      // 名稱標籤
+      // 名稱標籤（降飽和度、無 stroke）
       this.add.text(charX, deskY - 80, st.label, {
-        fontSize: '11px', color: '#FF8C55',
+        fontSize: '14px', color: '#AA7850',
         fontFamily: 'Consolas, monospace',
-        stroke: '#000000', strokeThickness: 2,
       }).setOrigin(0.5, 1).setDepth(depth + 2);
 
-      // 對話泡泡
-      const bubbleBg = this.add.image(charX, charY - 52, 'bubble_bg')
-        .setOrigin(0.5, 1).setDepth(depth + 3).setAlpha(0);
-      const bubbleText = this.add.text(charX, charY - 83, '', {
-        fontSize: '12px', color: '#D8EEFB',
+      // 對話泡泡（往上移避免貼角色）
+      const bubbleBg = this.add.image(charX, charY - 117, 'bubble_bg')
+        .setOrigin(0.5, 1).setDepth(depth + 3).setAlpha(0)
+        .setDisplaySize(290, 54);
+      const bubbleText = this.add.text(charX, charY - 140, '', {
+        fontSize: '20px', color: '#D8EEFB',
         fontFamily: 'Consolas, monospace',
-        wordWrap: { width: 158, useAdvancedWrap: true }, align: 'center',
+        lineSpacing: 8,
+        wordWrap: { width: 270, useAdvancedWrap: true }, align: 'center',
       }).setOrigin(0.5, 0.5).setDepth(depth + 3.1).setAlpha(0);
 
       this.characters[id] = {
@@ -206,57 +200,18 @@ export class OfficeScene extends Phaser.Scene {
     });
   }
 
-  _buildAgentStation() {
-    const { W, wallH } = this;
-    const agOff = CONFIG.layout.charOffsets?.agent ?? { x: 0, y: 0 };
-    const x = W * CONFIG.layout.agentXRatio + (agOff.x ?? 0);
-    const y = wallH + CONFIG.layout.agentOffsetY + (agOff.y ?? 0);
-    const depth = 30;
-
-    const sprite = this.add.sprite(x, y, 'char_agent', 0)
-      .setOrigin(0.5, 1).setDepth(depth).setScale(S.character).setInteractive();
-    sprite.roleId = 'agent';
-    sprite.play('agent_idle');
-
-    this.tweens.add({
-      targets: sprite, y: y - 2,
-      duration: 1100, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: 200,
-    });
-
-    this.add.text(x, y - 68, STATIONS.agent.label, {
-      fontSize: '11px', color: '#8aabb8',
-      fontFamily: 'Consolas, monospace',
-      stroke: '#000000', strokeThickness: 2,
-    }).setOrigin(0.5, 1).setDepth(depth + 1);
-
-    const bubbleBg = this.add.image(x, y - 68, 'bubble_bg')
-      .setOrigin(0.5, 1).setDepth(depth + 2).setAlpha(0);
-    const bubbleText = this.add.text(x, y - 99, '', {
-      fontSize: '12px', color: '#D8EEFB',
-      fontFamily: 'Consolas, monospace',
-      wordWrap: { width: 158, useAdvancedWrap: true }, align: 'center',
-    }).setOrigin(0.5, 0.5).setDepth(depth + 2.1).setAlpha(0);
-
-
-    this.characters['agent'] = {
-      sprite, bubbleBg, bubbleText,
-      x, homeY: y, state: 'idle', bubbleVisible: false,
-      isWalking: false, depth,
-    };
-  }
-
   // ── 霓虹招牌 ─────────────────────────────────────────────────
   _buildSign() {
     const { signXRatio } = CONFIG.layout;
     const { line1, line2, color, glowBlur } = CONFIG.sign;
     const cx = this.W * signXRatio;
     this.add.text(cx, 32, line1, {
-      fontSize: '18px', fontFamily: 'Consolas, monospace',
+      fontSize: '24px', fontFamily: 'Consolas, monospace',
       color,
       shadow: { offsetX: 0, offsetY: 0, color, blur: glowBlur, fill: true },
     }).setOrigin(0.5, 0.5).setDepth(6);
-    this.add.text(cx, 54, line2, {
-      fontSize: '11px', fontFamily: 'Consolas, monospace',
+    this.add.text(cx, 60, line2, {
+      fontSize: '14px', fontFamily: 'Consolas, monospace',
       color: '#0099aa',
     }).setOrigin(0.5, 0.5).setDepth(6);
   }
@@ -286,19 +241,19 @@ export class OfficeScene extends Phaser.Scene {
     this._kwTexts.forEach(t => t.destroy());
     this._kwTexts = [];
 
-    // 渲染新 text 物件、用顏色陣列循環配色
+    const RANKS = ['①', '②', '③', '④', '⑤'];
+    const boardLeft = this._kwBaseX - 192;
     kws.forEach((kw, i) => {
-      const t = this.add.text(
-        this._kwBaseX,
-        this._kwBaseY + 28 + i * 13,
-        kw,
-        {
-          fontSize: '9px',
-          color: KEYWORD_COLORS[i % KEYWORD_COLORS.length],
-          fontFamily: 'Consolas, monospace',
-        }
-      ).setOrigin(0.5, 0).setDepth(28.5);
-      this._kwTexts.push(t);
+      const y = this._kwBaseY + 54 + i * 46;
+      const isFirst = i === 0;
+      const rn = this.add.text(boardLeft, y, RANKS[i] ?? '', {
+        fontSize: '17px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
+        shadow: isFirst ? { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 6, fill: true } : undefined,
+      }).setOrigin(0, 0).setDepth(28.5);
+      const kt = this.add.text(boardLeft + 28, y, kw, {
+        fontSize: '17px', color: '#E8F4FF', fontFamily: 'Consolas, monospace',
+      }).setOrigin(0, 0).setDepth(28.5);
+      this._kwTexts.push(rn, kt);
     });
   }
 
@@ -310,9 +265,12 @@ export class OfficeScene extends Phaser.Scene {
         this._applyState(await res.json());
         return;
       }
-    } catch (_) {}
+      console.warn('[WWT] /api/state 回應非 OK:', res.status);
+    } catch (e) {
+      console.warn('[WWT] /api/state 連線失敗，保留上一次 state:', e.message);
+    }
     this._usingRealAPI = false;
-    // Demo loop (_runDemoStep) handles animation when offline
+    // 失敗時保留 this.state（不清空），畫面維持上一次內容
   }
 
   _applyState(data) {
@@ -467,7 +425,8 @@ export class OfficeScene extends Phaser.Scene {
         // 任務 4.5: 走向另一主持人時、確保停下時距離 >= HOST_MIN_DISTANCE
         const targetIsHost = (targetId === 'aming' || targetId === 'xiaomei');
         const safeOffset   = targetIsHost ? Math.max(wo, HOST_MIN_DISTANCE) : wo;
-        const stopX = target.x + (target.x > ch.x ? -safeOffset : safeOffset);
+        const rawStopX = target.x + (target.x > ch.x ? -safeOffset : safeOffset);
+        const stopX = this._clampToLane(id, rawStopX);
         const dist  = Math.abs(stopX - ch.sprite.x);
 
         // 任務 4.5: tween 進行中、即時檢查與另一主持人距離、太近就立即停止
@@ -542,6 +501,14 @@ export class OfficeScene extends Phaser.Scene {
     ch.bubbleText.setPosition(sx, sy - 83);
   }
 
+  // Phase 2F Step 3: 將 X 座標限制在主持人所屬半場（防止 crossing）
+  _clampToLane(id, x) {
+    const mid = this.W * 0.5;
+    if (id === 'aming')   return Math.min(x, mid - LANE_MARGIN);
+    if (id === 'xiaomei') return Math.max(x, mid + LANE_MARGIN);
+    return x;
+  }
+
   _animateTyping(id) {
     const ch = this.characters[id];
     if (!ch || !this.state) return;
@@ -585,27 +552,33 @@ export class OfficeScene extends Phaser.Scene {
     const timeEl = document.getElementById('update-time');
     if (!list || !timeEl) return;
 
-    const labels  = { aming: '🎙 阿明哥', xiaomei: '🎙 小美姐' };
-    const modeMap = { discussion: '討論中', working: '工作中', coffee: '茶水間', idle: '待機' };
+    const labels    = { aming: '阿明哥', xiaomei: '小美姐' };
+    const hostColor = { aming: '#FF8C00', xiaomei: '#00E5FF' };
+    const modeMap   = { discussion: '討論中', working: '工作中', coffee: '茶水間', idle: '待機' };
 
-    // 話題列
+    // 話題列（最高層級）
     const topicLine = data.topic
-      ? `<div class="module-output" style="color:#FF8C55;margin-bottom:6px;white-space:normal;">📌 ${data.topic}</div>`
+      ? `<div style="font-size:15px;font-weight:bold;color:#FF8C55;margin-bottom:8px;white-space:normal;line-height:1.4;">📌 ${data.topic}</div>`
       : '';
 
-    // 模式 + 活動
+    // 模式（降低權重）
     const modeLabel    = modeMap[data.mode] || data.mode || '—';
     const activityNote = (data.activity && data.activity !== 'idle') ? ` · ${data.activity}` : '';
-    const modeLine     = `<div class="module-output" style="margin-bottom:8px;">模式：${modeLabel}${activityNote}</div>`;
+    const modeLine     = `<div style="font-size:11px;opacity:0.65;margin-bottom:10px;">模式：${modeLabel}${activityNote}</div>`;
 
-    // 主持人狀態
-    const hostLines = Object.entries(data.hosts || {}).map(([id, mod]) => `
-      <div class="module-status">
-        <div class="status-dot ${mod.status}"></div>
-        <div class="module-name">${labels[id] || id}</div>
-      </div>
-      <div class="module-output">${mod.last_output ? mod.last_output.slice(0, 45) : '—'}</div>
-    `).join('');
+    // 主持人狀態（橘/青色區分）
+    const hostLines = Object.entries(data.hosts || {}).map(([id, mod]) => {
+      if (!mod) return '';
+      const status  = mod.status || 'idle';
+      const output  = mod.last_output ? String(mod.last_output).slice(0, 45) : '—';
+      return `
+        <div class="module-status">
+          <div class="status-dot ${status}"></div>
+          <div class="module-name" style="color:${hostColor[id] || '#A8C0D8'};font-weight:bold;">🎙 ${labels[id] || id}</div>
+        </div>
+        <div class="module-output">${output}</div>
+      `;
+    }).join('');
 
     list.innerHTML = topicLine + modeLine + hostLines;
     timeEl.textContent = `更新 ${data.updated_at || '—'}`;

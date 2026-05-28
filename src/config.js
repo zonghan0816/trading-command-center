@@ -11,8 +11,8 @@ export const CONFIG = {
 
     // WWT 主持人座位（OfficeScene.js 更新後使用）
     hosts: {
-      aming:   { xRatio: 0.28, yOffsetFromWall: 360, seat: 'left'  },
-      xiaomei: { xRatio: 0.72, yOffsetFromWall: 360, seat: 'right' },
+      aming:   { xRatio: 0.35, yOffsetFromWall: 360, seat: 'left'  },
+      xiaomei: { xRatio: 0.65, yOffsetFromWall: 360, seat: 'right' },
     },
 
     // 舊版排列數值（OfficeScene.js 更新前保留，避免 undefined 報錯）

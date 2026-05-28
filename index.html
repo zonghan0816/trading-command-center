@@ -24,19 +24,20 @@
     }
     #header .title {
       color: #FF6B35;
-      font-size: 15px;
-      letter-spacing: 3px;
+      font-size: 21px;
+      letter-spacing: 4px;
       font-weight: 600;
       text-shadow: 0 0 10px rgba(255,107,53,0.6);
     }
     #header .subtitle {
       color: #6E8AA8;
-      font-size: 11px;
+      font-size: 13px;
       letter-spacing: 1.5px;
+      opacity: 0.7;
     }
     #header .live {
       color: #00E676;
-      font-size: 11px;
+      font-size: 13px;
       letter-spacing: 1.5px;
     }
     #header .live::before {
@@ -60,14 +61,15 @@
       background: rgba(20,8,2,0.92);
       border: 1px solid rgba(255,107,53,0.25);
       border-radius: 4px;
-      padding: 10px;
+      padding: 14px;
       color: #D8EEFB;
-      font-size: 11px;
+      font-size: 13px;
+      line-height: 1.6;
       pointer-events: none;
     }
     #status-panel .panel-title {
       color: #FF6B35;
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 2px;
       text-transform: uppercase;
       border-bottom: 1px solid rgba(255,107,53,0.2);
@@ -78,7 +80,7 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      margin-bottom: 5px;
+      margin-bottom: 8px;
     }
     .status-dot {
       width: 7px;
@@ -99,8 +101,8 @@
     .status-dot.done    { background: #00E676; }
     .status-dot.live    { background: #00E5FF; animation: blink 1.2s infinite; }
     .module-name { color: #A8C0D8; flex: 1; }
-    .module-output { color: #6E8AA8; font-size: 10px; margin-left: 13px; margin-bottom: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #update-time { color: #3a5068; font-size: 10px; margin-top: 8px; border-top: 1px solid rgba(0,229,255,0.1); padding-top: 6px; }
+    .module-output { color: #6E8AA8; font-size: 12px; margin-left: 13px; margin-bottom: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #update-time { color: #3a5068; font-size: 12px; margin-top: 8px; border-top: 1px solid rgba(0,229,255,0.1); padding-top: 6px; }
 
     /* ── 持倉損益面板 ── */
     #portfolio-panel {
@@ -113,13 +115,13 @@
       border-radius: 4px;
       padding: 10px;
       color: #D8EEFB;
-      font-size: 11px;
+      font-size: 13px;
       pointer-events: none;
       display: none;
     }
     #portfolio-panel .panel-title {
       color: #00E5FF;
-      font-size: 10px;
+      font-size: 12px;
       letter-spacing: 2px;
       text-transform: uppercase;
       border-bottom: 1px solid rgba(0,229,255,0.15);
@@ -133,8 +135,8 @@
       padding-bottom: 6px;
       border-bottom: 1px solid rgba(0,229,255,0.1);
     }
-    .port-summary .label { color: #6E8AA8; font-size: 10px; }
-    .port-summary .value { font-size: 12px; font-weight: bold; }
+    .port-summary .label { color: #6E8AA8; font-size: 12px; }
+    .port-summary .value { font-size: 14px; font-weight: bold; }
     .port-summary .pos { color: #00E676; }
     .port-summary .neg { color: #FF5252; }
     .port-summary .neu { color: #D8EEFB; }
@@ -144,7 +146,7 @@
       gap: 2px 4px;
       align-items: center;
       margin-bottom: 4px;
-      font-size: 10px;
+      font-size: 12px;
     }
     .pos-sym { color: #00E5FF; font-weight: bold; }
     .pos-sh  { color: #6E8AA8; text-align: right; }
@@ -152,6 +154,35 @@
     .pos-pnl   { text-align: right; font-weight: bold; }
     .pos-pnl.pos { color: #00E676; }
     .pos-pnl.neg { color: #FF5252; }
+
+    /* ── F2 Debug Overlay ── */
+    #debug-overlay {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 230px;
+      background: rgba(0, 8, 4, 0.95);
+      border: 1px solid rgba(0, 229, 100, 0.45);
+      border-radius: 3px;
+      padding: 10px 12px;
+      color: #00E676;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.75;
+      z-index: 999;
+      pointer-events: none;
+      display: none;
+    }
+    #debug-overlay .dbg-title {
+      color: #00E5FF;
+      font-size: 10px;
+      letter-spacing: 3px;
+      border-bottom: 1px solid rgba(0, 229, 100, 0.25);
+      padding-bottom: 5px;
+      margin-bottom: 7px;
+    }
+    #debug-overlay .dbg-row { color: #6E8AA8; }
+    #debug-overlay .dbg-val { color: #00E676; }
 
     /* ── LED 螢幕 overlay ── */
     #led-overlay {
@@ -244,6 +275,10 @@
       <div id="led-topic-text">—</div>
       <div id="led-mode-badge">STANDBY</div>
     </div>
+    <div id="debug-overlay">
+      <div class="dbg-title">▸ DEBUG  [F2 to hide]</div>
+      <div id="dbg-content"></div>
+    </div>
     <div id="portfolio-panel" style="display:none">
       <div class="panel-title">Portfolio · 模擬帳戶</div>
       <div id="port-summary"></div>
@@ -302,6 +337,56 @@
           }
           lastMode  = mode;
           lastTopic = topic;
+        } catch (_) {}
+      }
+      poll();
+      setInterval(poll, 3000);
+    })();
+  </script>
+
+  <script>
+    (function debugOverlay() {
+      const panel   = document.getElementById('debug-overlay');
+      const content = document.getElementById('dbg-content');
+      let visible = false;
+      let cached  = null;
+
+      document.addEventListener('keydown', function(e) {
+        if (e.key !== 'F2') return;
+        e.preventDefault();
+        visible = !visible;
+        panel.style.display = visible ? 'block' : 'none';
+        if (visible) render();
+      });
+
+      function render() {
+        if (!cached) {
+          content.innerHTML = '<span style="color:#3a5068">— waiting —</span>';
+          return;
+        }
+        const kws = Array.isArray(cached.keywords) && cached.keywords.length > 0
+          ? cached.keywords.join(', ')
+          : (cached.keywords ? String(cached.keywords) : '—');
+        const rows = [
+          ['mode',        cached.mode        || '—'],
+          ['topic',       cached.topic       || '(none)'],
+          ['keywords',    kws],
+          ['last_update', cached.updated_at  || '—'],
+          ['resolution',  '1920×1080'],
+          ['scale',       'FIT'],
+        ];
+        content.innerHTML = rows.map(([k, v]) =>
+          `<div><span class="dbg-row">${k}: </span><span class="dbg-val">${v}</span></div>`
+        ).join('');
+      }
+
+      async function poll() {
+        try {
+          const r = await fetch('/api/state');
+          if (r.ok) {
+            cached = await r.json();
+            if (visible) render();
+          }
         } catch (_) {}
       }
       poll();
