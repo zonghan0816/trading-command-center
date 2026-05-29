@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
-  <title>晚晚嘴台灣 WWT</title>
+  <title>天天嘴台灣 TDT</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -57,22 +57,22 @@
       position: absolute;
       top: 10px;
       right: 10px;
-      width: 200px;
-      background: rgba(20,8,2,0.92);
-      border: 1px solid rgba(255,107,53,0.25);
+      width: 210px;
+      background: rgba(8,12,22,0.88);
+      border: 1px solid rgba(255,107,53,0.18);
       border-radius: 4px;
       padding: 14px;
-      color: #D8EEFB;
+      color: #C8DDF0;
       font-size: 13px;
       line-height: 1.6;
       pointer-events: none;
     }
     #status-panel .panel-title {
-      color: #FF6B35;
+      color: #CC6428;
       font-size: 12px;
       letter-spacing: 2px;
       text-transform: uppercase;
-      border-bottom: 1px solid rgba(255,107,53,0.2);
+      border-bottom: 1px solid rgba(255,107,53,0.15);
       padding-bottom: 6px;
       margin-bottom: 8px;
     }
@@ -260,8 +260,8 @@
 <body>
   <div id="header">
     <div>
-      <div class="title">◆ 晚晚嘴台灣 WWT</div>
-      <div class="subtitle">AI 鄉民聊天室 • Taiwan Tonight LIVE</div>
+      <div class="title">◆ 天天嘴台灣 TDT</div>
+      <div class="subtitle">AI 鄉民聊天室 • Taiwan Daily Talk LIVE</div>
     </div>
     <div class="live" id="live-status">LIVE</div>
   </div>
@@ -299,7 +299,7 @@
 
       // mode → LED 顯示模板（依 GPT Phase 2C Step 4 指令）
       const MODE_VIEWS = {
-        idle:       { label: '◆ WWT  Taiwan Tonight', text: '晚晚嘴台灣',   badge: 'STANDBY',      badgeClass: '' },
+        idle:       { label: '◆ TDT  Taiwan Daily Talk', text: '天天嘴台灣',  badge: 'STANDBY',      badgeClass: '' },
         discussion: { label: '📌 今日話題',             text: null,           badge: 'ON AIR',       badgeClass: 'discussing' },
         working:    { label: '⚙ 後台準備中',            text: '準備下一話題',  badge: 'WORKING',      badgeClass: 'working' },
         coffee:     { label: '☕ 休息片刻',               text: '茶水間閒聊',   badge: 'COFFEE BREAK', badgeClass: 'coffee' },

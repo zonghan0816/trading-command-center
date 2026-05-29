@@ -88,8 +88,8 @@ export const CONFIG = {
 
   // ── 招牌文字 ──────────────────────────────────────────────────
   sign: {
-    line1:    '晚晚嘴台灣 WWT',
-    line2:    'AI 鄉民談話台 · Taiwan Tonight',
+    line1:    '天天嘴台灣 TDT',
+    line2:    'AI 鄉民談話台 · Taiwan Daily Talk',
     color:    '#FF6B35',
     glowBlur: 14,
   },

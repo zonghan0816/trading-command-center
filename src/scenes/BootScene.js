@@ -12,8 +12,10 @@ export class BootScene extends Phaser.Scene {
     // 背景圖片（舊版保留不刪，但 OfficeScene 已不使用）
     this.load.image('office_bg', '/assets/office-complete.png');
     this.load.image('wall_screen', '/assets/1.png');
-    // Phase 3 Step 2：新版 WWT 節目棚背景（夜晚版）
-    this.load.image('studio_bg_night', '/assets/wwt_studio_background_night_v1.png');
+    // Phase 3 Step 3：三個時段背景（頁面載入時依時間選擇）
+    this.load.image('studio_bg_morning', '/assets/wwt_studio_background_noon_v1.png');
+    this.load.image('studio_bg_noon',    '/assets/wwt_studio_background_morning_v1.png');
+    this.load.image('studio_bg_night',   '/assets/wwt_studio_background_night_v1.png');
 
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;

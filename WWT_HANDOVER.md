@@ -1,151 +1,322 @@
-# WWT 晚晚嘴台灣 — 專案交接總結
+# TDT 天天嘴台灣 — 專案交接總結
 
-**更新日期：** 2026-05-28  
-**當前完成至：** Phase 2G.1  
-**下一階段：** Phase 3（Asset 替換）
+**更新日期：** 2026-05-29  
+**當前完成至：** Phase 3 Step 3.1  
+**目前狀態：** Visual Base Ready / MVP Runtime Ready  
+**下一階段：** Phase 3 Step 4 — Host Action & Expression Assets  
+
+> 檔名仍為 `WWT_HANDOVER.md`，但節目品牌已從 WWT / 晚晚嘴台灣 改為 TDT / 天天嘴台灣。程式內部分 legacy 名稱如 `wwt_state.json` 可暫時保留，不需為改名而大重構。
 
 ---
 
 ## 一、專案簡介
 
-**WWT 晚晚嘴台灣（Taiwan Tonight）** 是一個 AI 驅動的台灣鄉民談話節目模擬器。  
-兩位 AI 主持人（阿明哥、小美姐）在 1920×1080 像素辦公室場景中，圍繞當日話題進行 AI 生成對話，設計用於 OBS 直播串流。
+**TDT 天天嘴台灣（Taiwan Daily Talk）** 是一個 AI 驅動的台灣鄉民談話節目模擬器，設計用於 OBS 24 小時直播。
+
+兩位 AI 主持人：
+
+- 阿明哥：街頭政治直播主持風格，嘴砲、直接、鄉民感
+- 小美姐：知性女主播風格，理性吐槽、節目感
+
+目前畫面為 1920×1080 Phaser 場景，包含：
+
+- 中央 LED 主題螢幕
+- 阿明哥與小美姐 v2 角色圖
+- 角色頭部旁對話泡泡
+- 右下 TOP5 熱門議題榜
+- 右上狀態 panel
+- 早 / 中 / 晚棚景背景 crossfade
 
 ---
 
 ## 二、技術架構
 
-```
-┌─────────────────────────────────────────┐
-│              瀏覽器 / OBS               │
-│  index.html  ←  FastAPI StaticFiles    │
-│  Phaser 3.60 (1920×1080 FIT)           │
-│    ├── BootScene.js  (資源生成)          │
-│    └── OfficeScene.js (場景主邏輯)       │
-└──────────────┬──────────────────────────┘
-               │ HTTP API (port 8765)
-┌──────────────▼──────────────────────────┐
-│           server.py (FastAPI)           │
-│  POST /api/topic   → 設定話題           │
-│  GET  /api/state   → 取得目前狀態       │
-│  POST /api/chat    → 生成主持人對話     │
-│  POST /api/state   → 直接更新 state     │
-│           Anthropic Claude API          │
-│           wwt_state.json (持久化)       │
-└─────────────────────────────────────────┘
+```txt
+瀏覽器 / OBS
+  index.html
+  Phaser 3.60, 1920×1080 FIT
+    BootScene.js    載入 / 生成資源
+    OfficeScene.js  場景、角色、背景、TOP5、bubble、API polling
+
+HTTP API, port 8765
+  server.py, FastAPI
+    POST /api/topic
+    GET  /api/state
+    POST /api/chat
+    POST /api/state
+  Anthropic Claude API
+  wwt_state.json 持久化 state
 ```
 
 ### 技術棧
 
-| 元件 | 版本/說明 |
+| 元件 | 說明 |
 |---|---|
-| 前端框架 | Phaser 3.60（CDN 載入） |
+| 前端 | Phaser 3.60 CDN |
 | 後端 | FastAPI + uvicorn |
-| AI 模型 | Anthropic Claude（claude-3-5-haiku / opus） |
-| 啟動方式 | `python server.py`（無 npm / webpack） |
-| 靜態檔案 | FastAPI StaticFiles 直接 serve |
-| State 持久化 | `wwt_state.json`（啟動時讀入，每次更新寫出） |
+| AI | Anthropic Claude |
+| 啟動方式 | `python server.py` 或雙擊 `啟動.bat` |
+| 靜態檔案 | FastAPI StaticFiles |
+| State | `wwt_state.json`，legacy 名稱先保留 |
 
 ---
 
 ## 三、啟動方式
 
 ```bash
-# 方法 1
 python server.py
+```
 
-# 方法 2（Windows）
-雙擊 啟動.bat
+或 Windows 直接雙擊：
 
-# 瀏覽器
+```txt
+啟動.bat
+```
+
+瀏覽器：
+
+```txt
 http://localhost:8765
-
-# OBS 擷取
-瀏覽器來源 → http://localhost:8765 → 1920×1080
 ```
 
-**環境變數：**（`.env` 放在專案根目錄，不進 git）
+OBS：
+
+```txt
+Browser Source → http://localhost:8765 → 1920×1080
 ```
+
+環境變數：
+
+```txt
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-**依賴安裝：**
+安裝依賴：
+
 ```bash
 pip install fastapi uvicorn anthropic python-dotenv
 ```
 
 ---
 
-## 四、主要檔案說明
-
-### 前端
+## 四、主要檔案
 
 | 檔案 | 說明 |
 |---|---|
-| `index.html` | 主 HTML：LED 字幕區、右上 status panel、F2 debug overlay、portfolio panel |
-| `src/main.js` | Phaser 設定（1920×1080、FIT mode、BootScene→OfficeScene） |
-| `src/config.js` | **主要視覺設定檔**：位置比例、顏色、縮放、角色外觀。簡單調整從這裡改。但許多 layout / TOP5 / bubble 座標目前仍寫死在 OfficeScene.js 中，Phase 3 換圖時很可能也需要調 OfficeScene.js 的座標、scale、safe area |
-| `src/scenes/BootScene.js` | 程序生成所有 texture（角色、桌子、泡泡、燈具等），載入自訂 PNG |
-| `src/scenes/OfficeScene.js` | 主場景：背景、裝飾、主持人、TOP5 板、bubble、API polling、對話播放 |
-
-### 後端
-
-| 檔案 | 說明 |
-|---|---|
-| `server.py` | FastAPI 伺服器：所有 API、Claude prompt 建構、state 管理 |
-| `wwt_state.json` | 持久化 state（不進 git） |
-| `.env` | API key（不進 git） |
-
-### Assets
-
-| 路徑 | 說明 |
-|---|---|
-| `assets/char_aming.png` | 阿明哥 spritesheet（自訂 PNG） |
-| `assets/char_xiaomei.png` | 小美姐 spritesheet（自訂 PNG） |
-| `assets/desk.png` | 工作站桌子（自訂 PNG） |
-| `assets/office-complete.png` | 辦公室背景圖 |
-| `assets/1.png` | 牆面股市螢幕圖 |
+| `index.html` | Header、LED overlay、右上 status panel、F2 debug overlay |
+| `src/main.js` | Phaser 設定，固定 1920×1080 FIT |
+| `src/config.js` | 主要視覺設定：角色比例、站位、customAssets 等 |
+| `src/scenes/BootScene.js` | 載入背景 / 角色圖，建立必要 texture / animations |
+| `src/scenes/OfficeScene.js` | 主場景：背景 crossfade、角色、bubble、TOP5、API polling |
+| `server.py` | FastAPI API、Claude prompt、state 管理 |
+| `wwt_state.json` | 本機 state 持久化，不進 git |
+| `.env` | API key，不進 git |
 
 ---
 
-## 五、State Schema
+## 五、目前品牌文字
+
+目前可見品牌已改為：
+
+```txt
+天天嘴台灣  TDT
+AI 鄉民聊天室 • Taiwan Daily Talk LIVE
+```
+
+LED label：
+
+```txt
+TDT Taiwan Daily Talk
+```
+
+舊字串替換方向：
+
+| 舊 | 新 |
+|---|---|
+| 晚晚嘴台灣 | 天天嘴台灣 |
+| WWT | TDT |
+| Taiwan Tonight | Taiwan Daily Talk |
+| Taiwan Tonight LIVE | Taiwan Daily Talk LIVE |
+
+---
+
+## 六、目前 Assets
+
+### 主持人
+
+| 檔案 | 說明 |
+|---|---|
+| `assets/char_aming_v2_draft.png` | 阿明哥 v2 單張 PNG，目前啟用 |
+| `assets/char_xiaomei_v2_draft.png` | 小美姐 v2 單張 PNG，目前啟用 |
+| `assets/char_aming.png` | 舊版阿明 spritesheet，保留回退 |
+| `assets/char_xiaomei.png` | 舊版小美 spritesheet，保留回退 |
+
+### 背景
+
+| 檔案 | 說明 |
+|---|---|
+| `assets/wwt_studio_background_morning_v1.png` | 時段背景素材，注意目前 key / 檔名曾因視覺判定交換 |
+| `assets/wwt_studio_background_noon_v1.png` | 時段背景素材，注意目前 key / 檔名曾因視覺判定交換 |
+| `assets/wwt_studio_background_night_v1.png` | 夜晚背景素材 |
+| `assets/wwt_studio_background_v1.png` | 初版背景概念，可作備份 |
+
+### Legacy / 目前少用
+
+| 檔案 | 說明 |
+|---|---|
+| `assets/desk.png` | 舊桌子，Phase 3 新背景下已停用 render |
+| `assets/office-complete.png` | 舊交易中心背景，保留回退 |
+| `assets/1.png` | 舊牆面螢幕圖，Phase 3 已停用 |
+
+---
+
+## 七、背景時段與 Crossfade
+
+目前 `OfficeScene.js` 使用本機時間計算背景 mix。
+
+### 穩定時段
+
+```txt
+06:30 - 14:29  morning
+15:30 - 16:59  noon
+18:00 - 05:29  night
+```
+
+### Crossfade 時段
+
+```txt
+05:30 - 06:30  night → morning
+14:30 - 15:30  morning → noon
+17:00 - 18:00  noon → night
+```
+
+實作方式：
+
+- `bgBase` alpha = 1
+- `bgNext` alpha = 0~1
+- 每 60 秒更新一次 alpha
+- 不 tween，不重建 scene
+- 不新增 API / state 欄位
+
+> 注意：Claude 回報曾提到 `studio_bg_morning` 與 `studio_bg_noon` 的實際 PNG 檔案依視覺結果交換過。未來若調整，請以 `BootScene.js` 實際 key 對應為準，不要只看檔名。
+
+---
+
+## 八、主持人目前策略
+
+### Movement Frozen
+
+主持人已凍結走動邏輯。
+
+目前要求：
+
+- 阿明哥固定站左側
+- 小美姐固定站右側
+- 不 wander
+- 不 lane walking
+- 不 random movement
+- 不 tween 移動角色座標
+
+保留：
+
+- `sprite.play(idle / typing / thinking / reacting)`
+- speaker status 切換
+- bubble show / hide
+- dialogue chunking
+
+### 下一階段角色表現方式
+
+之後不要再做走動系統。  
+請改用動作圖 / 表情圖來表現狀態：
+
+- idle
+- talking
+- thinking
+- reaction
+- happy / serious / surprised 等 emotion
+
+---
+
+## 九、Dialogue Bubble 現況
+
+目前對話泡泡：
+
+- 放在角色頭部旁
+- 阿明使用橘色框
+- 小美使用青色框
+- 長台詞會自動切成多個 bubble chunk
+- 不再直接截斷吃字
+
+切分規則：
+
+- 優先用 `，。！？、；：` 斷句
+- 無標點才依字數切
+- 同 speaker chunks 連續播放
+- 每段約 2.8 秒以上
+
+已知小瑕疵：
+
+- 小美泡泡偶爾可能略靠近角色上半身，但目前可接受
+
+---
+
+## 十、TOP5 / Status Panel 現況
+
+TOP5：
+
+- 右下背景已有內建框
+- 程式只保留 title 與 keywords 文字
+- 不再恢復 graphics 外框
+- 橘白單色系
+
+右上 Status Panel：
+
+- 已改為較融入背景的深藍黑
+- 橘色邊框降低亮度
+- 內容邏輯不變
+
+---
+
+## 十一、State Schema
 
 ```json
 {
-  "updated_at":    "14:30:00",
-  "scene":         "studio",
-  "mode":          "discussion",    // idle | discussion | working | coffee
-  "topic":         "台積電再創新高",
+  "updated_at": "14:30:00",
+  "scene": "studio",
+  "mode": "discussion",
+  "topic": "台積電再創新高",
   "topic_summary": "",
-  "mood":          "heated",        // neutral | heated | cold
-  "activity":      "prepare_show",
-  "keywords":      ["台積電", "半導體", "AI", "外資", "股市"],
+  "mood": "heated",
+  "activity": "prepare_show",
+  "keywords": ["台積電", "半導體", "AI", "外資", "股市"],
   "keywords_locked": false,
   "hosts": {
-    "aming":   { "status": "talking", "last_output": "...", "emotion": "neutral" },
-    "xiaomei": { "status": "thinking", "last_output": "...", "emotion": "neutral" }
+    "aming": {
+      "status": "talking",
+      "last_output": "...",
+      "emotion": "neutral"
+    },
+    "xiaomei": {
+      "status": "thinking",
+      "last_output": "...",
+      "emotion": "neutral"
+    }
   }
 }
 ```
 
+目前不要改 schema。後續若要加入更細表情，可先使用既有 `emotion` 欄位，不急著新增欄位。
+
 ---
 
-## 六、API 使用方式
+## 十二、API 使用方式
 
-### 設定話題（啟動討論模式）
+### 設定話題
 
 ```powershell
-# PowerShell（中文需 UTF-8 bytes）
 $body = [System.Text.Encoding]::UTF8.GetBytes('{"topic":"台積電再創新高"}')
 Invoke-WebRequest -Method POST -Uri "http://localhost:8765/api/topic" `
   -ContentType "application/json; charset=utf-8" -Body $body
-```
-
-```bash
-# ASCII topic（curl 可直接用）
-curl -X POST http://localhost:8765/api/topic \
-  -H "Content-Type: application/json" \
-  -d '{"topic":"test123"}'
 ```
 
 ### 取得狀態
@@ -154,7 +325,7 @@ curl -X POST http://localhost:8765/api/topic \
 curl http://localhost:8765/api/state
 ```
 
-### 觸發對話生成
+### 觸發對話
 
 ```bash
 curl -X POST http://localhost:8765/api/chat
@@ -162,96 +333,81 @@ curl -X POST http://localhost:8765/api/chat
 
 ---
 
-## 七、視覺焦點層級（Phase 2F 確立）
+## 十三、Phase 歷程摘要
 
-```
-第一焦點：LED 中央螢幕（最大、最亮）
-    ↓
-第二焦點：主持人 + Bubble（18→20px, lineSpacing 8）
-    ↓
-第三焦點：TOP5 熱門榜（右下 408×321 px 純色面板）
-    ↓
-第四焦點：Header / Status Panel（降亮處理）
-```
-
----
-
-## 八、Phase 歷程總結
-
-| Phase | 內容 | 關鍵檔案 |
+| Phase | 內容 | 狀態 |
 |---|---|---|
-| 2C | 角色 PNG spritesheet、desk PNG | BootScene.js、config.js |
-| 2D | Topic pipeline、F2 Debug overlay | server.py、index.html |
-| 2E | AI 對話升級（台灣鄉民人設） | server.py |
-| 2F Step 1 | 固定 1920×1080 + Phaser.Scale.FIT | main.js |
-| 2F Step 2 | 移除 resize handler（世界座標污染修正） | OfficeScene.js |
-| 2F Step 3 | Host Lane Lock（阿明左半場、小美右半場） | OfficeScene.js |
-| 2F Step 4 | 移除 K-line monitor + server_rack 裝飾 + 字體放大 | OfficeScene.js、index.html |
-| 2F Step 5~5.3 | TOP5 排名榜、bubble 放大、移除烘焙彩色列框 | OfficeScene.js、index.html |
-| 2G | End-to-End runtime 驗證（10 項全通過） | — |
-| 2G.1 | Runtime hardening：移除死碼、API fallback、undefined 防護 | OfficeScene.js |
+| 2C | 角色 PNG / desk PNG | 完成 |
+| 2D | Topic pipeline / F2 debug | 完成 |
+| 2E | AI 對話升級 | 完成 |
+| 2F | 1920×1080、host lane、TOP5、bubble readability | 完成 |
+| 2G | End-to-end runtime / hardening | 完成 |
+| 3 Step 1.2 | 接入阿明 / 小美 v2 sprites | 完成 |
+| 3 Step 2 | 新棚景背景接線 | 完成 |
+| 3 Step 2.3~2.4 | 對話泡泡重定位 + 長台詞 chunks | 完成 |
+| 3 Step 2.5 | TOP5 / Right Panel 對齊 | 完成 |
+| 3 Step 3 | 早中晚背景選擇 | 完成 |
+| 3 Step 3.1 | TDT 改名 + crossfade + freeze movement | 完成 |
 
 ---
 
-## 九、已知死碼（無害，可日後清理）
+## 十四、下一步建議
 
-| 位置 | 項目 | 說明 |
-|---|---|---|
-| OfficeScene.js | `KEYWORD_COLORS` | `_renderKeywords` 已改用橘/白直接指定，此常數未使用 |
-| OfficeScene.js | `HOST_LANES` | `_clampToLane` 直接用 `LANE_MARGIN`，此常數未使用 |
-| OfficeScene.js | `wbOff` | `_buildDecorations` 改用 optional chaining，此變數未使用 |
-| config.js | `backRowOffsetY` 等舊版欄位 | 保留避免 undefined 報錯，實際未使用 |
+### Phase 3 Step 4 — Host Action & Expression Assets
 
-> ⚠️ **行號不記錄**：表格中已移除行號。OfficeScene.js 每次修改後行號即失準，接手時請用關鍵字搜尋（如 `KEYWORD_COLORS`、`wbOff`）定位，不要依賴行號。
+目標：
 
----
+- 不走動
+- 固定站位
+- 用動作圖 / 表情圖表示主持狀態
 
-## 十、下一階段：Phase 3（Asset 替換）
+建議先做小美或阿明其中一人，避免一次炸掉：
 
-**暫停美術的範圍（Phase 2F 規定）：**
-- 主持人造型（sprites）
-- 桌子
-- 背景
-- 整體像素藝術風格
+```txt
+char_xiaomei_idle.png
+char_xiaomei_talking.png
+char_xiaomei_thinking.png
+char_xiaomei_reacting.png
+```
 
-**Phase 3 建議替換順序：**
+或：
 
-> ⚠️ **不要一開始就換背景。** 背景一換，安全區、LED 位置、TOP5 板、人物座標可能一起跑版，難以逐一排查。
+```txt
+char_aming_idle.png
+char_aming_talking.png
+char_aming_thinking.png
+char_aming_reacting.png
+```
 
-| 順序 | 工作 | 原因 |
-| --- | --- | --- |
-| 1 | Replace Host Sprites | 影響範圍最小，只牽涉 spritesheet frame |
-| 2 | Replace Desk | 桌子尺寸改變 → 調 config.js scale |
-| 3 | 調 bubble / 主持人站位 | 確認人物在桌後、bubble 不超出畫面 |
-| 4 | Replace Background | 最後換，此時 safe area 已確立，才能安全調整 |
+Claude 接線時只做：
 
-**替換步驟（每項）：**
-1. 更換 `assets/` 下對應 PNG 檔案
-2. 在 `config.js` 的 `customAssets` 中將對應 key 改為 `true`
-3. 若新圖**尺寸與現有不同**，還需要：
-   - 調整 `config.js` 的 `scale.*` 數值（縮放比例）
-   - 若是 spritesheet，調整 `BootScene.js` 的 frame 寬高設定（`frameWidth`、`frameHeight`）
-   - 若 anchor 位置不對，調整 OfficeScene.js 的 `setOrigin` 或座標偏移
+- load image / spritesheet
+- 根據 `status` 播放對應 frame
+- 不改 API
+- 不改站位
+- 不恢復 walking
 
 ---
 
-## 十一、重要注意事項
+## 十五、重要注意事項
 
 | 事項 | 說明 |
 |---|---|
-| 中文 API 傳輸 | Windows CMD curl 會 ANSI 編碼，用 PowerShell `Invoke-WebRequest` + UTF-8 bytes |
-| 瀏覽器快取 | 改 JS/CSS 後需 **Ctrl+Shift+R** 強制重整（ES module 快取） |
-| OBS 設定 | 瀏覽器來源，1920×1080，無縮放 |
-| .gitignore | `.env`、`wwt_state.json`、`command_center_state.json`、`*.tmp` 不進 git |
-| BootScene 彩色列框 | `_makeWhiteboard()` texture 有烘焙彩色 row，OfficeScene 已改用 `graphics` 繪製取代，texture 不再被渲染 |
+| 中文 API 傳輸 | Windows CMD curl 可能 ANSI 編碼，PowerShell 用 UTF-8 bytes 最穩 |
+| 瀏覽器快取 | 改 JS/CSS 後請 `Ctrl+Shift+R` |
+| OBS | Browser Source, 1920×1080 |
+| Git | `.env`、`wwt_state.json` 不要進 git |
+| Google Drive | 適合放素材 / 備份，不建議當主要程式碼版本控管 |
+| GitHub | 程式碼與 assets 最好 commit/push，同步到家裡電腦 |
 
 ---
 
-## 十二、快速 Debug 工具
+## 十六、快速 Debug
 
 | 工具 | 說明 |
 |---|---|
-| **F2 鍵** | 開啟/關閉 debug overlay（mode、topic、keywords、resolution） |
-| `GET /api/state` | 即時查看完整 state JSON |
-| `wwt_state.json` | 直接查看/修改持久化 state |
-| Console | API 失敗時會顯示 `[WWT] /api/state ...` warning |
+| F2 | Debug overlay |
+| `GET /api/state` | 查看完整 state |
+| `wwt_state.json` | 查看目前持久化狀態 |
+| Console | 背景 key / API warning 會在 console 顯示 |
+

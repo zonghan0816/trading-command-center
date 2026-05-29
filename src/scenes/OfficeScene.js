@@ -40,9 +40,14 @@ export class OfficeScene extends Phaser.Scene {
       this._demoStep = 0;
       this._chatInProgress = false;
 
+      this._freezeMovement = true; // Part 3: 凍結走動，改用動作圖表現狀態
+
       this._buildBackground();
       this._buildDecorations();
       this._buildWorkstations();
+
+      // Part 2: 每 60 秒更新 crossfade alpha（長時間直播不中斷時背景慢慢變）
+      this.time.addEvent({ delay: 60000, callback: this._updateBackgroundMix, callbackScope: this, loop: true });
       // this._buildSign(); // Phase 3: 新背景已有完整節目棚，暫停舊招牌
 
       // 嘗試連 API；離線時自動啟動 Demo 步驟序列
@@ -61,12 +66,54 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // ── 背景 ──────────────────────────────────────────────────────
+  _getTimeOfDayBackgroundMix() {
+    const now  = new Date();
+    const mins = now.getHours() * 60 + now.getMinutes();
+    const clamp = (v) => Math.min(1, Math.max(0, v));
+
+    // 過渡：night → morning  05:30–06:30  (330–390)
+    if (mins >= 330 && mins < 390)
+      return { base: 'studio_bg_night',   next: 'studio_bg_morning', alpha: clamp((mins - 330) / 60) };
+    // 穩定：morning           06:30–14:29  (390–869)
+    if (mins >= 390 && mins < 870)
+      return { base: 'studio_bg_morning', next: null, alpha: 0 };
+    // 過渡：morning → noon    14:30–15:30  (870–930)
+    if (mins >= 870 && mins < 930)
+      return { base: 'studio_bg_morning', next: 'studio_bg_noon',    alpha: clamp((mins - 870) / 60) };
+    // 穩定：noon              15:30–16:59  (930–1019)
+    if (mins >= 930 && mins < 1020)
+      return { base: 'studio_bg_noon',    next: null, alpha: 0 };
+    // 過渡：noon → night      17:00–18:00  (1020–1080)
+    if (mins >= 1020 && mins < 1080)
+      return { base: 'studio_bg_noon',    next: 'studio_bg_night',   alpha: clamp((mins - 1020) / 60) };
+    // 穩定：night             18:00–05:29
+    return { base: 'studio_bg_night', next: null, alpha: 0 };
+  }
+
   _buildBackground() {
-    // Phase 3 Step 2：WWT 節目棚背景（夜晚版），舊 office_bg 已停用
-    this.add.image(0, 0, 'studio_bg_night')
-      .setOrigin(0, 0)
-      .setDepth(0)
-      .setDisplaySize(this.W, this.H);
+    const mix = this._getTimeOfDayBackgroundMix();
+    console.info('[TDT] bg:', mix.base, mix.next ? `→ ${mix.next} α=${mix.alpha.toFixed(2)}` : '');
+    this.bgBase = this.add.image(0, 0, mix.base)
+      .setOrigin(0, 0).setDepth(0).setDisplaySize(this.W, this.H);
+    this.bgNext = mix.next
+      ? this.add.image(0, 0, mix.next).setOrigin(0, 0).setDepth(0.1).setDisplaySize(this.W, this.H).setAlpha(mix.alpha)
+      : null;
+  }
+
+  _updateBackgroundMix() {
+    const mix = this._getTimeOfDayBackgroundMix();
+    if (this.bgBase) this.bgBase.setTexture(mix.base);
+    if (mix.next) {
+      if (!this.bgNext) {
+        this.bgNext = this.add.image(0, 0, mix.next)
+          .setOrigin(0, 0).setDepth(0.1).setDisplaySize(this.W, this.H);
+      } else {
+        this.bgNext.setTexture(mix.next);
+      }
+      this.bgNext.setAlpha(mix.alpha);
+    } else if (this.bgNext) {
+      this.bgNext.setAlpha(0);
+    }
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
@@ -86,8 +133,8 @@ export class OfficeScene extends Phaser.Scene {
     // TOP5 背景/外框已停用（新背景內建右下框，避免雙框）
     // 文字元素保留在下方
 
-    // TOP5 標題
-    this.add.text(wbCX, wbTopY + 14, '▸ TOP 5', {
+    // TOP5 標題（Fix 2.5: 往下 8px，略往右對齊背景框）
+    this.add.text(wbCX + 10, wbTopY + 22, '▸ TOP 5', {
       fontSize: '18px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
       shadow: { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 8, fill: true },
     }).setOrigin(0.5, 0).setDepth(28.5);
@@ -145,15 +192,39 @@ export class OfficeScene extends Phaser.Scene {
         fontFamily: 'Consolas, monospace',
       }).setOrigin(0.5, 1).setDepth(depth + 2);
 
-      // 對話泡泡（往上移避免貼角色）
-      const bubbleBg = this.add.image(charX, charY - 117, 'bubble_bg')
-        .setOrigin(0.5, 1).setDepth(depth + 3).setAlpha(0)
-        .setDisplaySize(290, 54);
-      const bubbleText = this.add.text(charX, charY - 140, '', {
-        fontSize: '20px', color: '#D8EEFB',
-        fontFamily: 'Consolas, monospace',
-        lineSpacing: 8,
-        wordWrap: { width: 270, useAdvancedWrap: true }, align: 'center',
+      // 對話泡泡：放在頭部旁（阿明左側、小美右側）
+      const charHeight = isV2
+        ? Math.round(1536 * (S.characterV2 ?? 0.28))
+        : Math.round(64 * S.character);
+      const bW = 400, bH = 115;
+      const accentColor = (id === 'aming') ? 0xFF8C00 : 0x00E5FF;
+
+      // 角色顯示寬度（v2 = 1024 * 0.28 ≈ 287px）
+      const charWidth = isV2
+        ? Math.round(1024 * (S.characterV2 ?? 0.28))
+        : Math.round(48 * S.character);
+
+      const headTopY = charY - charHeight;
+      // 泡泡從角色邊緣外側開始，不覆蓋身體
+      let bCX = (id === 'aming')
+        ? Math.max(40 + bW / 2, charX - charWidth / 3 - bW / 2)   // 阿明：1/3 sprite 寬偏移
+        : Math.min(1880 - bW / 2, charX + charWidth / 3 + bW / 2); // 小美：1/3 sprite 寬偏移
+      let bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
+
+      // Graphics 用相對座標建立（定位在 bCX, bCY），setPosition 才能正確移動
+      const bubbleBg = this.add.graphics({ x: bCX, y: bCY });
+      bubbleBg.fillStyle(0x071828, 0.95);
+      bubbleBg.fillRoundedRect(-bW / 2, -bH / 2, bW, bH, 12);
+      bubbleBg.lineStyle(2, accentColor, 0.85);
+      bubbleBg.strokeRoundedRect(-bW / 2, -bH / 2, bW, bH, 12);
+      bubbleBg.setDepth(depth + 3).setAlpha(0);
+
+      const bubbleText = this.add.text(bCX, bCY, '', {
+        fontSize: '20px', color: '#E8F4FF',
+        fontFamily: '"Microsoft JhengHei", "PingFang TC", Arial, sans-serif',
+        lineSpacing: 6,
+        padding: { x: 0, y: 6 },
+        wordWrap: { width: bW - 44, useAdvancedWrap: true }, align: 'center',
       }).setOrigin(0.5, 0.5).setDepth(depth + 3.1).setAlpha(0);
 
       this.characters[id] = {
@@ -161,6 +232,8 @@ export class OfficeScene extends Phaser.Scene {
         x: charX, homeY: charY, state: 'idle', bubbleVisible: false,
         isWalking: false, floatTween: null,
         depth,
+        bubbleXOff: bCX - charX,   // 泡泡相對角色的 X 偏移（正=右，負=左）
+        bubbleYOff: bCY - charY,   // 泡泡相對角色的 Y 偏移
       };
     });
 
@@ -209,9 +282,9 @@ export class OfficeScene extends Phaser.Scene {
     this._kwTexts = [];
 
     const RANKS = ['①', '②', '③', '④', '⑤'];
-    const boardLeft = this._kwBaseX - 192;
+    const boardLeft = this._kwBaseX - 178;  // Fix 2.5: 整體右移 14px
     kws.forEach((kw, i) => {
-      const y = this._kwBaseY + 54 + i * 46;
+      const y = this._kwBaseY + 50 + i * 36;  // Fix 2.5: row spacing 46→36
       const isFirst = i === 0;
       const rn = this.add.text(boardLeft, y, RANKS[i] ?? '', {
         fontSize: '17px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
@@ -270,14 +343,17 @@ export class OfficeScene extends Phaser.Scene {
 
       if (justBecameActive) {
         if (mod.last_output) {
-          ch.bubbleText.setText(mod.last_output.slice(0, 50));
+          ch.bubbleText.setText(mod.last_output.slice(0, 80));
           this._showBubble(id);
         }
         if (['talking', 'researching'].includes(mod.status) && !ch.isWalking) {
           ch.sprite.play(`${id}_typing`);
-          const targets = DATA_FLOWS[id] || [];
-          if (targets.length > 0 && this.characters[targets[0]]) {
-            this._walkTo(id, targets[0], () => this._walkHome(id));
+          // Part 3: 移動凍結，不再走到其他角色
+          if (!this._freezeMovement) {
+            const targets = DATA_FLOWS[id] || [];
+            if (targets.length > 0 && this.characters[targets[0]]) {
+              this._walkTo(id, targets[0], () => this._walkHome(id));
+            }
           }
         } else if (['thinking', 'reacting'].includes(mod.status)) {
           ch.sprite.play(`${id}_thinking`);
@@ -424,6 +500,7 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   _walkHome(id, onComplete) {
+    if (this._freezeMovement) { if (onComplete) onComplete(); return; }
     const ch = this.characters[id];
     if (!ch) { if (onComplete) onComplete(); return; }
 
@@ -463,9 +540,12 @@ export class OfficeScene extends Phaser.Scene {
   _syncBubble(id) {
     const ch = this.characters[id];
     if (!ch) return;
-    const sx = ch.sprite.x, sy = ch.sprite.y;
-    ch.bubbleBg.setPosition(sx, sy - 52);
-    ch.bubbleText.setPosition(sx, sy - 83);
+    const sx = ch.sprite.x;
+    // 使用建立時算好的偏移量（bubbleXOff / bubbleYOff），讓泡泡跟著角色 X 移動
+    const bX = sx + (ch.bubbleXOff ?? 0);
+    const bY = ch.homeY + (ch.bubbleYOff ?? -140);
+    ch.bubbleBg.setPosition(bX, bY);
+    ch.bubbleText.setPosition(bX, bY);
   }
 
   // Phase 2F Step 3: 將 X 座標限制在主持人所屬半場（防止 crossing）
@@ -480,7 +560,7 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch || !this.state) return;
     if (ch.typingTimer) { ch.typingTimer.remove(); ch.typingTimer = null; }
-    const full = (this.state.hosts?.[id]?.last_output || '思考中...').slice(0, 60);
+    const full = (this.state.hosts?.[id]?.last_output || '思考中...').slice(0, 80);
     let i = 0;
     this._showBubble(id);
     ch.typingTimer = this.time.addEvent({
@@ -598,12 +678,30 @@ export class OfficeScene extends Phaser.Scene {
       });
     };
 
-    if (targetId && this.characters[targetId]) {
+    // Part 3: 移動凍結 → 直接開始對話，不走動
+    if (!this._freezeMovement && targetId && this.characters[targetId]) {
       this._triggerDataFlow(walkerId, targetId);
       this._walkTo(walkerId, targetId, afterWalk);
     } else {
-      this.time.delayedCall(500, afterWalk);
+      this.time.delayedCall(300, afterWalk);
     }
+  }
+
+  _chunkText(text, maxLen = 32) {
+    const PUNCTS = new Set(['，', '。', '！', '？', '、', '；', '：']);
+    const chunks = [];
+    let s = text;
+    while (s.length > 0) {
+      if (s.length <= maxLen) { chunks.push(s); break; }
+      let cut = -1;
+      for (let i = Math.min(maxLen, s.length) - 1; i >= 8; i--) {
+        if (PUNCTS.has(s[i])) { cut = i + 1; break; }
+      }
+      if (cut <= 0) cut = maxLen;
+      chunks.push(s.slice(0, cut));
+      s = s.slice(cut);
+    }
+    return chunks;
   }
 
   _playLineSequence(lines, walkerId, onComplete) {
@@ -616,22 +714,28 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
-    ch.bubbleText.setText(line.text.slice(0, 36));
-    ch.sprite.play(`${line.speaker}_typing`);
-    this._showBubble(line.speaker);
-    if (line.speaker === walkerId) this._syncBubble(walkerId);
+    const chunks = this._chunkText(line.text);
+    const chunkMs = (chunk) => Math.max(2800, 2500 + Math.floor(chunk.length / 10) * 350);
 
-    // 依文字長度計算顯示時間（最短 2.5s，每多 10 字加 0.3s）
-    const readMs = Math.max(2500, 2500 + Math.floor(line.text.length / 10) * 300);
-
-    this.time.delayedCall(readMs, () => {
-      this._hideBubble(line.speaker);
-      if (line.speaker !== walkerId) {
-        ch.sprite.play(`${line.speaker}_idle`);
+    const showChunks = (idx) => {
+      if (idx >= chunks.length) {
+        this._hideBubble(line.speaker);
+        if (line.speaker !== walkerId) {
+          ch.sprite.play(`${line.speaker}_idle`);
+        }
+        this.time.delayedCall(500, () => this._playLineSequence(rest, walkerId, onComplete));
+        return;
       }
-      // 說完後停頓 500ms 再換下一句
-      this.time.delayedCall(500, () => this._playLineSequence(rest, walkerId, onComplete));
-    });
+      ch.bubbleText.setText(chunks[idx]);
+      if (idx === 0) {
+        ch.sprite.play(`${line.speaker}_typing`);
+        this._showBubble(line.speaker);
+        if (line.speaker === walkerId) this._syncBubble(walkerId);
+      }
+      this.time.delayedCall(chunkMs(chunks[idx]), () => showChunks(idx + 1));
+    };
+
+    showChunks(0);
   }
 
   // ── Demo 步驟序列（無 API 時的備援，一次只跑一步）─────────
@@ -655,7 +759,7 @@ export class OfficeScene extends Phaser.Scene {
 
     const text = (this._usingRealAPI && this.state?.hosts?.[id]?.last_output) || out;
     ch.state = 'running';
-    ch.bubbleText.setText(text.slice(0, 60));
+    ch.bubbleText.setText(text.slice(0, 80));
     ch.sprite.play(`${id}_typing`);
     this._showBubble(id);
 
@@ -666,7 +770,8 @@ export class OfficeScene extends Phaser.Scene {
       this.time.delayedCall(800, this._fetchAndPlayDialogue, [], this);
     };
 
-    if (flow && this.characters[flow]) {
+    // Part 3: 移動凍結 → 不走動
+    if (!this._freezeMovement && flow && this.characters[flow]) {
       this._triggerDataFlow(id, flow);
       this._walkTo(id, flow, () => this._walkHome(id, done));
     } else {
