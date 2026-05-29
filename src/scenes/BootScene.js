@@ -34,7 +34,10 @@ export class BootScene extends Phaser.Scene {
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    if (ca.char_xiaomei_v2) {
+    // Phase 3 Step 4: 小美 actions spritesheet 優先（1024×1536 × 6 frames）
+    if (ca.char_xiaomei_actions) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    } else if (ca.char_xiaomei_v2) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
     } else if (ca.char_xiaomei) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 48, frameHeight: 64 });
@@ -509,10 +512,31 @@ export class BootScene extends Phaser.Scene {
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
         });
+      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_actions) {
+        // Phase 3 Step 4: 小美 actions spritesheet（1024×1536 × 6 frames）
+        // frame 0=idle, 1=talking, 2=thinking, 3=reacting, 4=pointing, 5=tired
+        // Phase 3 Step 5: 新增 pointing / tired 動作、供 _chooseLineAction 依台詞語氣切換
+        const FRAME_MAP = {
+          idle:     0,
+          talking:  1,
+          typing:   1,  // legacy alias（對話進行中時部分舊路徑仍呼叫 typing）
+          thinking: 2,
+          reacting: 3,
+          pointing: 4,  // Phase 3 Step 5
+          tired:    5,  // Phase 3 Step 5
+        };
+        Object.entries(FRAME_MAP).forEach(([anim, frame]) => {
+          this.anims.create({
+            key: `${role.id}_${anim}`,
+            frames: [{ key: texKey, frame }],
+            frameRate: 1, repeat: -1,
+          });
+        });
       } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming_v2) ||
                  (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2)) {
         // v2 draft 單張 PNG（1024×1536，只有 frame 0）
-        ['idle', 'typing', 'thinking', 'reacting'].forEach(anim => {
+        // 加入 talking 同義動畫、讓阿明在新 status 切換邏輯下行為不變
+        ['idle', 'typing', 'talking', 'thinking', 'reacting'].forEach(anim => {
           this.anims.create({
             key: `${role.id}_${anim}`,
             frames: [{ key: texKey, frame: 0 }],

@@ -127,6 +127,10 @@ export const CONFIG = {
   //  true  = 載入 assets/ 資料夾中對應的 .png 檔
   //
   customAssets: {
+    // Phase 3 Step 4: 小美動作 spritesheet（1024×1536 × 6 frames，優先於 v2）
+    // frame 0=idle, 1=talking, 2=thinking, 3=reacting, 4=pointing, 5=tired
+    char_xiaomei_actions: true,
+
     // 角色 v2 draft（Phase 3 Step 1.2 測試用，優先於 v1）
     char_aming_v2:   true,
     char_xiaomei_v2: true,

@@ -41,6 +41,7 @@ export class OfficeScene extends Phaser.Scene {
       this._chatInProgress = false;
 
       this._freezeMovement = true; // Part 3: 凍結走動，改用動作圖表現狀態
+      this._dialogueSeq = 0;       // Phase 3 Step 5.1: dialogue 播放 token、避免舊 delayedCall 串到新一輪
 
       this._buildBackground();
       this._buildDecorations();
@@ -347,7 +348,8 @@ export class OfficeScene extends Phaser.Scene {
           this._showBubble(id);
         }
         if (['talking', 'researching'].includes(mod.status) && !ch.isWalking) {
-          ch.sprite.play(`${id}_typing`);
+          // Phase 3 Step 4: talking 用 _talking 動畫（小美 actions frame 1）
+          ch.sprite.play(`${id}_talking`);
           // Part 3: 移動凍結，不再走到其他角色
           if (!this._freezeMovement) {
             const targets = DATA_FLOWS[id] || [];
@@ -355,8 +357,12 @@ export class OfficeScene extends Phaser.Scene {
               this._walkTo(id, targets[0], () => this._walkHome(id));
             }
           }
-        } else if (['thinking', 'reacting'].includes(mod.status)) {
+        } else if (mod.status === 'thinking') {
           ch.sprite.play(`${id}_thinking`);
+          this._animateTyping(id);
+        } else if (mod.status === 'reacting') {
+          // Phase 3 Step 4: reacting 獨立分支、播 _reacting（小美 actions frame 3）、不再落到 thinking
+          ch.sprite.play(`${id}_reacting`);
           this._animateTyping(id);
         }
       } else if (justBecameInactive && !ch.isWalking) {
@@ -594,40 +600,26 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // ── HTML 狀態面板 ────────────────────────────────────────────
+  // Phase 3 Step 5.2: 移除 host 區塊（跟泡泡重複、且容易跟泡泡播放不同步）
+  // 目前只留 topic / mode / 時間；後續再決定 topic / 時間 該擺哪
   _updateHTMLPanel(data) {
     const list   = document.getElementById('module-list');
     const timeEl = document.getElementById('update-time');
     if (!list || !timeEl) return;
 
-    const labels    = { aming: '阿明哥', xiaomei: '小美姐' };
-    const hostColor = { aming: '#FF8C00', xiaomei: '#00E5FF' };
-    const modeMap   = { discussion: '討論中', working: '工作中', coffee: '茶水間', idle: '待機' };
+    const modeMap = { discussion: '討論中', idle: '待機' };  // working / coffee 為 legacy、已不使用
 
-    // 話題列（最高層級）
+    // 話題列
     const topicLine = data.topic
       ? `<div style="font-size:15px;font-weight:bold;color:#FF8C55;margin-bottom:8px;white-space:normal;line-height:1.4;">📌 ${data.topic}</div>`
       : '';
 
-    // 模式（降低權重）
+    // 模式
     const modeLabel    = modeMap[data.mode] || data.mode || '—';
     const activityNote = (data.activity && data.activity !== 'idle') ? ` · ${data.activity}` : '';
     const modeLine     = `<div style="font-size:11px;opacity:0.65;margin-bottom:10px;">模式：${modeLabel}${activityNote}</div>`;
 
-    // 主持人狀態（橘/青色區分）
-    const hostLines = Object.entries(data.hosts || {}).map(([id, mod]) => {
-      if (!mod) return '';
-      const status  = mod.status || 'idle';
-      const output  = mod.last_output ? String(mod.last_output).slice(0, 45) : '—';
-      return `
-        <div class="module-status">
-          <div class="status-dot ${status}"></div>
-          <div class="module-name" style="color:${hostColor[id] || '#A8C0D8'};font-weight:bold;">🎙 ${labels[id] || id}</div>
-        </div>
-        <div class="module-output">${output}</div>
-      `;
-    }).join('');
-
-    list.innerHTML = topicLine + modeLine + hostLines;
+    list.innerHTML = topicLine + modeLine;
     timeEl.textContent = `更新 ${data.updated_at || '—'}`;
   }
 
@@ -635,12 +627,15 @@ export class OfficeScene extends Phaser.Scene {
   async _fetchAndPlayDialogue() {
     if (this._chatInProgress) return;
     this._chatInProgress = true;
+    // Phase 3 Step 5.1: 每一輪 dialogue 一個 seq token、後續 delayedCall 對 seq 不一致就 return
+    this._dialogueSeq = (this._dialogueSeq || 0) + 1;
+    const seq = this._dialogueSeq;
     try {
       const res = await fetch('/api/chat', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         if (data.dialogue && data.dialogue.length >= 2) {
-          this._playDialogue(data.dialogue);
+          this._playDialogue(data.dialogue, seq);
           return;
         }
       }
@@ -650,7 +645,8 @@ export class OfficeScene extends Phaser.Scene {
     this.time.delayedCall(3000, this._fetchAndPlayDialogue, [], this);
   }
 
-  _playDialogue(lines) {
+  _playDialogue(lines, seq) {
+    if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
     const walkerId = lines[0].speaker;
     const targetId = lines.find((l, i) => i > 0 && l.speaker !== walkerId)?.speaker;
     const walker   = this.characters[walkerId];
@@ -661,20 +657,31 @@ export class OfficeScene extends Phaser.Scene {
       return;
     }
 
-    // 走路時不顯示泡泡 — 到達後才開始逐句對話
-    const walkerAnim = `${walkerId}_typing`;
+    // Phase 3 Step 4: movement frozen → walker 直接進入 talking 狀態
+    const walkerAnim = this._freezeMovement ? `${walkerId}_talking` : `${walkerId}_typing`;
     walker.sprite.play(walkerAnim);
-    this._updateHTMLPanel(this._buildPanelData());
+    // Phase 3 Step 5.1: 移除 _updateHTMLPanel(_buildPanelData())、避免假 state（topic=''、mode='idle'）覆蓋真實 polled state；
+    // 改由 _pollState 維持 panel；chat 進行中 host 區塊已透過 skipHostLines 凍結
 
     const afterWalk = () => {
+      if (seq !== this._dialogueSeq) return;
       // 短暫停頓後開始逐句
       this.time.delayedCall(300, () => {
+        if (seq !== this._dialogueSeq) return;
         this._playLineSequence(lines, walkerId, () => {
+          if (seq !== this._dialogueSeq) return;
+          // Phase 3 Step 6.2: 整輪結束、確保兩主持人都回 idle + 收所有泡泡（防殘留）
+          this._returnHostToIdle('aming');
+          this._returnHostToIdle('xiaomei');
+          this._hideBubble('aming');
+          this._hideBubble('xiaomei');
           this._walkHome(walkerId, () => {
+            if (seq !== this._dialogueSeq) return;
             this._chatInProgress = false;
-            this.time.delayedCall(1500, this._fetchAndPlayDialogue, [], this);
+            // Phase 3 Step 5.1: next dialogue gap 1500 → 1100、節奏稍快
+            this.time.delayedCall(1100, this._fetchAndPlayDialogue, [], this);
           });
-        });
+        }, seq);
       });
     };
 
@@ -685,6 +692,82 @@ export class OfficeScene extends Phaser.Scene {
     } else {
       this.time.delayedCall(300, afterWalk);
     }
+  }
+
+  /**
+   * Phase 3 Step 5: 依台詞語氣選動作（只對小美生效）
+   * 阿明 / 其他角色：永遠回傳 `${id}_${fallbackStatus}`（預設 talking、行為與 Step 4 等價）
+   * 小美：依關鍵字命中、優先順序 reacting > tired > pointing > thinking > talking
+   *
+   * Phase 3 Step 6.2 擴充：
+   * - PHRASE_OVERRIDE 多字片語優先判斷（更精準、避免單字誤命中）
+   * - PATTERN_ORDER 補上經濟壓力 / 反諷 / 嘆氣常見詞
+   *
+   * 不改 API schema、純前端判斷；emotion 欄位若有未來也可在這裡擴展。
+   */
+  _chooseLineAction(id, text, fallbackStatus = 'talking') {
+    const fallback = `${id}_${fallbackStatus}`;
+    if (id !== 'xiaomei') return fallback;
+
+    const s = String(text || '');
+    if (!s) return fallback;
+
+    // Phase 3 Step 6.2: 多字 phrase 優先 override
+    // 順序對齊整體優先序：reacting > tired > pointing（同 chunk 多個 phrase 命中時、reacting 先勝）
+    const PHRASE_OVERRIDE = [
+      // reacting - 強烈反應（優先序最高）
+      ['完全荒謬',     'reacting'],
+      ['太誇張',       'reacting'],
+      ['怎麼會這樣',   'reacting'],
+      ['不是吧',       'reacting'],
+      ['不可能吧',     'reacting'],
+      ['我看了會瘋',   'reacting'],
+      // tired - 經濟壓力 / 無奈
+      ['誰買得起',     'tired'],
+      ['買不起',       'tired'],
+      ['薪水漲不動',   'tired'],
+      ['漲不動',       'tired'],
+      ['沒辦法',       'tired'],
+      ['受不了',       'tired'],
+      ['沒救了',       'tired'],
+      // pointing - 帶問句指出
+      ['所以呢',       'pointing'],
+      ['重點是',       'pointing'],
+      ['問題在',       'pointing'],
+      ['問題就在',     'pointing'],
+      ['關鍵是',       'pointing'],
+      ['現在就是',     'pointing'],
+    ];
+    for (const [phrase, action] of PHRASE_OVERRIDE) {
+      if (s.includes(phrase)) return `${id}_${action}`;
+    }
+
+    // [action, keywords] — 順序即優先序：reacting > tired > pointing > thinking > talking
+    const PATTERN_ORDER = [
+      ['reacting', ['靠', '真的假的', '怎麼可能', '蛤', '哇', '誒', '啊？', '喔？']],
+      ['tired',    ['唉', '累', '頭痛', '麻煩', '嘆氣', '煩', '失望', '無奈', '房價']],
+      ['pointing', ['重點', '問題', '建議', '其實', '應該', '你看', '關鍵', '我說', '所以']],
+      ['thinking', ['可能', '如果', '不過', '但是', '可是', '風險', '想法', '覺得', '假設']],
+    ];
+
+    for (const [action, keywords] of PATTERN_ORDER) {
+      if (keywords.some(kw => s.includes(kw))) {
+        return `${id}_${action}`;
+      }
+    }
+    return fallback;
+  }
+
+  /**
+   * Phase 3 Step 6.2: 把指定主持人 sprite 回到 idle 姿勢。
+   * - isWalking 中或角色不存在：no-op
+   * - 不改 state、不動 bubble；單純切回 idle 動畫
+   */
+  _returnHostToIdle(id) {
+    const ch = this.characters[id];
+    if (!ch || ch.isWalking) return;
+    ch.state = 'idle';
+    ch.sprite.play(`${id}_idle`);
   }
 
   _chunkText(text, maxLen = 32) {
@@ -704,35 +787,41 @@ export class OfficeScene extends Phaser.Scene {
     return chunks;
   }
 
-  _playLineSequence(lines, walkerId, onComplete) {
+  _playLineSequence(lines, walkerId, onComplete, seq) {
+    if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
     if (lines.length === 0) { onComplete(); return; }
     const [line, ...rest] = lines;
     const ch = this.characters[line.speaker];
 
     if (!ch) {
-      this.time.delayedCall(300, () => this._playLineSequence(rest, walkerId, onComplete));
+      this.time.delayedCall(300, () => this._playLineSequence(rest, walkerId, onComplete, seq));
       return;
     }
 
     const chunks = this._chunkText(line.text);
-    const chunkMs = (chunk) => Math.max(2800, 2500 + Math.floor(chunk.length / 10) * 350);
+    // Phase 3 Step 5.1: 新 chunkMs 公式、節奏稍快但不要快到看不完
+    const chunkMs = (chunk) => Math.min(4200, Math.max(1800, 1400 + chunk.length * 45));
 
     const showChunks = (idx) => {
+      if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
       if (idx >= chunks.length) {
         this._hideBubble(line.speaker);
-        if (line.speaker !== walkerId) {
-          ch.sprite.play(`${line.speaker}_idle`);
-        }
-        this.time.delayedCall(500, () => this._playLineSequence(rest, walkerId, onComplete));
+        // Phase 3 Step 6.2: 完句一律回 idle（不再限定 walkerId、修小美卡在最後動作 bug）
+        this._returnHostToIdle(line.speaker);
+        // Phase 3 Step 5.1: line gap 500 → 300
+        this.time.delayedCall(300, () => this._playLineSequence(rest, walkerId, onComplete, seq));
         return;
       }
-      ch.bubbleText.setText(chunks[idx]);
+      const chunk = chunks[idx];
+      ch.bubbleText.setText(chunk);
+      // Phase 3 Step 6.2: 每個 chunk 都自選 action（不再只 idx===0 選一次）→ 句內也能切多種動作
+      ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking'));
       if (idx === 0) {
-        ch.sprite.play(`${line.speaker}_typing`);
+        // Phase 3 Step 5: 小美生效；阿明維持 talking
         this._showBubble(line.speaker);
         if (line.speaker === walkerId) this._syncBubble(walkerId);
       }
-      this.time.delayedCall(chunkMs(chunks[idx]), () => showChunks(idx + 1));
+      this.time.delayedCall(chunkMs(chunk), () => showChunks(idx + 1));
     };
 
     showChunks(0);
@@ -760,7 +849,8 @@ export class OfficeScene extends Phaser.Scene {
     const text = (this._usingRealAPI && this.state?.hosts?.[id]?.last_output) || out;
     ch.state = 'running';
     ch.bubbleText.setText(text.slice(0, 80));
-    ch.sprite.play(`${id}_typing`);
+    // Phase 3 Step 4: demo 對話也用 _talking 動畫
+    ch.sprite.play(`${id}_talking`);
     this._showBubble(id);
 
     const done = () => {

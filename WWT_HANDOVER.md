@@ -411,3 +411,73 @@ Claude 接線時只做：
 | `wwt_state.json` | 查看目前持久化狀態 |
 | Console | 背景 key / API warning 會在 console 顯示 |
 
+
+---
+
+## 十七、Codex / Claude 協作模式
+
+這個專案目前採用三方分工：使用者負責觀察與決策，Codex 負責素材與指令整理，Claude 負責程式接線與實作。
+
+### 分工原則
+
+| 角色 | 職責 |
+|---|---|
+| 使用者 | 提供畫面截圖、描述觀感、決定下一步方向，例如先做小美、再做阿明、節奏快慢等。 |
+| Codex | 讀交接檔與實作 brief、判斷問題方向、生成或切分圖片素材、產出給 Claude 的 `.md` 指令檔。 |
+| Claude | 依 `.md` 指令檔修改程式、接入 Codex 產出的素材、完成後輸出 implementation brief。 |
+
+### 重要習慣
+
+- Claude 已讀過 `WWT_HANDOVER.md` 時，不要再要求 Claude 重複交接摘要。
+- 給 Claude 的長指令不要貼在聊天對話裡，改成由 Codex 直接產生 `.md` 指令檔。
+- Codex 回覆時只給檔案連結與一句重點，避免聊天變長、變肥。
+- 圖片素材由 Codex 生成、裁切、整理；Claude 只負責把圖接進程式。
+- Claude 不應重新生成圖片，除非使用者明確要求。
+- Claude 完成後，請在專案根目錄新增下一份 implementation brief，例如 `50_PHASE3_STEP5_IMPL_BRIEF.md`。
+- 下一輪 Codex 要先讀最新 implementation brief，再判斷下一步，不要只憑舊交接檔。
+
+### 指令檔命名建議
+
+Codex 產出的 Claude 指令檔可用短名，放在目前 Codex 工作資料夾或使用者指定位置：
+
+```txt
+claude指令檔.md
+claude台詞動作指令檔.md
+claude播放節奏修正指令檔.md
+```
+
+若指令檔需要長期留存，可再請 Claude 或 Codex 複製摘要到專案根目錄的 numbered brief。
+
+### 素材流程
+
+1. 使用者提供參考圖或描述。
+2. Codex 生成 / 裁切 / 命名素材。
+3. 素材若要正式進專案，放到：
+
+```txt
+C:\Users\miner3\trading-command-center\assets
+```
+
+4. Codex 產生 `.md` 指令檔，清楚列出素材檔名與接線規則。
+5. Claude 只做程式接線，不重新做圖。
+6. 使用者用瀏覽器或 OBS 畫面驗收。
+
+### 程式限制繼續沿用
+
+- 不改 API schema，除非使用者明確批准。
+- 不恢復 walking / wander / random movement。
+- 主持人固定站位。
+- `.env`、`wwt_state.json` 不進 git。
+- 改 JS/CSS 後，瀏覽器請用 `Ctrl+Shift+R` 強制重整。
+- 先小步驗收，再擴到下一位主持人或下一個功能。
+
+### 快速開工流程
+
+新聊天或換電腦時，建議順序：
+
+1. Codex 先讀 `WWT_HANDOVER.md`。
+2. Codex 再讀最新的 `*_IMPL_BRIEF.md`。
+3. 使用者貼目前畫面或描述問題。
+4. Codex 若要交給 Claude，直接產生 `.md` 指令檔，不在聊天貼長文。
+5. Claude 照指令檔實作並輸出新的 implementation brief。
+6. 使用者驗收畫面，Codex 再協助判斷下一步。

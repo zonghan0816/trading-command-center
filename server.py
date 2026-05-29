@@ -3,9 +3,12 @@ WWT 晚晚嘴台灣 - FastAPI 伺服器
 啟動: python server.py
 瀏覽: http://localhost:8765
 """
+import asyncio
 import json
 import os
 import random
+import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
 
@@ -42,6 +45,23 @@ _CASUAL_TOPICS = [
     '房價到底什麼時候會跌', '外送平台收太多手續費', '網購退貨很麻煩', '早餐店排隊文化',
 ]
 
+# ── Google News RSS（即時話題來源、Phase 3 Step 6）──────────────
+_GOOGLE_NEWS_TW_RSS = "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+_NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
+_TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
+_MIN_ROUNDS_PER_TOPIC = 5            # 同 topic 至少跑 5 輪不同 tone 才換新話題
+_NEWS_FETCH_LIMIT = 15
+
+# Module-level 新聞快取 + topic round 計數
+_news_topics_cache: list[str] = []
+_current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 topic 後歸 0
+
+# Phase 3 Step 6 擴充：8 種對話 tone（前 4 既有、後 4 新增、給同 topic 不同調性）
+_DIALOGUE_TONES = [
+    "debate", "react", "monologue", "casual",
+    "critical", "mocking", "humorous", "sarcastic",
+]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -51,6 +71,7 @@ app.add_middleware(
 
 _HERE = Path(__file__).parent
 STATE_FILE = _HERE / "wwt_state.json"
+NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
 
 
 def _default_state() -> dict:
@@ -216,6 +237,152 @@ def _save_state(state: dict):
 _save_state(_default_state())
 
 
+# ── Google News RSS 抓取 + 背景任務 ────────────────────────────────
+def _load_news_cache() -> list[str]:
+    """從磁碟 load 上次 fetch 的新聞快取、回傳 list[str]。
+    失敗回 []、不影響服務啟動。
+    """
+    if not NEWS_CACHE_FILE.exists():
+        return []
+    try:
+        data = json.loads(NEWS_CACHE_FILE.read_text(encoding="utf-8"))
+        headlines = data.get("headlines")
+        if isinstance(headlines, list):
+            return [str(h) for h in headlines if h]
+    except Exception as e:
+        print(f"[news] load cache failed: {e}")
+    return []
+
+
+def _save_news_cache(headlines: list[str]) -> None:
+    """把當前快取覆寫到磁碟（replace 策略、舊話題自動被新一輪取代）。"""
+    try:
+        payload = {
+            "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "headlines": [str(h) for h in headlines],
+        }
+        NEWS_CACHE_FILE.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[news] save cache failed: {e}")
+
+
+def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
+    """從 Google News Taiwan RSS 抓即時頭條、回傳乾淨 headline list。
+
+    用 stdlib（urllib + xml.etree）、不引入新依賴。
+    失敗（網路 / 解析錯）回 []、不 raise、不影響服務啟動。
+    Google News title 格式為 "headline - 來源名稱"、會自動去掉尾部來源。
+    """
+    try:
+        req = urllib.request.Request(
+            _GOOGLE_NEWS_TW_RSS,
+            headers={"User-Agent": "Mozilla/5.0 (TDT-WWT/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            xml_bytes = resp.read()
+        root = ET.fromstring(xml_bytes)
+        items = root.findall(".//item")
+        headlines: list[str] = []
+        for item in items[: limit * 2]:  # 多抓一些、過濾後再截
+            title_el = item.find("title")
+            if title_el is None or not title_el.text:
+                continue
+            raw = title_el.text.strip()
+            cleaned = raw.rsplit(" - ", 1)[0].strip()
+            if len(cleaned) < 6:  # 過短的不要
+                continue
+            headlines.append(cleaned)
+            if len(headlines) >= limit:
+                break
+        return headlines
+    except Exception as e:
+        print(f"[news] fetch failed: {e}")
+        return []
+
+
+async def _news_refresh_loop():
+    """背景任務：每 10 分鐘刷新新聞快取。
+    replace 策略：新一輪 fetch 整批覆蓋舊快取（記憶體 + 磁碟）。
+    """
+    global _news_topics_cache
+    while True:
+        try:
+            topics = await asyncio.to_thread(fetch_news_topics)
+            if topics:
+                _news_topics_cache = topics
+                _save_news_cache(topics)  # 覆寫磁碟、舊話題自動被新一輪取代
+                print(f"[news] cache refreshed: {len(topics)} headlines（已存檔）")
+        except Exception as e:
+            print(f"[news] refresh loop error: {e}")
+        await asyncio.sleep(_NEWS_REFRESH_SEC)
+
+
+async def _topic_rotate_loop():
+    """背景任務：每 1 分鐘檢查、條件全滿足才換 topic。
+
+    條件：
+    - news cache 有內容
+    - state.topic_locked == False（手動 POST /api/topic 後會 lock）
+    - _current_topic_rounds >= _MIN_ROUNDS_PER_TOPIC（同 topic 至少跑 N 輪不同 tone）
+
+    若 state.keywords_locked == True、保留手動 keywords、只換 topic。
+    """
+    global _current_topic_rounds
+    await asyncio.sleep(15)  # 啟動後等 15 秒、讓 news cache 先有內容
+    while True:
+        try:
+            if _news_topics_cache and _current_topic_rounds >= _MIN_ROUNDS_PER_TOPIC:
+                st = _load_state()
+                if not st.get("topic_locked"):
+                    chosen = random.choice(_news_topics_cache)
+                    st["topic"]         = chosen
+                    st["topic_summary"] = ""
+                    st["mode"]          = "discussion"
+                    st["mood"]          = "heated"
+                    st["activity"]      = "prepare_show"
+                    st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
+                    # keywords：若沒被手動鎖、跟著新 topic derive
+                    if not st.get("keywords_locked"):
+                        st["keywords"] = derive_keywords(chosen)
+                    _save_state(st)
+                    _current_topic_rounds = 0  # 歸零、新 topic 重新累積回合
+                    print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪）")
+        except Exception as e:
+            print(f"[news] rotate loop error: {e}")
+        await asyncio.sleep(_TOPIC_ROTATE_CHECK_SEC)
+
+
+@app.on_event("startup")
+async def _startup_news_tasks():
+    """啟動時：先 load 磁碟快取（立即可用）→ 背景去 fetch fresh RSS → 起兩個背景任務。
+    若網路掛、靠磁碟上次的快取撐、不影響直播。
+    """
+    global _news_topics_cache
+    # 1. 先 load 磁碟快取（如果有的話、不需等網路）
+    disk_cache = _load_news_cache()
+    if disk_cache:
+        _news_topics_cache = disk_cache
+        print(f"[news] loaded {len(disk_cache)} headlines from disk")
+
+    # 2. 背景去抓 fresh RSS（不阻塞 startup）
+    try:
+        fresh = await asyncio.to_thread(fetch_news_topics)
+        if fresh:
+            _news_topics_cache = fresh
+            _save_news_cache(fresh)  # 覆寫磁碟、舊話題被新一輪取代
+            print(f"[news] initial fetch: {len(fresh)} headlines（已存檔）")
+        elif not disk_cache:
+            print("[news] no disk cache & RSS fetch failed → 等下一輪 refresh")
+    except Exception as e:
+        print(f"[news] initial fetch error: {e}")
+
+    asyncio.create_task(_news_refresh_loop())
+    asyncio.create_task(_topic_rotate_loop())
+
+
 def _build_prompt(state: dict, turn_type: str) -> str:
     """依當前 state 和對話節奏，組出 Claude prompt（Phase 2E Task 5：Topic Driven）"""
     aming_catch   = "、".join(_CHARS['aming']['catchphrases'])
@@ -253,12 +420,18 @@ def _build_prompt(state: dict, turn_type: str) -> str:
         topic_block = f"## 閒聊話題（沒設定正式 topic、輕鬆聊）\n{casual}"
         cite_rule = "## 引用規則\n- 話題輕鬆即可、不強制深度引用，但對白仍要有具體內容、不是空泛口頭禪。"
 
-    # 依 turn_type 決定結構說明
+    # 依 turn_type 決定結構說明（8 種 tone、給同 topic 不同調性）
     structures = {
+        # 既有
         "debate":    "阿明哥先說觀點，小美姐反嗆，阿明哥再補充或認輸。共 3 句。",
         "react":     "小美姐先提問，阿明哥認真分析（1-2 句），小美姐一句吐槽收尾。共 3-4 句。",
         "monologue": "阿明哥連說 2 句分析，小美姐一句簡短回應結尾。共 3 句。",
         "casual":    "隨機誰先說都行，輕鬆閒聊，3 句。",
+        # 新增（Phase 3 Step 6）
+        "critical":  "兩人輪流批評 topic 細節，明確指出『問題在...』『重點是...』『應該要...』，3-4 句。",
+        "mocking":   "兩人輪流嘲笑 topic 的荒謬處，用『真的假的』『靠夭喔』『甘有可能』語氣，3-4 句。",
+        "humorous":  "兩人用幽默梗或玩笑話討論 topic，輕鬆有趣但仍有觀點，3-4 句。",
+        "sarcastic": "兩人用反諷語氣（『以前不是這樣』『不意外』『所以呢』『唉』），表面平靜實則在嘴，3-4 句。",
     }
     structure = structures.get(turn_type, structures["casual"])
 
@@ -323,7 +496,8 @@ async def generate_chat():
         return JSONResponse({"error": "ANTHROPIC_API_KEY not set"}, status_code=503)
 
     state     = _load_state()
-    turn_type = random.choice(["debate", "react", "monologue", "casual"])
+    # Phase 3 Step 6: 從 8 種 tone 隨機抽（既有 4 + 新增 4）
+    turn_type = random.choice(_DIALOGUE_TONES)
     prompt    = _build_prompt(state, turn_type)
 
     try:
@@ -350,13 +524,18 @@ async def generate_chat():
         st["updated_at"] = datetime.now().strftime("%H:%M:%S")
         _save_state(st)
 
+        # Phase 3 Step 6: 同 topic 累積回合數、rotate loop 依此決定是否該換新話題
+        global _current_topic_rounds
+        _current_topic_rounds += 1
+
         # speaker_a = 第一句說話的人；speaker_b = 另一人（走路目標）
         speaker_a = dialogue[0]["speaker"]
         speaker_b = next(
             (l["speaker"] for l in dialogue[1:] if l["speaker"] != speaker_a),
             None,
         )
-        return {"dialogue": dialogue, "speaker_a": speaker_a, "speaker_b": speaker_b}
+        return {"dialogue": dialogue, "speaker_a": speaker_a, "speaker_b": speaker_b,
+                "tone": turn_type, "topic_round": _current_topic_rounds}
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -399,6 +578,11 @@ async def set_topic(request: Request):
     st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
     st["hosts"]["aming"]["status"]   = "thinking"
     st["hosts"]["xiaomei"]["status"] = "thinking"
+    # Phase 3 Step 6: 手動 POST /api/topic → 標記 topic_locked、暫停自動 rotate
+    st["topic_locked"] = True
+    # Phase 3 Step 6: 新 topic、回合計數歸零
+    global _current_topic_rounds
+    _current_topic_rounds = 0
 
     # 任務 4: 同步 keywords
     # 1. request 帶 keywords (list) → 用手動值、標記 keywords_locked=True（之後 topic 變化不覆蓋）
@@ -420,6 +604,53 @@ async def set_topic(request: Request):
     return {"ok": True, "topic": topic, "mode": "discussion",
             "keywords": st["keywords"],
             "keywords_locked": st.get("keywords_locked", False)}
+
+
+# ── Google News 相關 API（Phase 3 Step 6）────────────────────────
+@app.get("/api/news")
+def get_news_cache():
+    """回傳目前新聞快取的 headline list。"""
+    return {"headlines": list(_news_topics_cache), "count": len(_news_topics_cache)}
+
+
+@app.post("/api/news/refresh")
+async def refresh_news_cache():
+    """手動觸發新聞快取刷新（不等下一輪 10 分鐘）。覆寫磁碟、舊話題被新一輪取代。"""
+    global _news_topics_cache
+    topics = await asyncio.to_thread(fetch_news_topics)
+    if topics:
+        _news_topics_cache = topics
+        _save_news_cache(topics)
+    return {"ok": True, "count": len(_news_topics_cache),
+            "headlines": list(_news_topics_cache)}
+
+
+@app.post("/api/news/rotate_topic")
+def rotate_topic_now():
+    """手動觸發 topic 換成新聞快取中的隨機一條。
+
+    會 unlock topic_locked（讓自動 rotate 之後也能繼續換）。
+    若 keywords_locked=True、保留手動 keywords。
+    回合計數歸零、新 topic 重新累積。
+    """
+    if not _news_topics_cache:
+        return JSONResponse({"ok": False, "error": "news cache empty"}, status_code=503)
+    chosen = random.choice(_news_topics_cache)
+    st = _load_state()
+    st["topic"]         = chosen
+    st["topic_summary"] = ""
+    st["mode"]          = "discussion"
+    st["mood"]          = "heated"
+    st["activity"]      = "prepare_show"
+    st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
+    st["topic_locked"]  = False  # 解鎖、讓自動 rotate 之後也能繼續換
+    if not st.get("keywords_locked"):
+        st["keywords"] = derive_keywords(chosen)
+    _save_state(st)
+    global _current_topic_rounds
+    _current_topic_rounds = 0
+    return {"ok": True, "topic": chosen, "keywords": st["keywords"],
+            "topic_locked": False, "topic_round": 0}
 
 
 # ── 靜態檔案 ──────────────────────────────────────────────────────
