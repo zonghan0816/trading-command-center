@@ -62,6 +62,35 @@ _DIALOGUE_TONES = [
     "critical", "mocking", "humorous", "sarcastic",
 ]
 
+# Phase 3 Step 6.3：8 種討論 angle（給同 topic 多輪用不同切入角度）
+_DIALOGUE_ANGLES = [
+    "money_pressure",        # 錢、薪水、價格、成本
+    "policy_responsibility", # 政策、政府、管理責任
+    "public_reaction",       # 網友 / 民眾反應
+    "who_benefits",          # 誰得利、誰受害
+    "daily_life",            # 一般人生活感受
+    "data_gap",              # 數字落差、比例、趨勢
+    "history_compare",       # 以前 vs 現在
+    "absurd_metaphor",       # 荒謬比喻、笑點
+]
+
+# Angle 對應 prompt 切入說明
+_ANGLE_NOTES = {
+    "money_pressure":         "從錢與壓力切入：薪水、物價、房價、成本、誰負擔。",
+    "policy_responsibility":  "從政策與責任切入：誰該管、制度哪裡失靈。",
+    "public_reaction":        "從民眾與網友反應切入：留言區、社群風向、日常抱怨。",
+    "who_benefits":           "從利益分配切入：誰得利、誰買單、誰被犧牲。",
+    "daily_life":             "從生活感受切入：上班族、學生、家庭、通勤、消費。",
+    "data_gap":               "從數字落差切入：比例、趨勢、前後對比；不要硬編精確數字。",
+    "history_compare":        "從以前與現在比較切入：以前怎樣、現在怎麼變。",
+    "absurd_metaphor":        "用荒謬比喻或笑點切入、但仍要跟 topic 有關。",
+}
+
+# Phase 3 Step 6.3：tone / angle queue（per-topic shuffle、避免連續抽到同一個）
+_current_topic_key: str = ""
+_tone_queue: list[str] = []
+_angle_queue: list[str] = []
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -72,6 +101,9 @@ app.add_middleware(
 _HERE = Path(__file__).parent
 STATE_FILE = _HERE / "wwt_state.json"
 NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
+DIALOGUE_MEMORY_FILE = _HERE / "wwt_dialogue_memory.json"
+_DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
+_DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
 
 
 def _default_state() -> dict:
@@ -303,6 +335,143 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
         return []
 
 
+# ── Phase 3 Step 6.3：tone / angle queue helpers ────────────────
+def _topic_key(topic: str) -> str:
+    """topic 規範化 key、用來判斷是否換了話題。"""
+    return (topic or "").strip()
+
+
+def _reset_topic_queues_if_changed(topic: str) -> None:
+    """topic 換了 → tone / angle queue 都歸零、之後 next_* 會重新 shuffle。"""
+    global _current_topic_key, _tone_queue, _angle_queue
+    key = _topic_key(topic)
+    if key != _current_topic_key:
+        _current_topic_key = key
+        _tone_queue = []
+        _angle_queue = []
+
+
+def _next_tone_for_topic(topic: str) -> str:
+    """從 tone shuffled queue 拿下一個、queue 空就 shuffle 一輪。
+    同 topic 跑滿 8 輪內 tone 不重複（比純 random 穩）。
+    """
+    global _tone_queue
+    _reset_topic_queues_if_changed(topic)
+    if not _tone_queue:
+        _tone_queue = _DIALOGUE_TONES[:]
+        random.shuffle(_tone_queue)
+    return _tone_queue.pop(0)
+
+
+def _next_angle_for_topic(topic: str) -> str:
+    """從 angle shuffled queue 拿下一個、queue 空就 shuffle 一輪。
+    同 topic 8 輪內 angle 不重複、確保每輪切入角度都不同。
+    """
+    global _angle_queue
+    _reset_topic_queues_if_changed(topic)
+    if not _angle_queue:
+        _angle_queue = _DIALOGUE_ANGLES[:]
+        random.shuffle(_angle_queue)
+    return _angle_queue.pop(0)
+
+
+# ── Phase 3 Step 6.3：per-topic dialogue memory ─────────────────
+def _load_dialogue_memory() -> dict:
+    """從磁碟 load 對話記憶。失敗回空結構、不 raise。"""
+    if not DIALOGUE_MEMORY_FILE.exists():
+        return {"topic": "", "rounds": []}
+    try:
+        data = json.loads(DIALOGUE_MEMORY_FILE.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and isinstance(data.get("rounds"), list):
+            return {"topic": str(data.get("topic", "")), "rounds": data["rounds"]}
+    except Exception as e:
+        print(f"[memory] load failed: {e}")
+    return {"topic": "", "rounds": []}
+
+
+def _save_dialogue_memory(memory: dict) -> None:
+    """覆寫對話記憶到磁碟。失敗印 log、不 raise。"""
+    try:
+        DIALOGUE_MEMORY_FILE.write_text(
+            json.dumps(memory, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[memory] save failed: {e}")
+
+
+def _get_recent_dialogue_memory(topic: str) -> dict:
+    """讀目前 topic 的最近 dialogue 記憶。若磁碟上的 topic 跟現在不同、回空。"""
+    mem = _load_dialogue_memory()
+    if _topic_key(mem.get("topic", "")) != _topic_key(topic):
+        return {"topic": _topic_key(topic), "rounds": []}
+    return mem
+
+
+def _append_dialogue_memory(topic: str, tone: str, angle: str, dialogue: list[dict]) -> None:
+    """把這一輪生成內容寫入 memory。
+    - topic 換了 → 重置 rounds 從這一輪開始
+    - 同 topic → append、保留最近 _DIALOGUE_MEMORY_MAX_ROUNDS 輪
+    - 每行截斷至 _DIALOGUE_MEMORY_LINE_MAX_LEN 字、避免檔案無限長
+    """
+    try:
+        mem = _load_dialogue_memory()
+        cur_topic = _topic_key(topic)
+        if _topic_key(mem.get("topic", "")) != cur_topic:
+            mem = {"topic": cur_topic, "rounds": []}
+
+        lines = []
+        for line in dialogue or []:
+            text = str(line.get("text", "")).strip()
+            if not text:
+                continue
+            if len(text) > _DIALOGUE_MEMORY_LINE_MAX_LEN:
+                text = text[:_DIALOGUE_MEMORY_LINE_MAX_LEN]
+            lines.append(text)
+
+        mem["rounds"].append({
+            "at":    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "tone":  tone,
+            "angle": angle,
+            "lines": lines,
+        })
+        # 只保留最近 N 輪
+        if len(mem["rounds"]) > _DIALOGUE_MEMORY_MAX_ROUNDS:
+            mem["rounds"] = mem["rounds"][-_DIALOGUE_MEMORY_MAX_ROUNDS:]
+
+        _save_dialogue_memory(mem)
+    except Exception as e:
+        print(f"[memory] append failed: {e}")
+
+
+# ── Phase 3 Step 6.4：套用新聞 topic 到 state 的共用 helper ─────────
+def _apply_news_topic(chosen: str, *, unlock: bool = False) -> dict:
+    """把指定新聞標題寫入 state、同步 keywords / mode / activity / rounds 歸零。
+
+    - 用 normalize_state 流程（透過 _load_state / _save_state）保證 schema 正確
+    - keywords_locked=True 時保留手動 keywords、不覆寫
+    - unlock=True 時把 topic_locked 設為 False（手動 `/api/news/rotate_topic` 用）
+    - 不論呼叫者誰、_current_topic_rounds 都歸零（新 topic 重新累積）
+
+    回傳：寫入後的完整 state dict。
+    """
+    global _current_topic_rounds
+    st = _load_state()
+    st["topic"]         = chosen
+    st["topic_summary"] = ""
+    st["mode"]          = "discussion"
+    st["mood"]          = "heated"
+    st["activity"]      = "prepare_show"
+    st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
+    if unlock:
+        st["topic_locked"] = False
+    if not st.get("keywords_locked"):
+        st["keywords"] = derive_keywords(chosen)
+    _save_state(st)
+    _current_topic_rounds = 0
+    return st
+
+
 async def _news_refresh_loop():
     """背景任務：每 10 分鐘刷新新聞快取。
     replace 策略：新一輪 fetch 整批覆蓋舊快取（記憶體 + 磁碟）。
@@ -321,35 +490,32 @@ async def _news_refresh_loop():
 
 
 async def _topic_rotate_loop():
-    """背景任務：每 1 分鐘檢查、條件全滿足才換 topic。
+    """背景任務：每 1 分鐘檢查、條件滿足就換 topic。
 
-    條件：
-    - news cache 有內容
-    - state.topic_locked == False（手動 POST /api/topic 後會 lock）
-    - _current_topic_rounds >= _MIN_ROUNDS_PER_TOPIC（同 topic 至少跑 N 輪不同 tone）
+    Phase 3 Step 6.4：兩種觸發路徑
+    - **Seed**：state.topic 為空、cache 有內容 → 立即 seed（不管 rounds 數、不管 locked）
+      （沒 topic 沒什麼好保護的、locked 在這狀態無意義）
+    - **Rotate**：state.topic 已有值 → 跑滿 _MIN_ROUNDS_PER_TOPIC 且 not locked 才換
 
     若 state.keywords_locked == True、保留手動 keywords、只換 topic。
     """
-    global _current_topic_rounds
     await asyncio.sleep(15)  # 啟動後等 15 秒、讓 news cache 先有內容
     while True:
         try:
-            if _news_topics_cache and _current_topic_rounds >= _MIN_ROUNDS_PER_TOPIC:
+            if _news_topics_cache:
                 st = _load_state()
-                if not st.get("topic_locked"):
+                has_topic = bool(str(st.get("topic", "")).strip())
+                should_seed   = not has_topic
+                should_rotate = has_topic and _current_topic_rounds >= _MIN_ROUNDS_PER_TOPIC
+
+                # seed 不受 topic_locked 限制（空 topic 沒什麼好保護的）
+                if should_seed or (should_rotate and not st.get("topic_locked")):
                     chosen = random.choice(_news_topics_cache)
-                    st["topic"]         = chosen
-                    st["topic_summary"] = ""
-                    st["mode"]          = "discussion"
-                    st["mood"]          = "heated"
-                    st["activity"]      = "prepare_show"
-                    st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
-                    # keywords：若沒被手動鎖、跟著新 topic derive
-                    if not st.get("keywords_locked"):
-                        st["keywords"] = derive_keywords(chosen)
-                    _save_state(st)
-                    _current_topic_rounds = 0  # 歸零、新 topic 重新累積回合
-                    print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪）")
+                    _apply_news_topic(chosen, unlock=False)
+                    if should_seed:
+                        print(f"[news] seeded missing topic → {chosen}")
+                    else:
+                        print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪）")
         except Exception as e:
             print(f"[news] rotate loop error: {e}")
         await asyncio.sleep(_TOPIC_ROTATE_CHECK_SEC)
@@ -357,8 +523,11 @@ async def _topic_rotate_loop():
 
 @app.on_event("startup")
 async def _startup_news_tasks():
-    """啟動時：先 load 磁碟快取（立即可用）→ 背景去 fetch fresh RSS → 起兩個背景任務。
+    """啟動時：先 load 磁碟快取（立即可用）→ 背景去 fetch fresh RSS → seed first topic → 起兩個背景任務。
     若網路掛、靠磁碟上次的快取撐、不影響直播。
+
+    Phase 3 Step 6.4：啟動完成後、如果 cache 有內容且 state.topic 為空、立即 seed 一條新聞當 topic、
+    不再等 5 輪 chat（chat 沒 topic 也跑不出有意義內容、會卡住）。
     """
     global _news_topics_cache
     # 1. 先 load 磁碟快取（如果有的話、不需等網路）
@@ -379,12 +548,32 @@ async def _startup_news_tasks():
     except Exception as e:
         print(f"[news] initial fetch error: {e}")
 
+    # 3. Phase 3 Step 6.4：啟動 seed first topic（如果 cache 有內容 + state 沒 topic）
+    #    note: 啟動時 _save_state(_default_state()) 會把 topic 清空、所以正常情況都會 seed
+    if _news_topics_cache:
+        try:
+            st = _load_state()
+            has_topic = bool(str(st.get("topic", "")).strip())
+            if not has_topic:
+                chosen = random.choice(_news_topics_cache)
+                _apply_news_topic(chosen, unlock=False)
+                print(f"[news] seeded initial topic → {chosen}")
+            else:
+                print(f"[news] state already has topic（{st.get('topic')}）、不 seed")
+        except Exception as e:
+            print(f"[news] seed initial topic error: {e}")
+
     asyncio.create_task(_news_refresh_loop())
     asyncio.create_task(_topic_rotate_loop())
 
 
-def _build_prompt(state: dict, turn_type: str) -> str:
-    """依當前 state 和對話節奏，組出 Claude prompt（Phase 2E Task 5：Topic Driven）"""
+def _build_prompt(state: dict, turn_type: str,
+                  angle: str = "", recent_memory: dict | None = None) -> str:
+    """依當前 state 和對話節奏，組出 Claude prompt。
+
+    Phase 2E Task 5：Topic Driven
+    Phase 3 Step 6.3：加入 angle 切入指引 + 「最近已講過、請避開」反重複區塊
+    """
     aming_catch   = "、".join(_CHARS['aming']['catchphrases'])
     xiaomei_catch = "、".join(_CHARS['xiaomei']['catchphrases'])
 
@@ -435,6 +624,45 @@ def _build_prompt(state: dict, turn_type: str) -> str:
     }
     structure = structures.get(turn_type, structures["casual"])
 
+    # ── Phase 3 Step 6.3：本輪 angle 區塊（從不同角度切入、不重複前幾輪角度）─
+    if angle and angle in _ANGLE_NOTES:
+        angle_block = (
+            "## 🎯 本輪切入角度（嚴格遵守）\n"
+            f"- angle = `{angle}`\n"
+            f"- 切入指引：{_ANGLE_NOTES[angle]}\n"
+            "- 本輪內容必須鎖死在這個角度切入、不要混進其他角度。\n"
+        )
+    else:
+        angle_block = ""
+
+    # ── Phase 3 Step 6.3：反重複區塊（明確列出最近 tone / angle / 台詞摘要）──
+    anti_repeat_block = ""
+    if recent_memory and isinstance(recent_memory.get("rounds"), list) and recent_memory["rounds"]:
+        recent_rounds = recent_memory["rounds"][-_DIALOGUE_MEMORY_MAX_ROUNDS:]
+        recent_tones  = [r.get("tone", "")  for r in recent_rounds if r.get("tone")]
+        recent_angles = [r.get("angle", "") for r in recent_rounds if r.get("angle")]
+        # 攤平所有 lines、最多取最近 10 句（保 prompt 不過長）
+        recent_lines: list[str] = []
+        for r in recent_rounds:
+            for ln in r.get("lines", []) or []:
+                if ln:
+                    recent_lines.append(str(ln))
+        recent_lines = recent_lines[-10:]
+
+        bullet_lines = "\n".join(f"  - 「{ln}」" for ln in recent_lines) if recent_lines else "  - （尚無）"
+        anti_repeat_block = (
+            "## 🚫 最近已講過、本輪請避開\n"
+            f"- 最近 tone：{', '.join(recent_tones) if recent_tones else '（尚無）'}\n"
+            f"- 最近 angle：{', '.join(recent_angles) if recent_angles else '（尚無）'}\n"
+            "- 最近台詞摘要：\n"
+            f"{bullet_lines}\n\n"
+            "### 反重複規則\n"
+            "- 不要重複出現過的句子（包含開場、句尾、punchline）。\n"
+            "- 不要每輪都用相同開場（例如連續用「所以呢」「問題就在這」）。\n"
+            "- 不要一直用同一個 punchline 收尾。\n"
+            "- 同 topic 每輪要推進新觀點、不是換句話說同一件事。\n"
+        )
+
     return f"""你是「晚晚嘴台灣 WWT」AI 鄉民談話台的對話生成器。
 
 ## 主持人設定
@@ -451,10 +679,13 @@ def _build_prompt(state: dict, turn_type: str) -> str:
 
 {topic_block}
 
+{angle_block}
 ## 對話節奏
 {turn_type}：{structure}
 
 {cite_rule}
+
+{anti_repeat_block}
 
 ## 生成規則
 
@@ -496,9 +727,13 @@ async def generate_chat():
         return JSONResponse({"error": "ANTHROPIC_API_KEY not set"}, status_code=503)
 
     state     = _load_state()
-    # Phase 3 Step 6: 從 8 種 tone 隨機抽（既有 4 + 新增 4）
-    turn_type = random.choice(_DIALOGUE_TONES)
-    prompt    = _build_prompt(state, turn_type)
+    topic     = state.get("topic", "")
+    # Phase 3 Step 6.3: tone / angle 都改用 per-topic shuffled queue（同 topic 8 輪內不重複）
+    turn_type = _next_tone_for_topic(topic)
+    angle     = _next_angle_for_topic(topic)
+    # Phase 3 Step 6.3: 取得同 topic 最近 8 輪記憶、放進 prompt 提示 Claude 避開
+    recent_memory = _get_recent_dialogue_memory(topic)
+    prompt    = _build_prompt(state, turn_type, angle, recent_memory)
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -528,6 +763,9 @@ async def generate_chat():
         global _current_topic_rounds
         _current_topic_rounds += 1
 
+        # Phase 3 Step 6.3: 寫入這一輪 dialogue 到 memory（給下一輪做反重複參考）
+        _append_dialogue_memory(topic, turn_type, angle, dialogue)
+
         # speaker_a = 第一句說話的人；speaker_b = 另一人（走路目標）
         speaker_a = dialogue[0]["speaker"]
         speaker_b = next(
@@ -535,7 +773,8 @@ async def generate_chat():
             None,
         )
         return {"dialogue": dialogue, "speaker_a": speaker_a, "speaker_b": speaker_b,
-                "tone": turn_type, "topic_round": _current_topic_rounds}
+                "tone": turn_type, "angle": angle,
+                "topic_round": _current_topic_rounds}
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -636,19 +875,8 @@ def rotate_topic_now():
     if not _news_topics_cache:
         return JSONResponse({"ok": False, "error": "news cache empty"}, status_code=503)
     chosen = random.choice(_news_topics_cache)
-    st = _load_state()
-    st["topic"]         = chosen
-    st["topic_summary"] = ""
-    st["mode"]          = "discussion"
-    st["mood"]          = "heated"
-    st["activity"]      = "prepare_show"
-    st["updated_at"]    = datetime.now().strftime("%H:%M:%S")
-    st["topic_locked"]  = False  # 解鎖、讓自動 rotate 之後也能繼續換
-    if not st.get("keywords_locked"):
-        st["keywords"] = derive_keywords(chosen)
-    _save_state(st)
-    global _current_topic_rounds
-    _current_topic_rounds = 0
+    # Phase 3 Step 6.4: 共用 _apply_news_topic、避免邏輯重複
+    st = _apply_news_topic(chosen, unlock=True)
     return {"ok": True, "topic": chosen, "keywords": st["keywords"],
             "topic_locked": False, "topic_round": 0}
 
