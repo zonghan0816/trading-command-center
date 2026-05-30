@@ -42,6 +42,10 @@ export class OfficeScene extends Phaser.Scene {
 
       this._freezeMovement = true; // Part 3: 凍結走動，改用動作圖表現狀態
       this._dialogueSeq = 0;       // Phase 3 Step 5.1: dialogue 播放 token、避免舊 delayedCall 串到新一輪
+      // Phase 3 Step 6.5: prefetch 下一輪 dialogue、縮短 gap
+      this._nextDialogue = null;            // 已 prefetch 好的下一輪 data（待 consume）
+      this._prefetchInProgress = false;     // prefetch fetch 是否進行中
+      this._prefetchStartedForSeq = null;   // 已對哪個 seq 觸發過 prefetch（避免同輪重複觸發）
 
       this._buildBackground();
       this._buildDecorations();
@@ -626,23 +630,91 @@ export class OfficeScene extends Phaser.Scene {
   // ── AI 即時對話系統 ──────────────────────────────────────────
   async _fetchAndPlayDialogue() {
     if (this._chatInProgress) return;
+
+    // Phase 3 Step 6.5: 先看 prefetch cache 有沒有可用的下一輪
+    if (this._nextDialogue) {
+      const data = this._consumePrefetchedDialogue();
+      if (data && this._startDialogueFromData(data)) {
+        console.info('[TDT] using prefetched dialogue');
+        return;
+      }
+    }
+
+    // Phase 3 Step 6.5: prefetch 還在跑 → 250ms 後再試（不開新 fetch、不疊請求）
+    if (this._prefetchInProgress) {
+      this.time.delayedCall(250, this._fetchAndPlayDialogue, [], this);
+      return;
+    }
+
+    // 沒 cache 也沒 prefetch → live fetch
+    // mark in_progress、避免並發 fetch（await 期間另一個 delayedCall 觸發又 fetch）
     this._chatInProgress = true;
-    // Phase 3 Step 5.1: 每一輪 dialogue 一個 seq token、後續 delayedCall 對 seq 不一致就 return
-    this._dialogueSeq = (this._dialogueSeq || 0) + 1;
-    const seq = this._dialogueSeq;
     try {
       const res = await fetch('/api/chat', { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
-        if (data.dialogue && data.dialogue.length >= 2) {
-          this._playDialogue(data.dialogue, seq);
-          return;
+        if (data?.dialogue?.length >= 2) {
+          // Reset 給 _startDialogueFromData 重新接管（它會 set true + 增 seq）
+          this._chatInProgress = false;
+          if (this._startDialogueFromData(data)) return;
         }
       }
     } catch (_) {}
-    // API 失敗 → 3 秒後靜默重試，不播固定台詞
+    // API 失敗 → 3 秒後靜默重試
     this._chatInProgress = false;
     this.time.delayedCall(3000, this._fetchAndPlayDialogue, [], this);
+  }
+
+  /**
+   * Phase 3 Step 6.5: 背景 prefetch 下一輪 dialogue、結果存 _nextDialogue。
+   * - 重複觸發 guard：seq 一致 + 沒在進行中 + 沒已存 cache
+   * - 失敗只 warn、不中斷當前播放
+   */
+  async _prefetchNextDialogue(seq) {
+    if (seq !== this._dialogueSeq) return;
+    if (this._prefetchInProgress) return;
+    if (this._nextDialogue) return;
+    this._prefetchInProgress = true;
+    console.info('[TDT] prefetch started');
+    try {
+      const res = await fetch('/api/chat', { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.dialogue?.length >= 2) {
+          this._nextDialogue = data;
+          console.info('[TDT] prefetch ready');
+        }
+      }
+    } catch (e) {
+      console.warn('[TDT] prefetch failed:', e?.message ?? e);
+    } finally {
+      this._prefetchInProgress = false;
+    }
+  }
+
+  /** Phase 3 Step 6.5: 取出已 prefetch 的 dialogue、清快取。invalid 回 null。*/
+  _consumePrefetchedDialogue() {
+    const data = this._nextDialogue;
+    this._nextDialogue = null;
+    if (!data?.dialogue || data.dialogue.length < 2) return null;
+    return data;
+  }
+
+  /**
+   * Phase 3 Step 6.5: 拿到 dialogue data 後正式開始播放。
+   * 共用給「consume prefetch」跟「live fetch」兩個路徑、避免邏輯重複。
+   * - 真正開始播放才遞增 _dialogueSeq（而不是 fetch 起手就遞增）
+   * - 重置 _prefetchStartedForSeq、讓新 seq 可以再觸發一次 prefetch
+   */
+  _startDialogueFromData(data) {
+    if (!data?.dialogue || data.dialogue.length < 2) return false;
+    if (this._chatInProgress) return false;
+    this._chatInProgress = true;
+    this._dialogueSeq = (this._dialogueSeq || 0) + 1;
+    const seq = this._dialogueSeq;
+    this._prefetchStartedForSeq = null;
+    this._playDialogue(data.dialogue, seq);
+    return true;
   }
 
   _playDialogue(lines, seq) {
@@ -663,10 +735,20 @@ export class OfficeScene extends Phaser.Scene {
     // Phase 3 Step 5.1: 移除 _updateHTMLPanel(_buildPanelData())、避免假 state（topic=''、mode='idle'）覆蓋真實 polled state；
     // 改由 _pollState 維持 panel；chat 進行中 host 區塊已透過 skipHostLines 凍結
 
+    // Phase 3 Step 6.5: 當前 dialogue 開始播放後 2 秒、背景 prefetch 下一輪
+    // （讓 Claude 在當前播放期間就生成下一輪、播完直接拿、不再等 5~10s）
+    if (this._prefetchStartedForSeq !== seq) {
+      this._prefetchStartedForSeq = seq;
+      this.time.delayedCall(2000, () => {
+        if (seq !== this._dialogueSeq) return;
+        this._prefetchNextDialogue(seq);
+      });
+    }
+
     const afterWalk = () => {
       if (seq !== this._dialogueSeq) return;
-      // 短暫停頓後開始逐句
-      this.time.delayedCall(300, () => {
+      // Phase 3 Step 6.5: afterWalk 內 delay 300 → 100
+      this.time.delayedCall(100, () => {
         if (seq !== this._dialogueSeq) return;
         this._playLineSequence(lines, walkerId, () => {
           if (seq !== this._dialogueSeq) return;
@@ -678,8 +760,8 @@ export class OfficeScene extends Phaser.Scene {
           this._walkHome(walkerId, () => {
             if (seq !== this._dialogueSeq) return;
             this._chatInProgress = false;
-            // Phase 3 Step 5.1: next dialogue gap 1500 → 1100、節奏稍快
-            this.time.delayedCall(1100, this._fetchAndPlayDialogue, [], this);
+            // Phase 3 Step 6.5: next dialogue gap 1100 → 350（prefetch 就緒時近乎無感、未就緒時也比原本快）
+            this.time.delayedCall(350, this._fetchAndPlayDialogue, [], this);
           });
         }, seq);
       });
@@ -690,7 +772,8 @@ export class OfficeScene extends Phaser.Scene {
       this._triggerDataFlow(walkerId, targetId);
       this._walkTo(walkerId, targetId, afterWalk);
     } else {
-      this.time.delayedCall(300, afterWalk);
+      // Phase 3 Step 6.5: frozen 路徑 delay 300 → 100
+      this.time.delayedCall(100, afterWalk);
     }
   }
 
@@ -808,8 +891,8 @@ export class OfficeScene extends Phaser.Scene {
         this._hideBubble(line.speaker);
         // Phase 3 Step 6.2: 完句一律回 idle（不再限定 walkerId、修小美卡在最後動作 bug）
         this._returnHostToIdle(line.speaker);
-        // Phase 3 Step 5.1: line gap 500 → 300
-        this.time.delayedCall(300, () => this._playLineSequence(rest, walkerId, onComplete, seq));
+        // Phase 3 Step 6.5: line gap 300 → 180
+        this.time.delayedCall(180, () => this._playLineSequence(rest, walkerId, onComplete, seq));
         return;
       }
       const chunk = chunks[idx];

@@ -1,164 +1,115 @@
-# Trading Command Center — Claude 助理導讀
+# TDT 天天嘴台灣 — Claude 助理導讀
 
 > **這個檔案是給 Claude Code 自動讀取的專案導覽**。每次 Claude 在這個資料夾開啟，會自動把這份檔案載入 context。
 > 使用者**有記憶障礙**，沒有這份紀錄前一次做到哪會完全失憶。請主動參考「📍 目前進度」段落，並在每次工作結束時更新它。
 
+> ⚠️ **目錄名仍是 `trading-command-center`、檔名仍有 `wwt_*.json`** — 那是 legacy（這專案原本是 7 個 AI 交易員 dashboard、後來轉型成 TDT 鄉民談話節目）。**不需要為改名而重構**、繼續沿用就好。
+
 ---
 
-## 🔑 兩句口訣（使用者請記這兩句就好）
+## 🚀 兩句口訣（使用者請記兩句就好）
 
-| 時機 | 跟 Claude 說 | Claude 會做 |
+| 時機 | 跟 Claude 說 | Claude 應做 |
 |---|---|---|
-| **開工** | 「**接續**」或「**看 CLAUDE.md 我們做到哪**」 | 讀本檔「📍 目前進度」+ `git log` 最近 commit，告訴你上次做完什麼、下一步候選 |
+| **開工** | 「**接續**」或「**看 CLAUDE.md 接續做**」 | 讀本檔「📍 目前進度」+ `git log` 最近 commit，告訴使用者上一次做到什麼、下一步候選 |
 | **收工** | 「**存進度**」 | 1. 更新本檔「📍 目前進度」<br>2. `git add . && git commit && git push` |
 
-> Claude 給自己的指示：使用者使用上面任一關鍵字時，務必執行對應動作，不要問「你確定嗎」之類的反問。「存進度」是該主動 commit + push 的指令，不是徵詢。
+> Claude 給自己的提示：使用者使用上面任一關鍵字時，**立刻執行對應動作**，不要回「你確定嗎」之類的反問。「存進度」是該主動 commit + push 的指令、不是徵詢。
 
 ---
 
 ## 一句話介紹
 
-**純前端視覺化儀表板**：Phaser.js 等角像素辦公室，7 位 AI 交易員角色根據 sibling repo `trading-system` 的真實 pipeline 狀態即時動畫，並用 Claude API 產生角色閒聊對話。**本身不參與交易邏輯**。
+**TDT 天天嘴台灣（Taiwan Daily Talk）** — Phaser 3.60 + FastAPI + Claude Haiku 4.5 的 AI 鄉民談話節目模擬器。兩位主持人「阿明哥」「小美姐」在 1920×1080 棚景中、圍繞 Google News 即時時事對話。**設計用於 OBS Browser Source 直播**。
 
 ---
 
-## 🌐 這類專案在世界上叫什麼（業界術語對照）
+## 🎙 主持人設定
 
-**老實說沒有單一公認名稱** — 這是混合類別。下次跟別人介紹時可以挑一個：
-
-### 業界 / 學術用語（最精準）
-| 術語 | 中文 | 適用場合 |
-|---|---|---|
-| Multi-Agent System Dashboard | 多代理人系統儀表板 | 學術、技術論文 |
-| AI Agent Orchestration Visualizer | AI Agent 協作視覺化 | 跟工程師講 |
-| Real-time Operations Dashboard | 即時運維儀表板 | 一般 IT 場合 |
-| Pipeline Status Visualization | 流程狀態視覺化 | 描述功能用 |
-
-### 描述外觀的詞
-| 術語 | 中文 | 重點 |
-|---|---|---|
-| Anthropomorphic UI | 擬人化介面 | 強調「用人物代表系統模組」 |
-| Pixel art dashboard | 像素風儀表板 | 強調美術風格 |
-| Game-style monitoring | 遊戲風監控 | 強調玩感 |
-| Tycoon-style visualization | 模擬經營風視覺化 | 像「主題公園」「電廠模擬器」 |
-
-### 同類靈感關鍵字（搜尋用）
-```
-"agent orchestration" pixel art dashboard
-"multi-agent visualization" anthropomorphic
-"AI agent" "office sim" monitoring
-"LLM" pipeline visualization phaser
-NOC display wall / Mission Control UI / Datacenter Tycoon
-```
-
-### 如果只能挑一個
-- **正式版**：LLM agent orchestration dashboard with anthropomorphic pixel-art office UI
-- **中文正式**：擬人化像素辦公室 LLM Agent 協作視覺化儀表板
-- **日常版**：**像素辦公室風格的 AI Agent 儀表板**
-- **最短**：**Multi-agent 視覺化**
-
----
-
-## 🆚 跟 Pixel Agents 對照（最像的同類專案）
-
-[Pixel Agents](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents) 是 2026 年初在 Reddit 爆紅的 VS Code 擴充套件，把 Claude Code 的 coding agents 變成像素角色在虛擬辦公室工作。**精神跟本專案一樣**，但實作跟用途不同：
-
-| 項目 | Pixel Agents | 本專案（trading-command-center） |
-|---|---|---|
-| **形式** | VS Code 擴充套件 | 獨立網頁應用 (FastAPI + Phaser :8765) |
-| **角色代表什麼** | Claude Code 跑的 coding agents（動態，幾個就幾個） | 7 個**固定**模組（市場/新聞/策略/波段/DCA/ML/Agent） |
-| **資料來源** | Claude Code 的 JSONL transcript | 自寫的 `command_center_state.json` |
-| **領域** | 通用：寫程式、找檔案、等輸入 | **專屬**：台股交易 pipeline |
-| **角色會說話嗎** | 不會（只動畫 + 偶爾泡泡） | **會**（Claude Haiku 4.5 生成角色對話） |
-| **觀眾** | Claude Code 開發者 | 自己看 sibling repo `trading-system` 跑什麼 |
-| **授權** | MIT 開源（pablodelucca） | 私人專案 |
-
-### 跟人介紹時的速講
-> 「類似最近紅的 Pixel Agents，但我的是**專門給台股交易 pipeline 的版本**，角色會用 LLM 互相聊天。」
-
-### 參考連結
-- [Pixel Agents — VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=pablodelucca.pixel-agents)
-- [HowWorks 介紹文](https://howworks.ai/projects/i-built-a-vs-code-extension-that-turns-your-claude-code-agents-into-pixel-art-ch)
-- [Fast Company 報導](https://www.fastcompany.com/91497413/this-charming-pixel-art-game-solves-one-of-ai-codings-most-annoying-ux-problems)
-- [Reddit 原文](https://www.reddit.com/r/ClaudeCode/comments/1rbs0gx/i_built_a_vs_code_extension_that_turns_your/)
-
----
-
-## 📍 目前進度（每次工作結束前更新）
-
-**最後更新**：2026-05-08（Claude session 整理 — 兩 repo 各補完整 CLAUDE.md）
-
-**Sibling repo**：[`../trading-system`](../trading-system) — 主要交易系統，本 repo 只負責「視覺化它的狀態」
-
-### 已完成（依 git log 由舊到新）
-
-1. **`b25ff80` 2026-05-07 init** — Phaser.js isometric office 框架
-   - 建立 index.html / server.py / src/main.js / BootScene.js / OfficeScene.js / 啟動.bat / requirements.txt
-   - 7 個角色座位、idle 動畫、`/api/state` 端點、`command_center_state.json` 預設模板
-
-2. **`90a920f` 2026-05-07 fix: 修復黑畫面三個根本原因 + 放大場景 1.5x**
-   - 影響檔：`main.js / BootScene.js / OfficeScene.js`
-
-3. **`82ff0bd` 2026-05-07 改版為前視角辦公室風格（KCC 風）**
-   - 從 isometric 改成前視角；後排 / 前排兩排桌、AI 交易員獨立站立位置
-   - 影響檔：`BootScene.js / OfficeScene.js`
-
-4. **`fde71d8` 2026-05-07 視覺升級 + AI 對話系統完善**
-   - `_fetchAndPlayDialogue` auto-loop：每 1.5s 自動 POST `/api/chat`
-   - 用 Claude Haiku 4.5 產生角色對話，融入 `command_center_state.json` 真實 last_output 為 prompt context
-   - 角色走路 → 對話 → 走回的完整序列
-   - 影響檔：`server.py / config.js / BootScene.js / OfficeScene.js`
-
-5. **`9eb8e6d` 2026-05-07 Fix missing deps**
-   - `啟動.bat` 自動 `pip install` 加 `anthropic` + `python-dotenv`
-   - 新增 `requirements.txt`
-   - README 補環境變數段（`ANTHROPIC_API_KEY`）
-
-6. **`08fb93c` 2026-05-07 Fix bubble text reasserting on every poll**
-   - **症狀**：trading-system 跑 pipeline 時，AI 角色泡泡每 5 秒重複顯示同樣 status 文字（「已取得 30 筆」「2303.TW +138.6%」），且 chat 對話進行中被插話覆蓋
-   - **根因**：`_applyState` 每輪輪詢都 `bubbleText.setText(last_output)`；`thinking` 狀態還會每輪重新觸發 `_animateTyping` 從頭打字
-   - **修法**（在 `OfficeScene.js _applyState`）：
-     - chat 進行中（`_chatInProgress`）跳過 status 同步
-     - 只在「狀態剛變 active」（`justBecameActive`）時才 `setText` + `_showBubble`
-     - 「狀態變 inactive」（`justBecameInactive`）時主動 `_hideBubble`
-
-7. **`281dd0b` 2026-05-08 gitignore command_center_state.json**
-   - server 啟動時會 reset state file，不適合 git tracking
-   - 同時排除 `.tmp` 檔（trading-system 用 atomic write）
-
-8. **`560a77d` 2026-05-08 現代辦公室場景升級**
-   - 加入背景圖 `office-complete.png`（取代程序生成的磚牆）
-   - 中央牆壁掛股市螢幕 `1.png`
-   - 策略長改用合體 PNG `char_boss.png` + `desk_boss.png`（自訂 customAssets.char_boss = true）
-   - 影響檔：`config.js / BootScene.js / OfficeScene.js / assets/*`
-
-### 已知狀態 / 約定
-
-| 模組 ID | 角色 | sibling tab | 座位 |
+| 主持人 | 站位 | 個性 | 動作 |
 |---|---|---|---|
-| `market` | 📊 市場分析師 | 全球市場儀表板 | 後排 0 |
-| `boss` | 🎯 策略長 | 每日 AI 操作建議 | 後排 1（PNG 合體圖）|
-| `ml` | 🤖 ML 工程師 | AI 預測模型 | 後排 2 |
-| `news` | 📰 新聞記者 | AI 新聞訊號 | 前排 0 |
-| `swing` | 📈 波段交易員 | 波段策略回測 | 前排 1 |
-| `dca` | 💰 定投經理 | ETF 定期定額 | 前排 2 |
-| `agent` | 🤖 AI 交易員 | 模擬交易 Agent | 白板旁站立 |
+| **阿明哥** | 左半場 (35%) | 50 歲台灣大叔、議論派、碎念、退休風 | v2 draft 單張 PNG（暫無 multi-frame actions）|
+| **小美姐** | 右半場 (65%) | 30 歲都會女性、吐槽派、反諷型 | actions spritesheet 6 frames（idle/talking/thinking/reacting/pointing/tired）|
 
-**狀態類型**（`command_center_state.json` 的 `modules.{id}.status`）：
+主持人**固定站位、不走動**（Phase 2F Step 3 以後 movement frozen）。對話用泡泡 + sprite frame 切換表現。
 
-| status | 顏色 / 動畫 | 含義 |
-|---|---|---|
-| `idle` | 灰 | 待機 |
-| `running` | 黃閃 | 執行中（`{id}_typing` 動畫，可能觸發走路 + 粒子流）|
-| `done` | 綠 | 完成 |
-| `live` | 藍閃 | 即時監控 |
-| `thinking` | 紫閃 | 思考中（`{id}_thinking` 動畫 + 逐字打字） |
+---
 
-### 下一步候選
+## 🔄 對話 pipeline
 
-- [ ] **`data_flows` 視覺化粒子流**：API 已備好（`set_flow` / `clear_flows` in `command_center_writer.py`），trading-system 那邊**還沒 wire 任何呼叫**。實作後可看到 `market → boss`、`news → boss` 等粒子穿梭
-- [ ] 角色閒聊對話可以加更多 `_CONV_PAIRS` 場景組合（目前 12 種）
-- [ ] 場景擴充：加會議室 / 茶水間 / 老闆辦公室分區，角色走得更遠
+```
+Google News Taiwan RSS（每 10 分鐘 fetch、replace 策略）
+        ↓
+_news_topics_cache + wwt_news_cache.json（持久化）
+        ↓
+_topic_rotate_loop：跑滿 5 輪 chat 才換 topic
+        ↓
+_apply_news_topic → state.topic / mode='discussion' / derive keywords
+        ↓
+/api/chat：
+  - tone shuffled queue（8 種、同 topic 內不重複）
+  - angle shuffled queue（8 種、同 topic 內不重複）
+  - prompt 含 anti-repetition block（最近 8 輪 tone/angle/lines）
+        ↓
+Claude Haiku 4.5 生成 dialogue（3~8 秒）
+        ↓
+寫入 wwt_state.json + wwt_dialogue_memory.json（最近 8 輪）
+        ↓
+前端 OfficeScene._playLineSequence
+  - 每 chunk 自選 action（_chooseLineAction 關鍵字 + PHRASE_OVERRIDE）
+  - 完句一律回 idle
+  - 整輪結束、前端 prefetch 已預抓下一輪 → gap ≈ 0.5s
+```
+
+---
+
+## 🎨 視覺架構
+
+| 元素 | 說明 |
+|---|---|
+| 中央 LED 螢幕 | 第一焦點、顯示 topic 與 mode 切換動畫 |
+| 主持人 + Bubble | 第二焦點、依台詞語氣切 sprite frame |
+| 右下 TOP5 熱門榜 | 第三焦點、純文字、依 state.keywords 動態渲染 |
+| 右上 Status Panel | 第四焦點、只顯示 topic + mode + 時間（host 區塊已移除）|
+| 棚景背景 | 早 / 中 / 晚三套、依本機時間自動 crossfade（60 秒 alpha 過渡）|
+
+**解析度**：固定 1920×1080、`Phaser.Scale.FIT`、給 OBS Browser Source 直播。
+
+---
+
+## 📍 目前進度（每次工作結束更新）
+
+**最後更新**：2026-05-30
+**目前階段**：Phase 3 Step 6.5 — Dialogue Gap Reduction（prefetch + 縮 delay）
+**下一階段候選**：阿明 actions spritesheet 接線 / PNG 視覺問題修復 / 環境音
+
+### 重點里程碑（依 commit 由舊到新）
+
+| Phase | 內容 |
+|---|---|
+| 2C | 角色 PNG / desk PNG |
+| 2D | Topic pipeline / F2 debug overlay |
+| 2E | Topic Driven 對話 prompt 升級 |
+| 2F | 1920×1080 FIT / host lane lock / TOP5 readability |
+| 2G | End-to-end runtime hardening |
+| 3.1 ~ 3.2 | v2 sprites + 新棚景背景 + bubble re-position + TOP5 alignment |
+| 3 Step 3.1 | 早中晚背景 crossfade + TDT 改名 + freeze movement |
+| 3 Step 4 | 小美 actions spritesheet（6 frames）接線 |
+| 3 Step 5 | `_chooseLineAction` 依台詞語氣選動作 |
+| 3 Step 5.1 | dialogue pacing + `_dialogueSeq` seq guard + panel sync fix |
+| 3 Step 5.2 | 移除右上 panel host 區塊 |
+| **3 Step 6** | Google News Taiwan RSS 即時話題接線 |
+| **3 Step 6.1** | RSS 持久化 + 8 tone + topic 黏 5 輪 |
+| **3 Step 6.2** | 對話結束回 idle + chunk-level action + PHRASE_OVERRIDE |
+| **3 Step 6.3** | per-topic tone/angle shuffled queue + dialogue memory + prompt 反重複區塊 |
+| **3 Step 6.4** | 啟動立即 seed first topic（修空 topic 死循環）|
+| **3 Step 6.5** | prefetch 下一輪 + 縮 4 個人為 delay（gap 從 5~10s 降到 0.5~1s）|
+
+### 已知待辦 / 限制
+
+- [ ] **小美 PNG 視覺問題**：白色西裝在深背景變透明（AI 生圖去白底副作用）+ 邊緣白光暈。**程式端無法修、要 Codex 重生 `char_xiaomei_actions.png`**。詳見 51~55 BRIEF。
+- [ ] **阿明 actions spritesheet 未接**：目前阿明仍是 v2 draft 單張、所有 status 都同 frame
+- [ ] BGM / 環境音（OBS 端可加、不需動程式）
 
 ---
 
@@ -166,102 +117,109 @@ NOC display wall / Mission Control UI / Datacenter Tycoon
 
 ```
 trading-command-center/
-├── index.html              # cyan terminal header + 右上角狀態面板 + Phaser canvas
-├── server.py               # FastAPI on :8765（/api/state、/api/chat、靜態檔）
-├── 啟動.bat                # 雙擊啟動：自動 pip install + 開瀏覽器 + python server.py
-├── requirements.txt        # fastapi / uvicorn / anthropic / python-dotenv
-├── README.md               # 簡短使用說明（角色對應 + 啟動）
-├── command_center_state.json  # runtime state（gitignored，server 啟動會 reset）
-├── .env                    # ANTHROPIC_API_KEY（gitignored；沒設則 /api/chat 回 503）
+├── index.html                  # LED overlay + 右上 status panel + F2 debug overlay
+├── server.py                   # FastAPI :8765、含 RSS / topic / tone / memory 邏輯
+├── 啟動.bat                    # 點兩下啟動：pip install + 開瀏覽器 + python server.py
+├── requirements.txt            # fastapi / uvicorn / anthropic / python-dotenv
+├── README.md                   # 簡短使用說明
+├── CLAUDE.md                   # ← 本檔（Claude 自動載入）
+├── WWT_HANDOVER.md             # 詳細交接文件（GPT 也讀這份）
+├── wwt_state.json              # runtime state（gitignored、啟動時 reset）
+├── wwt_news_cache.json         # RSS 快取（gitignored、replace 策略）
+├── wwt_dialogue_memory.json    # 同 topic 最近 8 輪對話記憶（gitignored）
+├── .env                        # ANTHROPIC_API_KEY（gitignored、沒設 /api/chat 503）
 ├── src/
-│   ├── main.js              # Phaser 啟動、scale 設定
-│   ├── config.js            # ⭐ 角色顏色、佈局比例、自訂圖片開關（修改外觀只動這個）
+│   ├── main.js                 # Phaser 1920×1080 FIT 設定
+│   ├── config.js               # ★ 角色比例、站位、customAssets 開關
 │   └── scenes/
-│       ├── BootScene.js      # preload + 程序生成桌椅/螢幕/植物/角色 sprite
-│       └── OfficeScene.js    # 主場景：背景、工作站、polling、走路、對話、粒子流
-├── assets/                 # 自訂圖片
-│   ├── 1.png                  # 牆上股市螢幕
-│   ├── office-complete.png    # 整體背景
-│   ├── char_boss.png          # 策略長合體圖（customAssets.char_boss = true）
-│   ├── desk_boss.png          # 策略長大桌
-│   └── README.md              # 圖片規格說明
-└── .gitignore              # __pycache__、.env、command_center_state.json{,.tmp}
+│       ├── BootScene.js        # 載入背景 / 角色 spritesheet / 動畫定義
+│       └── OfficeScene.js      # ★ 主場景：背景 crossfade、主持人、bubble、polling、prefetch
+├── assets/
+│   ├── wwt_studio_background_morning_v1.png  # 早晨棚景
+│   ├── wwt_studio_background_noon_v1.png     # 中午棚景
+│   ├── wwt_studio_background_night_v1.png    # 夜晚棚景
+│   ├── char_aming_v2_draft.png               # 阿明 v2 單張
+│   ├── char_xiaomei_actions.png              # ★ 小美 6 frame spritesheet
+│   └── char_xiaomei_{idle,talking,...}.png   # 小美單張參考
+├── 49 ~ 57 *_IMPL_BRIEF.md     # 各 Phase 完成報告（給 GPT 看）
+├── 56_DIALOGUE_GAP_REPORT.md   # gap 分析報告
+└── claude_STEP6.*_*.md         # GPT 給 Claude 的指令檔（已 commit 留 audit）
 ```
 
 ---
 
-## ⚙️ 環境與規約
+## ⚙️ 環境約定
 
 - **Python**：3.11+
-- **後端框架**：FastAPI on `localhost:8765`
-- **Claude API**：`/api/chat` 用 **claude-haiku-4-5-20251001**（每小時 ~NT$5-10，只在瀏覽器 tab 開著時計費）
+- **後端**：FastAPI on `localhost:8765`
+- **Claude API**：`claude-haiku-4-5-20251001`（每對話 ~NT$1-3）
 - **作業系統**：Windows 10/11
-- **`啟動.bat`**：給人雙擊用，保留 `pause`
-- **狀態檔讀取優先序**（`server.py _load_state`）：
-  1. `../trading-system/command_center_state.json`（sibling repo，主要來源）
-  2. `./command_center_state.json`（本地 fallback）
-- **不要 commit**：`.env`、`command_center_state.json`、`*.tmp`
+- **`啟動.bat`**：給人雙擊用、保留 `pause`、檔頂有 `chcp 65001`
+- **State 檔不 commit**：`wwt_state.json` / `wwt_news_cache.json` / `wwt_dialogue_memory.json` / `.env`
+- **沒有 sibling repo 依賴**：TDT 是 standalone、不再讀 `../trading-system/`（那是舊版交易中心時代）
 
 ---
 
 ## 🚀 常用指令
 
 ```bash
-# 啟動視覺化（雙擊 啟動.bat 也可）
+# 啟動（雙擊 啟動.bat 也可）
 python server.py
 
-# 開瀏覽器
+# 瀏覽器
 http://localhost:8765
+
+# 設定手動 topic（會暫停自動 rotate）
+curl -X POST http://localhost:8765/api/topic \
+  -H "Content-Type: application/json" \
+  -d "{\"topic\":\"自選話題\"}"
+
+# 立即換成新聞快取中的隨機一條（解鎖 topic_locked）
+curl -X POST http://localhost:8765/api/news/rotate_topic
+
+# 看當前新聞快取
+curl http://localhost:8765/api/news
+
+# 強制刷新新聞快取
+curl -X POST http://localhost:8765/api/news/refresh
 ```
 
-**沒有 `ANTHROPIC_API_KEY` 也能跑** — 視覺場景照常運作，只是角色不會閒聊（每 3 秒靜默重試）。
+**沒設 `ANTHROPIC_API_KEY` 也能跑**：視覺場景照常運作、`/api/chat` 回 503、前端每 3 秒重試。
 
 ---
 
-## 🔄 雙電腦同步流程（家 ↔ 公司）
+## 🔁 同步流程（家 ↔ 公司）
 
 | 場景 | 指令 |
 |---|---|
 | 開工前 | `git pull` |
 | 收工前 | `git add . && git commit -m "說明" && git push` |
 
-`.env` **不會跟著 git**，公司端要手動建（`ANTHROPIC_API_KEY=sk-ant-...`）。
+`.env` **不會跟著 git**、公司端要手動建立（`ANTHROPIC_API_KEY=sk-ant-...`）。
 
 ---
 
-## 🤝 跟 sibling repo `trading-system` 的關係
+## 🤝 GPT / Claude 協作模式
 
-```
-                trading-system/  (主要交易系統)
-                       │
-                       │ 寫入 status
-                       ▼
-        command_center_state.json   ← 共享狀態檔
-                       ▲
-                       │ poll 每 5 秒
-                       │
-                trading-command-center/  (這個 repo)
-                       │
-                       ▼
-            http://localhost:8765 (Phaser 視覺化)
-```
+| 角色 | 職責 |
+|---|---|
+| **使用者** | 提供畫面截圖、描述觀感、決定下一步方向 |
+| **GPT (Codex)** | 讀 BRIEF + 交接檔、判斷方向、產生 `.md` 指令檔交給 Claude、生成 / 整理圖片素材 |
+| **Claude** | 依指令檔修改程式、接 GPT 提供的素材、完成後輸出 `XX_PHASE3_STEPX.X_IMPL_BRIEF.md` |
 
-**trading-system 那邊的 wire 點**（這邊只是看狀態，不需動）：
+> ⚠️ Claude 不重新生成圖片素材（除非使用者明確要求）。視覺問題（白光暈、衣服透明等）屬 PNG 層、Claude 在 BRIEF 註記給 GPT 處理。
 
-- `daily_signal.py` 主流程：market / news / boss
-- `agent_runner.py run_agent_cycle`：market / news / ml / agent
-- `app.py render_swing / render_dca / render_ai`：對應模組（按鈕觸發）
-- `app.py render_daily_signal`：market / news / boss
-- `app.py render_agent`：market / news / ml / agent
-
-**寫入工具**：`trading-system/src/command_center_writer.py`（atomic write，temp + os.replace）。提供 `mark_running / mark_thinking / mark_done / mark_idle / set_flow / clear_flows`。
+詳細協作守則見 [WWT_HANDOVER.md](WWT_HANDOVER.md) 第十七章。
 
 ---
 
-## 📝 給 Claude 的工作守則
+## 💡 給 Claude 的工作守則
 
 - **使用者有記憶障礙** — 每次完成段落工作後，**主動更新「📍 目前進度」並提醒使用者 commit + push**
-- 改 `OfficeScene.js` 的 polling / state apply 邏輯時，務必確認 `_chatInProgress` 不會被狀態同步覆蓋（item 6 的歷史教訓）
-- 不要把 `ANTHROPIC_API_KEY` 寫進任何 commit 的檔案
-- 修改 `config.js` 的角色顏色 / 比例不需要動 BootScene 程式
-- bat 檔記得 `chcp 65001`（UTF-8）
+- 改 `OfficeScene.js` 的 polling / state apply 邏輯時、確認 `_chatInProgress` 不會被狀態同步覆蓋（Step 5.1 已修過）
+- 改 `OfficeScene.js` 的 `_playLineSequence` / `_playDialogue` 時、注意 `_dialogueSeq` seq guard 不要漏（防 race condition）
+- 不要把 `ANTHROPIC_API_KEY` 寫進任何 commit 檔案
+- 修改 `config.js` 的角色比例 / scale 不需要動 BootScene 程式
+- `啟動.bat` 檔頂須有 `chcp 65001`（UTF-8）
+- 不恢復 walking / wander / random movement（Movement frozen 是設計、不是 bug）
+- **PNG 視覺問題**（白光暈 / 衣服透明）程式端不修、註記給 Codex
