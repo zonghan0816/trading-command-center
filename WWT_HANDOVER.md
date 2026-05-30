@@ -481,3 +481,142 @@ C:\Users\miner3\trading-command-center\assets
 4. Codex 若要交給 Claude，直接產生 `.md` 指令檔，不在聊天貼長文。
 5. Claude 照指令檔實作並輸出新的 implementation brief。
 6. 使用者驗收畫面，Codex 再協助判斷下一步。
+
+---
+
+## 2026-05-30 換聊天最新進度摘要（Phase 3 Step 6.5 後）
+
+這段是給下一個 Codex / Claude 聊天快速接續用。Claude 已經讀過本交接檔時，不要再要求 Claude 重讀同一份舊內容；Codex 只需要讀本段、最新 implementation brief，以及使用者最新截圖即可開始。
+
+### 一、目前已完成到哪裡
+
+目前進度已完成到：
+
+```txt
+57_PHASE3_STEP6.5_IMPL_BRIEF.md
+Phase 3 Step 6.5 — Dialogue Gap Reduction (Prefetch + Shorten Delays)
+狀態：完成
+```
+
+Step 6 系列重點：
+
+- `51_PHASE3_STEP6_IMPL_BRIEF.md`：Google News RSS 即時話題接線完成。
+- `52_PHASE3_STEP6.1_IMPL_BRIEF.md`：RSS cache / 同話題多輪討論 / tone 變化完成。
+- `53_PHASE3_STEP6.2_IMPL_BRIEF.md`：小美對話動作連貫、chunk-level action、講完回 idle 完成。
+- `54_PHASE3_STEP6.3_IMPL_BRIEF.md`：同一話題防重複，加入 tone queue、angle queue、dialogue memory。
+- `55_PHASE3_STEP6.4_IMPL_BRIEF.md`：新聞初始灌入修正，啟動時能從 cache/RSS seed 第一個 topic。
+- `56_DIALOGUE_GAP_REPORT.md`：分析上一輪結束到下一輪開始有 5~10 秒空窗。
+- `57_PHASE3_STEP6.5_IMPL_BRIEF.md`：完成 prefetch 下一輪 dialogue + 縮短 delay，理論上對話空窗降到約 0.5~1 秒。
+
+### 二、Step 6.5 最新實作摘要
+
+Claude 修改範圍：只改 `src/scenes/OfficeScene.js`。
+
+新增狀態：
+
+```js
+this._nextDialogue = null;
+this._prefetchInProgress = false;
+this._prefetchStartedForSeq = null;
+```
+
+核心流程：
+
+```txt
+_fetchAndPlayDialogue()
+  1. 若 _nextDialogue 有 prefetch cache，直接 consume 並播放
+  2. 若 prefetch 還在跑，250ms 後 retry，不重複開請求
+  3. 若沒有 cache，也沒有 prefetch，才 live fetch /api/chat
+```
+
+播放開始 2 秒後背景呼叫 `/api/chat` 預抓下一輪；下一輪開始時直接吃 `_nextDialogue`。
+
+已縮短 delay：
+
+```txt
+next dialogue gap：1100ms -> 350ms
+afterWalk delay：300ms -> 100ms
+frozen path delay：300ms -> 100ms
+line gap：300ms -> 180ms
+```
+
+驗收時 F12 Console 應看到：
+
+```txt
+[TDT] prefetch started
+[TDT] prefetch ready
+[TDT] using prefetched dialogue
+```
+
+注意：prefetch 會讓 `/api/chat` 呼叫頻率約翻倍，token 用量也會增加，但目前可接受。
+
+### 三、目前畫面與已知狀態
+
+目前前端網址：
+
+```txt
+http://localhost:8765
+```
+
+目前畫面狀態大致是：
+
+- 1920x1080 TDT studio。
+- 阿明固定左側，小美固定右側。
+- 主持人不 walking、不 wander、不 random movement。
+- 對話泡泡、右 panel、TOP5、中央 topic board 都已正常運作。
+- RSS topic 可從 `wwt_news_cache.json` 讀取，沒有新 topic 時可以沿用舊 topic 做不同角度討論。
+- 同 topic 已有防重複策略，但若使用者仍覺得重複，可再調 prompt / memory / tone-angle policy。
+
+### 四、仍待處理或下一步
+
+1. 先驗收 Step 6.5：
+   - `Ctrl+Shift+R` 強制重整。
+   - F12 Console 確認 prefetch log。
+   - 連續看 5 輪，確認上一輪結束到下一輪開始不再有 5~10 秒空窗。
+   - 確認沒有兩個泡泡同時跳、沒有對話重疊、沒有主持人卡在上一個動作。
+
+2. 小美 PNG 素材仍待 Codex 重生：
+   - 目前 `char_xiaomei_actions.png` 有素材層問題。
+   - 白外套被 alpha / 去背吃掉，在深色背景看起來像黑色或深藍衣服。
+   - 角色邊緣有白色光暈 / halo。
+   - 這不是 Phaser bug，Claude 不要用程式硬修。
+   - 後續應由 Codex 重新生成 / 修圖後輸出新的 `assets/char_xiaomei_actions.png` 與單張 pose PNG。
+
+3. 若 Step 6.5 驗收還是慢：
+   - 產生下一份 Claude 指令檔，例如 `claude_STEP6.6_預抓穩定化指令檔.md`。
+   - 優先檢查 `_prefetchNextDialogue()` 是否有跑、是否被 `_chatInProgress` 或 seq guard 擋掉。
+   - 可考慮把 prefetch 觸發從 2000ms 改 1000ms。
+   - 可考慮讓 server 端預先產內容，但這會是較大改動。
+
+4. 若新聞仍不更新：
+   - 先查 server console。
+   - 查 `/api/state`、`/api/news`、`wwt_news_cache.json`。
+   - 重點檢查 `_apply_news_topic`、topic seed、rotate loop、`topic_locked`、`_current_topic_rounds`。
+
+### 五、Codex / Claude 協作規則（最新）
+
+使用者希望之後流程保持輕量：
+
+- Codex 不要在聊天裡貼很長的 Claude 指令內容。
+- Codex 直接產生 `.md` 指令檔。
+- 新的 Claude 指令檔直接放到：
+
+```txt
+C:\Users\miner3\trading-command-center
+```
+
+- 最終回覆只要短短告知檔案已產生，附檔案連結即可。
+- Claude 若已讀過 `WWT_HANDOVER.md`，不要在下一份指令檔要求它重讀整份 handover。
+- Claude 實作完成後，請它產出 numbered implementation brief，例如 `58_PHASE3_STEP6.6_IMPL_BRIEF.md`。
+- Codex 下一輪要先讀最新 brief，再判斷是否需要補下一份 Claude 指令檔。
+
+### 六、下一個聊天建議起手
+
+下一個 Codex 聊天可照這個順序：
+
+1. 讀 `WWT_HANDOVER.md` 最尾端這段最新摘要。
+2. 讀最新 `57_PHASE3_STEP6.5_IMPL_BRIEF.md`。
+3. 如果使用者提供新截圖，先看截圖現象。
+4. 若只是要 Claude 繼續修，直接產 `.md` 到 project root，不要把長指令貼在聊天裡。
+5. 若是小美圖片問題，Codex 應負責產圖或修圖，Claude 只負責接入 assets。
+

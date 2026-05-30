@@ -739,7 +739,8 @@ async def generate_chat():
         client = anthropic.AsyncAnthropic(api_key=api_key)
         msg = await client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=400,
+            # Phase 3 Step 6.6: 400 → 800、避免被截斷在字串中間導致 JSON 不完整
+            max_tokens=800,
             messages=[{"role": "user", "content": prompt}],
         )
         raw = msg.content[0].text.strip()
@@ -747,7 +748,24 @@ async def generate_chat():
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        dialogue = json.loads(raw.strip())
+        # Phase 3 Step 6.6: JSON 解析容錯
+        # - 主解析失敗時印 raw 到 server console（除錯用）
+        # - 嘗試擷取第一個 `[` 到最後一個 `]` 區段再 parse 一次
+        # - 仍失敗才回 500、其他 Anthropic / network exception 走外層 except
+        try:
+            dialogue = json.loads(raw.strip())
+        except json.JSONDecodeError as e:
+            print(f"[chat] JSON parse failed: {e}")
+            print(f"[chat] raw text preview: {raw[:800]}")
+            start = raw.find("[")
+            end   = raw.rfind("]")
+            if start >= 0 and end > start:
+                try:
+                    dialogue = json.loads(raw[start:end + 1])
+                except json.JSONDecodeError:
+                    return JSONResponse({"error": f"JSON parse failed: {e}"}, status_code=500)
+            else:
+                return JSONResponse({"error": f"JSON parse failed: {e}"}, status_code=500)
 
         # 更新 state：把最後對白存入 hosts
         st = _load_state()
