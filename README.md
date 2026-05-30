@@ -1,8 +1,21 @@
 # TDT 天天嘴台灣 — Taiwan Daily Talk
 
-AI 鄉民談話節目模擬器。兩位主持人「阿明哥」「小美姐」在 1920×1080 棚景中、圍繞 Google News 即時時事對話、設計用於 **OBS Browser Source 直播**。
+**「假 24H AI 直播」** — 兩位 AI 角色「阿明哥」「小美姐」不停聊新聞、看起來像 24 小時 live、但其實是預生成內容循環播放的長時間表演。
+
+- 🗞️ 真實新聞（Google News 抓的）
+- 🤖 真實 AI（Claude Haiku 4.5 生成）
+- 🎭 真實角色設定（阿明小美一致）
+- 📺 看起來像 live 的 24H 直播感
+- 💬 內容風格：詼諧、批評、嘲諷、討論（不是新聞播報）
+
+設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
+
+> 💡 **這不是新聞台**、不是即時新聞評論頻道、是「24H AI 角色聊新聞的長時間表演」。
+> 像 LoFi Girl 24H 直播或預錄廣播電台、不是 ETtoday 雲端電視。
 
 > ⚠️ 目錄名仍叫 `trading-command-center`、state 檔仍叫 `wwt_*.json` — legacy（此專案原本是台股交易中心 dashboard、後來轉型成 TDT）。不影響運作。
+
+> ⚠️ **目前實作仍是「即時生成」架構**（Phase 3 Step 6.6 為止）、月成本約 NT$57k（24/7 計）。**24H MVP 目標架構是 batch 預生成 + pool 循環、月成本可降到 NT$100-150**。詳見 [CLAUDE.md](CLAUDE.md) 跟 `62_24H_MVP_DISCUSSION_NOTES.md`。
 
 ---
 

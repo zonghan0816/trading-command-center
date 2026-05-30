@@ -20,7 +20,63 @@
 
 ## 一句話介紹
 
-**TDT 天天嘴台灣（Taiwan Daily Talk）** — Phaser 3.60 + FastAPI + Claude Haiku 4.5 的 AI 鄉民談話節目模擬器。兩位主持人「阿明哥」「小美姐」在 1920×1080 棚景中、圍繞 Google News 即時時事對話。**設計用於 OBS Browser Source 直播**。
+**TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「阿明哥」「小美姐」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
+
+---
+
+## 🎯 ★ 產品定位（2026-05-31 重大澄清）
+
+**這不是新聞台、不是即時新聞評論頻道**。是**「24H AI 角色聊新聞的長時間表演」**。
+
+### 真實定位
+
+| 之前誤解（要打破）| 真實定位 |
+|---|---|
+| 24H 新聞台 / 即時新聞頻道 | **24H AI 角色聊天表演** |
+| 重視新聞即時性 | 重視「角色一致、不停聊天的氛圍」 |
+| 需要 live 緊張感 | 只需要「看起來像 live」 |
+| 像 ETtoday 雲端電視 | **像 LoFi Girl 24H 直播 / 預錄廣播電台** |
+
+### 內容風格
+
+- 💬 詼諧、批評、嘲諷、討論
+- 🗞️ 真實新聞當素材（從 RSS 抓）
+- 🎭 兩個 AI 角色「不停聊天」的表演感
+- 📺 新聞大到宇宙末日、小到某細菌外遇都可以聊
+
+### 「假 24H 直播」並不算造假
+
+| 元素 | 真假 |
+|---|---|
+| AI 生成內容 | ✅ 真的（Claude 生成）|
+| 新聞內容 | ✅ 真的（Google News）|
+| 角色設定 | ✅ 真的（阿明小美一致）|
+| 即時性 | ❌ 是錯覺（預生成循環播）|
+
+像「報紙印好次日上市」本來就有時差、沒人說那是假報紙。
+
+### 目標架構（24H MVP、尚未實作）
+
+| 機制 | 目標 |
+|---|---|
+| 內容生成 | **Batch 預生成**（一次處理 30-50 條新聞、生成 200-300 段對白）|
+| 內容供應 | **Pool 循環播放**（剩 15 段時觸發 refill）|
+| Live 模式 | 僅熱門新聞首次出現（佔 ~5% 用量）|
+| Topic UI | **拿掉 LED 顯示**（觀眾不需看到「今日話題」）|
+| 後端 prompt | **保留** topic / 新聞素材（Claude 仍需具體素材）|
+| Step 6.5 prefetch | **砍掉**（batch 模式不需要）|
+| 月成本估算 | **NT$100-150**（之前估的 NT$57k 是因為按「即時」算）|
+
+詳細討論在 `62_24H_MVP_DISCUSSION_NOTES.md`、最終決策會合成 `63_24H_MVP_ARCHITECTURE_DECISION.md`。
+
+### ⚠️ 給未來 Claude session 的提示
+
+**不要再把這個專案當「新聞直播」、不要建議「優化即時性」**。
+使用者多次澄清：**這是表演、不是新聞**。內容真實、時間是錯覺。
+不要被「Step 6.5 prefetch」「reduce gap」「real-time」這些既有 BRIEF 名詞帶偏。
+**真正方向 = batch 預生成 + pool 循環、看起來像 live 即可**。
+
+---
 
 ---
 
@@ -35,7 +91,9 @@
 
 ---
 
-## 🔄 對話 pipeline
+## 🔄 對話 pipeline（現況 — Phase 3 Step 6.6 為止）
+
+⚠️ **以下是目前的「即時生成」架構**、會在 24H MVP 改成 batch 預生成 + pool 循環。詳見上面「產品定位」章節。
 
 ```
 Google News Taiwan RSS（每 10 分鐘 fetch、replace 策略）
@@ -104,9 +162,14 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **3 Step 6.3** | per-topic tone/angle shuffled queue + dialogue memory + prompt 反重複區塊 |
 | **3 Step 6.4** | 啟動立即 seed first topic（修空 topic 死循環）|
 | **3 Step 6.5** | prefetch 下一輪 + 縮 4 個人為 delay（gap 從 5~10s 降到 0.5~1s）|
+| **3 Step 6.6** | `/api/chat` 500 修復（max_tokens 400→800、JSON 容錯）|
+| **★ 重大澄清** | **2026-05-31 產品定位澄清**：不是新聞台、是「假 24H AI 角色聊天表演」。月成本估算從 NT$57k 降到 NT$100-150。**改變整個 24H MVP 架構方向** |
+| **24H MVP** | 規劃中（討論於 62 筆記、共識見 63 決策文件、Phase 4 開始實作）|
 
 ### 已知待辦 / 限制
 
+- [ ] **產品定位轉向後的架構重做**：Step 6.5 prefetch 將被砍掉、改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md`
+- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 加「諷刺現象不指控人」規則、24H 開放前必做（法律風險）
 - [ ] **小美 PNG 視覺問題**：白色西裝在深背景變透明（AI 生圖去白底副作用）+ 邊緣白光暈。**程式端無法修、要 Codex 重生 `char_xiaomei_actions.png`**。詳見 51~55 BRIEF。
 - [ ] **阿明 actions spritesheet 未接**：目前阿明仍是 v2 draft 單張、所有 status 都同 frame
 - [ ] BGM / 環境音（OBS 端可加、不需動程式）
