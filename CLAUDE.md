@@ -302,17 +302,52 @@ curl -X POST http://localhost:8765/api/news/refresh
 
 ---
 
-## 🤝 GPT / Claude 協作模式
+## 🤝 GPT / Claude 協作模式（2026-05-31 更新）
+
+### 新版分工（Phase 4 / 24H MVP 起、平行進行）
 
 | 角色 | 職責 |
 |---|---|
-| **使用者** | 提供畫面截圖、描述觀感、決定下一步方向 |
-| **GPT (Codex)** | 讀 BRIEF + 交接檔、判斷方向、產生 `.md` 指令檔交給 Claude、生成 / 整理圖片素材 |
-| **Claude** | 依指令檔修改程式、接 GPT 提供的素材、完成後輸出 `XX_PHASE3_STEPX.X_IMPL_BRIEF.md` |
+| **使用者** | 提供畫面截圖、描述觀感、決定產品方向 + 美學取向 |
+| **Claude** | **直接讀 62 notes 實作**程式、不再等 GPT 指令檔；完成後寫 BRIEF |
+| **GPT (Codex)** | **圖像生成**（PNG、spritesheet、UI 元素）+ **定期 review 補漏**（不再每 Step 出指令檔）|
 
-> ⚠️ Claude 不重新生成圖片素材（除非使用者明確要求）。視覺問題（白光暈、衣服透明等）屬 PNG 層、Claude 在 BRIEF 註記給 GPT 處理。
+### 為什麼改
 
-詳細協作守則見 [WWT_HANDOVER.md](WWT_HANDOVER.md) 第十七章。
+- 62 notes 已詳細到 Claude 可以直接動工、再排 GPT 指令檔等於浪費一輪
+- GPT 反應越來越慢、長指令易漏讀
+- 圖像生成是 GPT 無可替代的強項、應該專注做這個
+- Claude 不會生圖（API 不支援）、這部分絕對交 GPT
+
+### 新工作流
+
+```
+程式碼部分（Claude）
+    ↓ Claude 從 62 notes 直接實作
+    ↓ 完成 Step 後寫 BRIEF
+    ↓
+平行進行
+    ↓
+圖像素材（GPT/Codex）
+    ↓ 從 Claude 給的素材清單排程生成
+    ↓ 完成後丟進 assets/ 給 Claude 接線
+    ↓
+定期 review（GPT）
+    ↓ Claude 每 1-2 Step 寫短報告請 GPT「找漏的」
+    ↓ GPT 用第三視角給建議、不下指令
+```
+
+### Claude 給 GPT 的「短報告」三種
+
+| # | 類型 | 用途 |
+|---|---|---|
+| 1 | **D/E 技術問題** | 純技術討論、500 字內 |
+| 2 | **「找漏的」review** | 列當下狀態、請 GPT 補盲點 |
+| 3 | **素材製作清單** | 具體列要 PNG 規格 |
+
+> ⚠️ Claude 不重新生成圖片素材。視覺問題（白光暈、衣服透明等）屬 PNG 層、Claude 在 BRIEF 註記給 GPT 處理。
+
+詳細協作守則見 [WWT_HANDOVER.md](WWT_HANDOVER.md) 第十七章（已更新）。
 
 ---
 

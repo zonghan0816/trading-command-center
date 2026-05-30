@@ -414,73 +414,92 @@ Claude 接線時只做：
 
 ---
 
-## 十七、Codex / Claude 協作模式
+## 十七、Codex / Claude 協作模式（2026-05-31 重大更新、Phase 4 24H MVP 起改新工作流）
 
-這個專案目前採用三方分工：使用者負責觀察與決策，Codex 負責素材與指令整理，Claude 負責程式接線與實作。
+### 為什麼改新工作流
 
-### 分工原則
+舊版（Phase 1~3）：使用者 → GPT (Codex) 出指令檔 → Claude 實作 → BRIEF → 下一輪
+- 問題 1：GPT 越來越慢、長指令易漏讀
+- 問題 2：62_24H_MVP_DISCUSSION_NOTES.md 已詳細到 Claude 可直接動工、再排 GPT 指令檔等於浪費一輪
+- 問題 3：GPT 強項在圖像生成、應該專注做這個
+
+新版（Phase 4 起）：**Claude 直接讀 62 notes 實作 + GPT 平行做圖 + GPT 定期 review**
+
+### 新版分工
 
 | 角色 | 職責 |
 |---|---|
-| 使用者 | 提供畫面截圖、描述觀感、決定下一步方向，例如先做小美、再做阿明、節奏快慢等。 |
-| Codex | 讀交接檔與實作 brief、判斷問題方向、生成或切分圖片素材、產出給 Claude 的 `.md` 指令檔。 |
-| Claude | 依 `.md` 指令檔修改程式、接入 Codex 產出的素材、完成後輸出 implementation brief。 |
+| **使用者** | 提供畫面截圖、描述觀感、決定產品方向 + 美學取向 |
+| **Claude** | **直接讀 62 notes 實作**程式、不再等 GPT 指令檔；完成 Step 後寫 BRIEF |
+| **GPT (Codex)** | **圖像生成**（PNG、spritesheet、UI 元素）+ **定期 review 補漏**（不再每 Step 出指令檔）|
 
-### 重要習慣
+### 新工作流
 
-- Claude 已讀過 `WWT_HANDOVER.md` 時，不要再要求 Claude 重複交接摘要。
-- 給 Claude 的長指令不要貼在聊天對話裡，改成由 Codex 直接產生 `.md` 指令檔。
-- Codex 回覆時只給檔案連結與一句重點，避免聊天變長、變肥。
-- 圖片素材由 Codex 生成、裁切、整理；Claude 只負責把圖接進程式。
-- Claude 不應重新生成圖片，除非使用者明確要求。
-- Claude 完成後，請在專案根目錄新增下一份 implementation brief，例如 `50_PHASE3_STEP5_IMPL_BRIEF.md`。
-- 下一輪 Codex 要先讀最新 implementation brief，再判斷下一步，不要只憑舊交接檔。
-
-### 指令檔命名建議
-
-Codex 產出的 Claude 指令檔可用短名，放在目前 Codex 工作資料夾或使用者指定位置：
-
-```txt
-claude指令檔.md
-claude台詞動作指令檔.md
-claude播放節奏修正指令檔.md
+```
+程式碼部分（Claude）
+    Claude 從 62 notes 直接實作
+    完成 Step 後寫 BRIEF
+    
+平行進行
+    
+圖像素材（GPT/Codex）
+    從 Claude 給的素材清單排程生成
+    完成後丟進 assets/ 給 Claude 接線
+    
+定期 review（GPT）
+    Claude 每 1-2 Step 寫短報告請 GPT「找漏的」
+    GPT 用第三視角給建議、不下指令
 ```
 
-若指令檔需要長期留存，可再請 Claude 或 Codex 複製摘要到專案根目錄的 numbered brief。
+### Claude 給 GPT 的「短報告」三種類型
 
-### 素材流程
+| # | 類型 | 用途 | 長度 |
+|---|---|---|---|
+| 1 | **D/E 技術問題** | 純技術討論、Claude 沒把握的議題 | 500 字內 |
+| 2 | **「找漏的」review** | 列當下狀態、請 GPT 補盲點 | 1 頁內 |
+| 3 | **素材製作清單** | 具體列要 PNG 規格、尺寸、命名 | 1 頁內 |
 
-1. 使用者提供參考圖或描述。
-2. Codex 生成 / 裁切 / 命名素材。
-3. 素材若要正式進專案，放到：
+→ 每份報告自成獨立、GPT 不用追溯全脈絡、不會漏讀。
 
-```txt
-C:\Users\miner3\trading-command-center\assets
-```
+### 重要習慣（仍適用）
 
-4. Codex 產生 `.md` 指令檔，清楚列出素材檔名與接線規則。
-5. Claude 只做程式接線，不重新做圖。
-6. 使用者用瀏覽器或 OBS 畫面驗收。
+- Claude 已讀過 `WWT_HANDOVER.md` 時、不要再要求重複摘要
+- 圖片素材由 GPT/Codex 生成、裁切、整理；Claude 只負責把圖接進程式
+- Claude 不重新生成圖片（API 不支援、也不該做）
+- Claude 完成 Step 後、在專案根目錄新增 `XX_PHASE4_STEPX.X_IMPL_BRIEF.md`
+
+### 素材流程（簡化）
+
+1. Claude 在 BRIEF 中列「需要的素材清單」（檔名 / 規格 / 用途）
+2. 使用者把清單轉交給 GPT/Codex
+3. GPT/Codex 生成、放到 `C:\Users\miner3\trading-command-center\assets`
+4. Claude 偵測新檔、自動接線（或下次 Step 接線）
 
 ### 程式限制繼續沿用
 
-- 不改 API schema，除非使用者明確批准。
-- 不恢復 walking / wander / random movement。
-- 主持人固定站位。
-- `.env`、`wwt_state.json` 不進 git。
-- 改 JS/CSS 後，瀏覽器請用 `Ctrl+Shift+R` 強制重整。
-- 先小步驗收，再擴到下一位主持人或下一個功能。
+- 不改 API schema、除非使用者明確批准
+- 不恢復 walking / wander / random movement（movement 是設計、不是 bug）
+- `.env`、`wwt_state.json`、`wwt_news_cache.json`、`wwt_dialogue_memory.json` 不進 git
+- 改 JS/CSS 後、瀏覽器請用 `Ctrl+Shift+R` 強制重整
+- 先小步驗收、再擴到下一個功能
 
-### 快速開工流程
+### 24H MVP 程式限制（新）
 
-新聊天或換電腦時，建議順序：
+- 不違反月預算 NT$1,500 上限（Cost Guard 強制）
+- Quality Breaker 必須有 fallback 路徑（沒對話時 idle / recycle pool）
+- Pool 容量、refill 觸發、過期判定要可調（不寫死）
+- 支援 4 時段 × 2 組角色 × 季節變化 × 即時天氣（不全做、但架構保留）
 
-1. Codex 先讀 `WWT_HANDOVER.md`。
-2. Codex 再讀最新的 `*_IMPL_BRIEF.md`。
-3. 使用者貼目前畫面或描述問題。
-4. Codex 若要交給 Claude，直接產生 `.md` 指令檔，不在聊天貼長文。
-5. Claude 照指令檔實作並輸出新的 implementation brief。
-6. 使用者驗收畫面，Codex 再協助判斷下一步。
+### 快速開工流程（新版）
+
+新聊天或換電腦時、建議順序：
+
+1. Claude 自動讀 `CLAUDE.md`（包含 24H MVP 產品定位）
+2. Claude 讀 `62_24H_MVP_DISCUSSION_NOTES.md`（11 項已決議）
+3. Claude 讀最新 `*_IMPL_BRIEF.md` 確認上次做到哪
+4. 使用者一句指令「接續」或「存進度」、Claude 自己判斷
+5. **不再等 GPT 指令檔、Claude 直接動工**
+6. GPT 只在「需要圖」或「使用者要 review」時才出場
 
 ---
 
@@ -593,30 +612,38 @@ http://localhost:8765
    - 查 `/api/state`、`/api/news`、`wwt_news_cache.json`。
    - 重點檢查 `_apply_news_topic`、topic seed、rotate loop、`topic_locked`、`_current_topic_rounds`。
 
-### 五、Codex / Claude 協作規則（最新）
+### 五、Codex / Claude 協作規則（2026-05-31 重大更新、舊版作廢）
 
-使用者希望之後流程保持輕量：
+**舊版（Phase 1~3）已作廢**：Codex 出指令檔 → Claude 實作 → BRIEF 的單線流程不再使用。
 
-- Codex 不要在聊天裡貼很長的 Claude 指令內容。
-- Codex 直接產生 `.md` 指令檔。
-- 新的 Claude 指令檔直接放到：
+**新版（Phase 4 / 24H MVP 起）**：
 
-```txt
-C:\Users\miner3\trading-command-center
-```
+- **Claude 不再等 GPT 指令檔**、直接讀 `62_24H_MVP_DISCUSSION_NOTES.md` 開工
+- **GPT 專心做圖**（PNG / spritesheet / UI 元素）
+- **GPT 只在 Claude 寫短報告請 review 時出場**、不每 Step 出指令
 
-- 最終回覆只要短短告知檔案已產生，附檔案連結即可。
-- Claude 若已讀過 `WWT_HANDOVER.md`，不要在下一份指令檔要求它重讀整份 handover。
-- Claude 實作完成後，請它產出 numbered implementation brief，例如 `58_PHASE3_STEP6.6_IMPL_BRIEF.md`。
-- Codex 下一輪要先讀最新 brief，再判斷是否需要補下一份 Claude 指令檔。
+**Claude 給 GPT 的 3 種短報告**：
 
-### 六、下一個聊天建議起手
+1. D/E 技術問題（500 字內）
+2. 「找漏的」review（1 頁內）
+3. 素材製作清單（1 頁內）
 
-下一個 Codex 聊天可照這個順序：
+每份報告自成獨立、GPT 不用追溯全脈絡、不會漏讀。
 
-1. 讀 `WWT_HANDOVER.md` 最尾端這段最新摘要。
-2. 讀最新 `57_PHASE3_STEP6.5_IMPL_BRIEF.md`。
-3. 如果使用者提供新截圖，先看截圖現象。
-4. 若只是要 Claude 繼續修，直接產 `.md` 到 project root，不要把長指令貼在聊天裡。
-5. 若是小美圖片問題，Codex 應負責產圖或修圖，Claude 只負責接入 assets。
+### 六、下一個聊天建議起手（新版）
+
+下一個 Claude 聊天：
+
+1. 自動讀 `CLAUDE.md`（含 24H MVP 產品定位章節）
+2. Claude 讀 `62_24H_MVP_DISCUSSION_NOTES.md`（11 項已決議）
+3. Claude 讀最新 `*_IMPL_BRIEF.md` 確認上次做到哪
+4. 使用者一句「**接續**」、Claude 自己判斷下一步、直接動工
+5. 不需要 GPT 指令檔、不需要使用者貼長指令
+
+下一個 GPT 聊天：
+
+1. 只看 Claude 給的短報告（3 種類型之一）
+2. 給建議、補漏、找盲點
+3. 不要試圖出指令檔給 Claude
+4. 圖像需求專心做圖、不討論程式
 
