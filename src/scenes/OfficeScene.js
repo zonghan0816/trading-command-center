@@ -824,6 +824,17 @@ export class OfficeScene extends Phaser.Scene {
     this._dialogueSeq = (this._dialogueSeq || 0) + 1;
     const seq = this._dialogueSeq;
     this._prefetchStartedForSeq = null;
+
+    // Phase 4 Step 5.6: 告訴後端「現在正在講這個 topic」、LED 才不會跑前面
+    const speakingTopic = data.topic || '';
+    if (speakingTopic) {
+      fetch('http://localhost:8765/api/now_speaking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: speakingTopic }),
+      }).catch(() => {});  // fire-and-forget、失敗不影響播放
+    }
+
     this._playDialogue(data.dialogue, seq);
     return true;
   }

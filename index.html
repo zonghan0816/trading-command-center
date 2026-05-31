@@ -386,7 +386,9 @@
           const r = await fetch('/api/state');
           const d = await r.json();
           const mode  = d.mode  || 'idle';
-          const topic = d.topic || '';
+          // Phase 4 Step 5.6: 優先顯示角色「正在講的話題」、不是排隊中的下一話題
+          // 才不會出現「螢幕話題已換、角色還在講上一個」的錯位
+          const topic = d.speaking_topic || d.topic || '';
           if (mode === lastMode && topic === lastTopic) return;  // 沒變不觸發動畫
 
           // 首次載入（lastMode 為 null）直接套用、不淡出

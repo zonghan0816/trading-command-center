@@ -121,7 +121,8 @@ def _default_state() -> dict:
         "updated_at": datetime.now().strftime("%H:%M:%S"),
         "scene": "studio",
         "mode": "idle",
-        "topic": "",
+        "topic": "",                # 排隊中的「下一個話題」（rotate loop 控制）
+        "speaking_topic": "",       # 角色「現在正在播放」的話題（前端 /api/now_speaking 控制）
         "topic_summary": "",
         "mood": "neutral",
         "activity": "idle",
@@ -143,12 +144,13 @@ def _default_state() -> dict:
 
 # 字串欄位 default 對照（normalize_state 用、與 _default_state 對齊）
 _STR_FIELD_DEFAULTS = {
-    "mode":          "idle",
-    "topic":         "",
-    "topic_summary": "",
-    "scene":         "studio",
-    "mood":          "neutral",
-    "activity":      "idle",
+    "mode":           "idle",
+    "topic":          "",
+    "speaking_topic": "",
+    "topic_summary":  "",
+    "scene":          "studio",
+    "mood":           "neutral",
+    "activity":       "idle",
 }
 
 
@@ -1073,6 +1075,21 @@ def resume_chat():
     st["updated_at"] = datetime.now().strftime("%H:%M:%S")
     _save_state(st)
     return {"ok": True, "paused": False}
+
+
+@app.post("/api/now_speaking")
+async def set_now_speaking(request: Request):
+    """前端開始播某段對話時呼叫、告訴後端「角色現在正在講這個 topic」。
+    LED 顯示讀 state.speaking_topic、避免 prefetch 造成「螢幕話題跑前面、角色還在講上一個」的錯位。
+    Phase 4 Step 5.6: LED 跟對話同步。
+    """
+    data = await request.json()
+    topic = str(data.get("topic", "")).strip()
+    st = _load_state()
+    st["speaking_topic"] = topic
+    st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+    _save_state(st)
+    return {"ok": True, "speaking_topic": topic}
 
 
 @app.post("/api/topic")
