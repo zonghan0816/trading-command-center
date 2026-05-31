@@ -267,6 +267,51 @@
       text-shadow: 0 0 8px rgba(200,160,122,0.5);
       background: rgba(24, 18, 12, 0.85);
     }
+    /* Phase 4 Step 2.1: 24H AI LIVE 品牌字 badge (左上、縮小+往內挪、不搶舞台) */
+    #brand-badge {
+      position: absolute;
+      top: 24px;
+      left: 24px;
+      width: 220px;
+      height: 51px;
+      background: url('/assets/ui_brand_24h_ai_live.png') no-repeat;
+      background-size: contain;
+      z-index: 11;
+      pointer-events: none;
+      filter: drop-shadow(0 0 6px rgba(255,107,53,0.35));
+      opacity: 0.92;
+    }
+    /* Phase 4 Step 2: 跑馬燈 (底部、循環滾動) */
+    #marquee-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: url('/assets/ui_marquee_bg.png') no-repeat center center;
+      background-size: cover;
+      overflow: hidden;
+      z-index: 12;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+    }
+    #marquee-bar .marquee-text {
+      display: inline-block;
+      white-space: nowrap;
+      padding-left: 100%;
+      animation: marquee 40s linear infinite;
+      color: #FFB300;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 5px;
+      font-family: "Microsoft JhengHei", "Consolas", monospace;
+      text-shadow: 0 0 10px rgba(255,179,0,0.7);
+    }
+    @keyframes marquee {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-100%); }
+    }
   </style>
 </head>
 <body>
@@ -276,6 +321,13 @@
       <div class="subtitle">AI 鄉民聊天室 • Taiwan Daily Talk LIVE</div>
     </div>
     <div class="live" id="live-status">LIVE</div>
+  </div>
+  <!-- Phase 4 Step 2: 24H AI LIVE 品牌字 + 跑馬燈 overlay -->
+  <div id="brand-badge"></div>
+  <div id="marquee-bar">
+    <span class="marquee-text">
+      ◆ 天天嘴台灣 · Taiwan Daily Talk · 純 AI 生成內容 · 24/7 LIVE Chat · AI 主持人不打烊 · 按讚 + 訂閱 + 小鈴鐺 · 留言告訴主持人 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
+    </span>
   </div>
   <div id="game-container">
     <div id="status-panel">

@@ -54,6 +54,7 @@ export class OfficeScene extends Phaser.Scene {
       this._prefetchStartedForSeq = null;   // 已對哪個 seq 觸發過 prefetch（避免同輪重複觸發）
 
       this._buildBackground();
+      this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
       this._buildWorkstations();
 
@@ -136,6 +137,30 @@ export class OfficeScene extends Phaser.Scene {
       : ['weather_cloudy', 'weather_rainy'];
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
     return this.textures.exists(pick) ? pick : 'weather_sunny';
+  }
+
+  // Phase 4 Step 2: 4 時段判定（06-12 morning / 12-18 afternoon / 18-24 evening / 00-06 late_night）
+  _getCurrentTimeSlot() {
+    const hour = new Date().getHours();
+    if (hour >= 6  && hour < 12) return 'morning';
+    if (hour >= 12 && hour < 18) return 'afternoon';
+    if (hour >= 18 && hour < 24) return 'evening';
+    return 'late_night';
+  }
+
+  // Phase 4 Step 2: 依當前時段疊上對應道具 PNG（depth 1、在角色之下）
+  // Phase 4 Step 2.1: alpha 0.78 讓道具退到「支援場景」、不搶舞台
+  _buildPropOverlay() {
+    const slot = this._getCurrentTimeSlot();
+    const propKey = `prop_${slot}`;
+    if (this.textures.exists(propKey)) {
+      this.propLayer = this.add.image(0, 0, propKey)
+        .setOrigin(0, 0).setDepth(1).setDisplaySize(this.W, this.H)
+        .setAlpha(0.78);
+      console.info(`[TDT] prop: ${propKey} (alpha 0.78)`);
+    } else {
+      console.info(`[TDT] prop skip: ${propKey} 沒載入`);
+    }
   }
 
   _updateBackgroundMix() {
