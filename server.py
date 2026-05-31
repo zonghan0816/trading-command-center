@@ -61,7 +61,8 @@ _current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 
 _PRICE_INPUT_PER_MTOK  = 1.00   # USD
 _PRICE_OUTPUT_PER_MTOK = 5.00   # USD
 # 預算上限（USD、NT$1=$1/30、Haiku 4.5 起家用量）
-_DAILY_BUDGET_USD   = 2.00      # ≈ NT$60/天
+# Phase 4 Step 5.1: 使用者調整、日 $2 太緊、改 $6（24/7 跑滿 ~$5/天、有 ~20% buffer）
+_DAILY_BUDGET_USD   = 6.00      # ≈ NT$180/天
 _MONTHLY_BUDGET_USD = 50.00     # ≈ NT$1500/月（使用者指定）
 
 # Phase 3 Step 6 擴充：8 種對話 tone（前 4 既有、後 4 新增、給同 topic 不同調性）
@@ -237,26 +238,24 @@ def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
            (output_tokens * _PRICE_OUTPUT_PER_MTOK / 1_000_000)
 
 
-# ── Phase 4 Step 5.5: Lightweight Quality Breaker ──────────────────
-# 對白回傳前掃描、命中危險字串就替換成 safe fallback line、避免 Claude 偶發 slip 漏網
+# ── Phase 4 Step 5.5.1: Quality Breaker 輕量化（使用者 74 號指示）──
+# TDT 定位 = 24H AI 聊天直播、像張雅琴等真人政論的犀利風格、不需自我鎖死
+# 黑名單只擋「絕對不適合任何聊天節目」的極端內容（性暴力 / 對未成年暴力）
+# 其他靠 Step 4 prompt 規則 + Claude 自律就好
+# 新聞 headline 本來就是真實新聞、針對「現象」討論、政論犀利都 OK
 _QUALITY_BLOCK_PATTERNS = [
-    # 包裝過的指控（Step 4.2 對應）
-    "聽說",   "網友爆料", "網路盛傳", "有人說", "據傳", "傳聞", "據說",
-    # 直接指控（Step 4 強化）
-    "一定是收", "肯定是收", "就是收了錢", "一定有問題", "肯定有問題",
-    # 政治紅線（避免站隊）
-    "舔共", "舔美", "舔中", "賣台", "親共", "媚共",
-    # 敏感過重話題（萬一從 prompt slip 漏出）
-    "性侵", "強姦", "虐童", "戀童", "弒",
+    # 性暴力（含未成年）— 純極端、無正常 commentary 用途
+    "性侵", "強姦", "戀童", "性虐", "猥褻",
+    # 對未成年的暴力
+    "虐童",
 ]
 
+# Fallback line 保留（極少觸發、但保險）
 _QUALITY_FALLBACK_LINES = [
     "說真的、這事看下去蠻有意思的、要繼續觀察。",
     "你看、這現象其實年年都這樣演、不意外。",
     "問題就在這、十年前是這樣、十年後還是這樣。",
     "我跟你講喔、這種事看新聞看到都麻木了。",
-    "所以呢？結果還是回到同一個結構問題。",
-    "不意外啊、套路重複到都能背了。",
 ]
 
 
