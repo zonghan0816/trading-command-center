@@ -12,7 +12,7 @@ export class BootScene extends Phaser.Scene {
     // 背景圖片（舊版保留不刪，但 OfficeScene 已不使用）
     this.load.image('office_bg', '/assets/office-complete.png');
     this.load.image('wall_screen', '/assets/1.png');
-    // Phase 3 Step 3：三個時段背景（頁面載入時依時間選擇）
+    // Phase 3 Step 3：三個時段背景（保留向下相容、v3 啟用時不用）
     this.load.image('studio_bg_morning', '/assets/wwt_studio_background_noon_v1.png');
     this.load.image('studio_bg_noon',    '/assets/wwt_studio_background_morning_v1.png');
     this.load.image('studio_bg_night',   '/assets/wwt_studio_background_night_v1.png');
@@ -26,22 +26,49 @@ export class BootScene extends Phaser.Scene {
     furnitureKeys.forEach(key => {
       if (ca[key]) this.load.image(key, `/assets/${key}.png`);
     });
-    // 角色 spritesheet（false = 程序生成色塊，不載入 PNG；true = 載入 assets/ 中對應檔案）
-    // MVP 預設兩人都是 false，_makeCharacters() 會根據 CONFIG.characters 自動生成
-    // v2 draft 優先（1024×1536 單張 PNG）
-    if (ca.char_aming_v2) {
+
+    // ── Phase 4 Step 1: 24H MVP 新棚景 + 天氣 + 道具 + UI 載入 ──
+    if (ca.studio_base_window_separate) {
+      this.load.image('studio_base', '/assets/studio_base_window_separate.png');
+    }
+    ['sunny', 'cloudy', 'rainy', 'thunder', 'typhoon'].forEach(w => {
+      if (ca[`weather_${w}`]) this.load.image(`weather_${w}`, `/assets/weather_${w}.png`);
+    });
+    [['morning', 'prop_morning_set'], ['afternoon', 'prop_afternoon_set'],
+     ['evening', 'prop_evening_set'], ['late_night', 'prop_late_night_set']].forEach(([slot, fname]) => {
+      if (ca[`prop_${slot}`]) this.load.image(`prop_${slot}`, `/assets/${fname}.png`);
+    });
+    if (ca.ui_brand_24h)  this.load.image('ui_brand_24h',  '/assets/ui_brand_24h_ai_live.png');
+    if (ca.ui_marquee_bg) this.load.image('ui_marquee_bg', '/assets/ui_marquee_bg.png');
+
+    // ── Phase 4 Step 1: 角色 spritesheet 載入（優先序：v3 > xiaomei_actions > v2 > v1）──
+    // v3 = 4-frame standing/sitting actions（1024×1536 each、4096×1536 整張）
+    // frame order: 0=idle, 1=talking, 2=thinking, 3=reacting
+    if (ca.char_aming_v3_actions) {
+      this.load.spritesheet('char_aming', '/assets/char_aming_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    } else if (ca.char_aming_v2) {
       this.load.spritesheet('char_aming', '/assets/char_aming_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    // Phase 3 Step 4: 小美 actions spritesheet 優先（1024×1536 × 6 frames）
-    if (ca.char_xiaomei_actions) {
+    if (ca.char_xiaomei_v3_actions) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    } else if (ca.char_xiaomei_actions) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_actions.png', { frameWidth: 1024, frameHeight: 1536 });
     } else if (ca.char_xiaomei_v2) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
     } else if (ca.char_xiaomei) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 48, frameHeight: 64 });
     }
+
+    // 坐姿備用 (Step 2 切換用、現在先載)
+    if (ca.char_aming_v3_sitting)   this.load.spritesheet('char_aming_sitting',   '/assets/char_aming_sitting_actions.png',   { frameWidth: 1024, frameHeight: 1536 });
+    if (ca.char_xiaomei_v3_sitting) this.load.spritesheet('char_xiaomei_sitting', '/assets/char_xiaomei_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    // A 組（白天時段、Step 2 切換用）
+    if (ca.char_A_man_standing)   this.load.spritesheet('char_a_man',         '/assets/char_A_man_standing_actions.png',   { frameWidth: 1024, frameHeight: 1536 });
+    if (ca.char_A_man_sitting)    this.load.spritesheet('char_a_man_sitting', '/assets/char_A_man_sitting_actions.png',    { frameWidth: 1024, frameHeight: 1536 });
+    if (ca.char_A_woman_standing) this.load.spritesheet('char_a_woman',       '/assets/char_A_woman_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    if (ca.char_A_woman_sitting)  this.load.spritesheet('char_a_woman_sitting', '/assets/char_A_woman_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
   }
 
   create() {
@@ -511,6 +538,27 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming_v3_actions) ||
+                 (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v3_actions)) {
+        // Phase 4 Step 1: 24H MVP v3 4-frame spritesheet
+        // frame order: 0=idle, 1=talking, 2=thinking, 3=reacting
+        // pointing → talking、tired → thinking 做 fallback
+        const FRAME_MAP = {
+          idle:     0,
+          talking:  1,
+          typing:   1,  // legacy alias
+          thinking: 2,
+          reacting: 3,
+          pointing: 1,  // fallback → talking
+          tired:    2,  // fallback → thinking
+        };
+        Object.entries(FRAME_MAP).forEach(([anim, frame]) => {
+          this.anims.create({
+            key: `${role.id}_${anim}`,
+            frames: [{ key: texKey, frame }],
+            frameRate: 1, repeat: -1,
+          });
         });
       } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_actions) {
         // Phase 3 Step 4: 小美 actions spritesheet（1024×1536 × 6 frames）

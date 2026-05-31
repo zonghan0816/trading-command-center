@@ -102,8 +102,24 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   _buildBackground() {
+    // Phase 4 Step 1: 24H MVP 新棚景架構
+    // depth 0:   weather overlay（窗外）
+    // depth 0.5: studio_base_window_separate（窗框 + 棚景、窗戶區透明）
+    // depth 0.6: 道具 overlay (Step 2 加)
+    if (this.textures.exists('studio_base')) {
+      // 預設先用晴天、之後可接氣象 API 或隨機切
+      const weatherKey = this._pickInitialWeatherKey();
+      this.weatherLayer = this.add.image(0, 0, weatherKey)
+        .setOrigin(0, 0).setDepth(0).setDisplaySize(this.W, this.H);
+      this.bgBase = this.add.image(0, 0, 'studio_base')
+        .setOrigin(0, 0).setDepth(0.5).setDisplaySize(this.W, this.H);
+      this.bgNext = null;
+      console.info('[TDT] bg: studio_base + weather=' + weatherKey);
+      return;
+    }
+    // 向下相容：舊三套背景 + crossfade
     const mix = this._getTimeOfDayBackgroundMix();
-    console.info('[TDT] bg:', mix.base, mix.next ? `→ ${mix.next} α=${mix.alpha.toFixed(2)}` : '');
+    console.info('[TDT] bg (legacy):', mix.base, mix.next ? `→ ${mix.next} α=${mix.alpha.toFixed(2)}` : '');
     this.bgBase = this.add.image(0, 0, mix.base)
       .setOrigin(0, 0).setDepth(0).setDisplaySize(this.W, this.H);
     this.bgNext = mix.next
@@ -111,7 +127,21 @@ export class OfficeScene extends Phaser.Scene {
       : null;
   }
 
+  // Phase 4 Step 1: 預設天氣（Step 2 會接氣象 API、現在依時段大致選一張）
+  _pickInitialWeatherKey() {
+    const hour = new Date().getHours();
+    // 早晨晴、白天 50/50 晴或陰、晚上陰、深夜雷雨機率小
+    const candidates = (hour >= 6 && hour < 18)
+      ? ['weather_sunny', 'weather_sunny', 'weather_cloudy']
+      : ['weather_cloudy', 'weather_rainy'];
+    const pick = candidates[Math.floor(Math.random() * candidates.length)];
+    return this.textures.exists(pick) ? pick : 'weather_sunny';
+  }
+
   _updateBackgroundMix() {
+    // Phase 4 Step 1: 新棚景沒 crossfade 邏輯、直接 return
+    if (this.textures.exists('studio_base')) return;
+    // 舊三套背景 crossfade
     const mix = this._getTimeOfDayBackgroundMix();
     if (this.bgBase) this.bgBase.setTexture(mix.base);
     if (mix.next) {

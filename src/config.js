@@ -127,15 +127,46 @@ export const CONFIG = {
   //  true  = 載入 assets/ 資料夾中對應的 .png 檔
   //
   customAssets: {
-    // Phase 3 Step 4: 小美動作 spritesheet（1024×1536 × 6 frames，優先於 v2）
-    // frame 0=idle, 1=talking, 2=thinking, 3=reacting, 4=pointing, 5=tired
+    // Phase 4 Step 1: 24H MVP 角色 v3 actions（1024×1536 × 4 frames、優先於前面所有）
+    // frame 0=idle, 1=talking, 2=thinking, 3=reacting
+    // fallback: pointing→talking(1)、tired→thinking(2)
+    char_aming_v3_actions:   true,
+    char_xiaomei_v3_actions: true,
+    char_aming_v3_sitting:   true,  // 坐姿備用、未來時段切換用
+    char_xiaomei_v3_sitting: true,
+    char_A_man_standing:     true,  // A 組（白天時段）站姿
+    char_A_man_sitting:      true,
+    char_A_woman_standing:   true,
+    char_A_woman_sitting:    true,
+
+    // Phase 4 Step 1: 新棚景（窗框分離、可疊天氣 overlay）
+    studio_base_window_separate: true,
+
+    // Phase 4 Step 1: 天氣 overlay (5 種)
+    weather_sunny:   true,
+    weather_cloudy:  true,
+    weather_rainy:   true,
+    weather_thunder: true,
+    weather_typhoon: true,
+
+    // Phase 4 Step 1: 道具 overlay（4 時段）
+    prop_morning:    true,
+    prop_afternoon:  true,
+    prop_evening:    true,
+    prop_late_night: true,
+
+    // Phase 4 Step 1: UI 元素
+    ui_brand_24h:  true,
+    ui_marquee_bg: true,
+
+    // Phase 3 Step 4: 小美動作 spritesheet（6 frames、保留向下相容）
     char_xiaomei_actions: true,
 
-    // 角色 v2 draft（Phase 3 Step 1.2 測試用，優先於 v1）
+    // 角色 v2 draft（Phase 3 Step 1.2 測試用、保留）
     char_aming_v2:   true,
     char_xiaomei_v2: true,
 
-    // 角色 v1（保留，v2 啟用時不載入）
+    // 角色 v1（保留）
     char_aming:   true,
     char_xiaomei: true,
 
