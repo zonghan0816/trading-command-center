@@ -301,12 +301,45 @@ def _save_news_cache(headlines: list[str]) -> None:
         print(f"[news] save cache failed: {e}")
 
 
+# Phase 4 Step 4.1: 敏感主題關鍵字黑名單（24H 聊天直播不適合的內容）
+# 含這些字的新聞 headline 不會進 news cache、不會被選為 topic
+_SENSITIVE_TOPIC_KEYWORDS = [
+    # 性侵 / 性犯罪（含未成年保護）
+    '性侵', '性侵害', '性騷擾', '性虐', '強姦', '強暴', '戀童', '猥褻', '亂倫',
+    # 未成年案件
+    '未成年', '幼童', '孩童', '童遭', '童被', '童慘',
+    # 自殺 / 自我傷害
+    '自殺', '跳樓', '輕生', '上吊', '燒炭', '尋短', '割腕',
+    # 命案 / 暴力（含 兇 / 凶 雙字形）
+    '命案', '兇殺', '殺人', '砍死', '砍人', '砍傷', '刺死', '勒死', '虐死', '虐待', '虐童',
+    '凌虐', '凶手', '凶嫌', '兇手', '兇嫌', '弒', '殺害', '槍殺', '撕票',
+    # 屍體 / 死亡（過重話題）
+    '屍體', '遺體', '陳屍', '死者', '死於',
+    # 其他不適合聊天直播
+    '戕', '焚屍', '分屍', '爆頭',
+]
+
+
+def _is_topic_sensitive(headline: str) -> bool:
+    """檢查新聞標題是否含敏感字、避免進入聊天直播。
+    24H 聊天節目要可以播給觀眾看、這類內容嚴肅 / 沈重 / 涉及未成年 / 法律敏感、不適合詼諧討論。
+    """
+    if not headline:
+        return False
+    for kw in _SENSITIVE_TOPIC_KEYWORDS:
+        if kw in headline:
+            return True
+    return False
+
+
 def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     """從 Google News Taiwan RSS 抓即時頭條、回傳乾淨 headline list。
 
     用 stdlib（urllib + xml.etree）、不引入新依賴。
     失敗（網路 / 解析錯）回 []、不 raise、不影響服務啟動。
     Google News title 格式為 "headline - 來源名稱"、會自動去掉尾部來源。
+
+    Phase 4 Step 4.1: 過濾敏感主題（性侵 / 命案 / 未成年 / 自殺 / 虐待 等）
     """
     try:
         req = urllib.request.Request(
@@ -318,7 +351,8 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
         root = ET.fromstring(xml_bytes)
         items = root.findall(".//item")
         headlines: list[str] = []
-        for item in items[: limit * 2]:  # 多抓一些、過濾後再截
+        skipped_count = 0
+        for item in items[: limit * 3]:  # Phase 4: 多抓 3 倍、過濾後仍有足夠量
             title_el = item.find("title")
             if title_el is None or not title_el.text:
                 continue
@@ -326,9 +360,16 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
             cleaned = raw.rsplit(" - ", 1)[0].strip()
             if len(cleaned) < 6:  # 過短的不要
                 continue
+            # Phase 4 Step 4.1: 敏感主題過濾
+            if _is_topic_sensitive(cleaned):
+                skipped_count += 1
+                print(f"[news] 過濾敏感: {cleaned[:40]}")
+                continue
             headlines.append(cleaned)
             if len(headlines) >= limit:
                 break
+        if skipped_count > 0:
+            print(f"[news] 過濾掉 {skipped_count} 條敏感新聞、剩 {len(headlines)} 條可用")
         return headlines
     except Exception as e:
         print(f"[news] fetch failed: {e}")
@@ -804,6 +845,30 @@ async def generate_chat():
         except json.JSONDecodeError as e:
             print(f"[chat] JSON parse failed: {e}")
             print(f"[chat] raw text preview: {raw[:800]}")
+
+            # Phase 4 Step 4.1: 偵測 Claude 倫理拒絕、自動 rotate 到新 topic
+            # 主要場景：敏感新聞漏網（_SENSITIVE_TOPIC_KEYWORDS 沒涵蓋的）、Claude 自律拒絕
+            refusal_patterns = [
+                'I cannot', "I can't", 'I won\'t', 'cannot generate',
+                'I appreciate', 'I need to respectfully decline',
+                'ethical line', 'crosses an ethical',
+                '我無法', '抱歉', '我不能', '無法生成',
+            ]
+            if any(p in raw for p in refusal_patterns):
+                print(f"[chat] 偵測到 Claude 拒絕本 topic、自動 rotate")
+                if _news_topics_cache:
+                    safe_pool = [h for h in _news_topics_cache if h != topic]
+                    if safe_pool:
+                        chosen = random.choice(safe_pool)
+                        _apply_news_topic(chosen, unlock=False)
+                        print(f"[chat] 自動 rotate → {chosen[:40]}")
+                        return JSONResponse(
+                            {"error": "topic_refused_rotated", "new_topic": chosen},
+                            status_code=422
+                        )
+                return JSONResponse({"error": "topic_refused_no_safe_pool"}, status_code=422)
+
+            # 一般 JSON 解析失敗、嘗試擷取 [...] 區段救一下
             start = raw.find("[")
             end   = raw.rfind("]")
             if start >= 0 and end > start:
