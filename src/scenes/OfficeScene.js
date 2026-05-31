@@ -279,10 +279,9 @@ export class OfficeScene extends Phaser.Scene {
       sprite.play(this._animKey(id, 'idle'));
       sprite.roleId = id;
 
-      // Phase 4 Step 5.13: idle 漂浮幅度 2px → 8px、節奏 900-1400 → 1300-1900ms、像呼吸感
       this.tweens.add({
-        targets: sprite, y: charY - 8,
-        duration: 1300 + Math.random() * 600,
+        targets: sprite, y: charY - 2,
+        duration: 900 + Math.random() * 500,
         yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
         delay: Math.random() * 1000,
       });
@@ -544,6 +543,12 @@ export class OfficeScene extends Phaser.Scene {
         onUpdate: () => this._syncBubble(id),
         onComplete: () => {
           ch.sprite.play(this._animKey(id, 'idle'));
+          // Phase 4 Step 5.13: snap 後重啟 idle 浮動 tween（killTweensOf 殺掉了原本的）
+          this.tweens.add({
+            targets: ch.sprite, y: ch.homeY - 2,
+            duration: 900 + Math.random() * 500,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+          });
         },
       });
     }
