@@ -46,15 +46,31 @@ _CASUAL_TOPICS = [
 ]
 
 # ── Google News RSS（即時話題來源、Phase 3 Step 6）──────────────
-_GOOGLE_NEWS_TW_RSS = "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+# Phase 4 Step 5.7: 改抓 7 個分類、避免只有政治頭條、增加娛樂/運動/科技多樣性
+_GOOGLE_NEWS_TW_BASE = "https://news.google.com/rss"
+_GOOGLE_NEWS_TW_TAIL = "?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+_NEWS_CATEGORIES: list[tuple[str, str]] = [
+    ("頭條", ""),                # 預設 top stories
+    ("社會", "NATION"),
+    ("國際", "WORLD"),
+    ("財經", "BUSINESS"),
+    ("娛樂", "ENTERTAINMENT"),
+    ("運動", "SPORTS"),
+    ("科技", "TECHNOLOGY"),
+]
+_PER_CATEGORY_LIMIT = 4              # 每類抓 4 條、合計 ~28 條、dedupe 後 ~24
+
 _NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
 _MIN_ROUNDS_PER_TOPIC = 2            # 同 topic 跑 2 輪就換（節奏快、避免重複感）
-_NEWS_FETCH_LIMIT = 15
+_NEWS_FETCH_LIMIT = 30               # 總上限（多類別合併後）
+_RECENT_TOPICS_LIMIT = 6             # 記住最近 6 個 topic、rotate 排除
 
 # Module-level 新聞快取 + topic round 計數
 _news_topics_cache: list[str] = []
 _current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 topic 後歸 0
+# Phase 4 Step 5.7: 最近用過的 topic queue、避免短期重複（rotate / 手動換 topic 都會 push）
+_recent_topics_history: list[str] = []
 
 # ── Phase 4 Step 5: Cost Guard 預算護欄 ───────────────────────
 # Anthropic Claude Haiku 4.5 定價（每 1M token）
@@ -409,16 +425,17 @@ def _save_news_cache(headlines: list[str]) -> None:
         print(f"[news] save cache failed: {e}")
 
 
-def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
-    """從 Google News Taiwan RSS 抓即時頭條、回傳乾淨 headline list。
-
-    用 stdlib（urllib + xml.etree）、不引入新依賴。
-    失敗（網路 / 解析錯）回 []、不 raise、不影響服務啟動。
-    Google News title 格式為 "headline - 來源名稱"、會自動去掉尾部來源。
+def _fetch_one_category(label: str, section: str, per_limit: int) -> list[str]:
+    """抓一個 Google News 分類的 RSS、回傳乾淨 headline list。
+    section="" → top stories；其他如 NATION / BUSINESS / SPORTS 等。
     """
+    if section:
+        url = f"{_GOOGLE_NEWS_TW_BASE}/headlines/section/topic/{section}{_GOOGLE_NEWS_TW_TAIL}"
+    else:
+        url = f"{_GOOGLE_NEWS_TW_BASE}{_GOOGLE_NEWS_TW_TAIL}"
     try:
         req = urllib.request.Request(
-            _GOOGLE_NEWS_TW_RSS,
+            url,
             headers={"User-Agent": "Mozilla/5.0 (TDT-WWT/1.0)"},
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
@@ -426,21 +443,78 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
         root = ET.fromstring(xml_bytes)
         items = root.findall(".//item")
         headlines: list[str] = []
-        for item in items[: limit * 2]:  # 多抓一些、過濾後再截
+        for item in items[: per_limit * 2]:
             title_el = item.find("title")
             if title_el is None or not title_el.text:
                 continue
             raw = title_el.text.strip()
             cleaned = raw.rsplit(" - ", 1)[0].strip()
-            if len(cleaned) < 6:  # 過短的不要
+            if len(cleaned) < 6:
                 continue
             headlines.append(cleaned)
-            if len(headlines) >= limit:
+            if len(headlines) >= per_limit:
                 break
         return headlines
     except Exception as e:
-        print(f"[news] fetch failed: {e}")
+        print(f"[news] fetch '{label}' failed: {e}")
         return []
+
+
+def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
+    """從 Google News Taiwan 多個分類抓即時頭條、合併 + dedupe 回傳乾淨 headline list。
+
+    用 stdlib（urllib + xml.etree）、不引入新依賴。
+    分類：頭條 / 社會 / 國際 / 財經 / 娛樂 / 運動 / 科技
+    全部失敗回 []、不 raise、不影響服務啟動。
+    """
+    all_headlines: list[str] = []
+    seen: set[str] = set()
+    breakdown: list[str] = []
+    for label, section in _NEWS_CATEGORIES:
+        cat_headlines = _fetch_one_category(label, section, _PER_CATEGORY_LIMIT)
+        new_in_cat = 0
+        for h in cat_headlines:
+            if h in seen:
+                continue
+            seen.add(h)
+            all_headlines.append(h)
+            new_in_cat += 1
+            if len(all_headlines) >= limit:
+                break
+        breakdown.append(f"{label}={new_in_cat}")
+        if len(all_headlines) >= limit:
+            break
+    if breakdown:
+        print(f"[news] fetched by category → {', '.join(breakdown)} | total={len(all_headlines)}")
+    return all_headlines
+
+
+def _push_recent_topic(t: str) -> None:
+    """Phase 4 Step 5.7: 紀錄最近用過的 topic、給 rotate 排除用。"""
+    global _recent_topics_history
+    t = (t or "").strip()
+    if not t:
+        return
+    if t in _recent_topics_history:
+        _recent_topics_history.remove(t)  # 提到最新位置
+    _recent_topics_history.append(t)
+    if len(_recent_topics_history) > _RECENT_TOPICS_LIMIT:
+        _recent_topics_history = _recent_topics_history[-_RECENT_TOPICS_LIMIT:]
+
+
+def _pick_fresh_topic(current_topic: str) -> str:
+    """從 cache 選一個避開最近 N 個用過的 topic、再隨機抽。
+    放寬順序：避最近 6 → 避當前 → 隨便挑（避免完全卡死）。
+    """
+    if not _news_topics_cache:
+        return ""
+    recent_set = set(_recent_topics_history)
+    candidates = [h for h in _news_topics_cache if h not in recent_set]
+    if not candidates:
+        candidates = [h for h in _news_topics_cache if h != current_topic]
+    if not candidates:
+        candidates = _news_topics_cache
+    return random.choice(candidates)
 
 
 # ── Phase 3 Step 6.3：tone / angle queue helpers ────────────────
@@ -618,17 +692,17 @@ async def _topic_rotate_loop():
 
                 # seed 不受 topic_locked 限制（空 topic 沒什麼好保護的）
                 if should_seed or (should_rotate and not st.get("topic_locked")):
-                    # Phase 4: rotate 時排除當前 topic、避免抽到同一個
+                    # Phase 4 Step 5.7: 排除最近 6 個用過的 topic、避免短期重複
                     current_topic = str(st.get("topic", "")).strip()
-                    candidates = [h for h in _news_topics_cache if h != current_topic]
-                    if not candidates:
-                        candidates = _news_topics_cache  # 極端情況、cache 全跟 current 一樣
-                    chosen = random.choice(candidates)
+                    chosen = _pick_fresh_topic(current_topic)
+                    if not chosen:
+                        continue  # cache 空、跳過這輪
                     _apply_news_topic(chosen, unlock=False)
+                    _push_recent_topic(chosen)
                     if should_seed:
                         print(f"[news] seeded missing topic → {chosen}")
                     else:
-                        print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪）")
+                        print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪、歷史排除 {len(_recent_topics_history)}）")
         except Exception as e:
             print(f"[news] rotate loop error: {e}")
         await asyncio.sleep(_TOPIC_ROTATE_CHECK_SEC)
@@ -670,9 +744,11 @@ async def _startup_news_tasks():
             if not has_topic:
                 chosen = random.choice(_news_topics_cache)
                 _apply_news_topic(chosen, unlock=False)
+                _push_recent_topic(chosen)
                 print(f"[news] seeded initial topic → {chosen}")
             else:
                 print(f"[news] state already has topic（{st.get('topic')}）、不 seed")
+                _push_recent_topic(str(st.get("topic", "")))  # 接續上次 state、把它列入歷史
         except Exception as e:
             print(f"[news] seed initial topic error: {e}")
 
@@ -1138,6 +1214,7 @@ async def set_topic(request: Request):
         st["keywords_locked"] = False
 
     _save_state(st)
+    _push_recent_topic(topic)  # 手動設的 topic 也算近期、rotate 不會立刻抽回
 
     return {"ok": True, "topic": topic, "mode": "discussion",
             "keywords": st["keywords"],
@@ -1173,14 +1250,13 @@ def rotate_topic_now():
     """
     if not _news_topics_cache:
         return JSONResponse({"ok": False, "error": "news cache empty"}, status_code=503)
-    # Phase 4: 排除當前 topic、不要抽到自己
+    # Phase 4 Step 5.7: 同樣排除最近 6 個用過的 topic
     current_topic = str(_load_state().get("topic", "")).strip()
-    candidates = [h for h in _news_topics_cache if h != current_topic]
-    if not candidates:
-        candidates = _news_topics_cache
-    chosen = random.choice(candidates)
-    # Phase 3 Step 6.4: 共用 _apply_news_topic、避免邏輯重複
+    chosen = _pick_fresh_topic(current_topic)
+    if not chosen:
+        return JSONResponse({"ok": False, "error": "no fresh topic available"}, status_code=503)
     st = _apply_news_topic(chosen, unlock=True)
+    _push_recent_topic(chosen)
     return {"ok": True, "topic": chosen, "keywords": st["keywords"],
             "topic_locked": False, "topic_round": 0}
 
