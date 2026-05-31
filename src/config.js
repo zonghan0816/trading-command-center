@@ -161,11 +161,15 @@ export const CONFIG = {
     ui_marquee_bg: true,
 
     // Phase 3 Step 4: 小美動作 spritesheet（6 frames、保留向下相容）
-    char_xiaomei_actions: true,
+    char_xiaomei_actions: false,
 
     // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256x256 × 4 col × 7 row = 7 表情 × 4 frame）
     // 預設 off、需手動驗證比例 / 站位 / 與 bubble 不衝突再開啟
     char_xiaomei_v2_emotion_sheet: false,
+
+    // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（V2 重畫版、修怪手 + 嘴位）
+    // 預設 off、驗收後翻 ON 取代 V2
+    char_xiaomei_v3_emotion_sheet: false,
 
     // 角色 v2 draft（Phase 3 Step 1.2 測試用、保留）
     char_aming_v2:   true,
@@ -173,7 +177,7 @@ export const CONFIG = {
 
     // 角色 v1（保留）
     char_aming:   true,
-    char_xiaomei: true,
+    char_xiaomei: false,
 
     // 家具
     desk:          true,   // assets/desk.png 已存在

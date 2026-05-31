@@ -269,8 +269,11 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 3.0b: 用 visualId 決定 texture（morning/afternoon = A 組、evening/late_night = 阿明小美）
       const visualId = this._getVisualId(id);
       const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
-      // Phase 4 Step 5.12: 小美 emotion sheet（256×256）需要不同 scale、不然會變小不點
-      const useEmotionSheet = (id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2_emotion_sheet);
+      // Phase 4 Step 5.12 / 5.14: 小美 V2 或 V3 emotion sheet（256×256）需要不同 scale
+      const useEmotionSheet = (id === 'xiaomei' && (
+        CONFIG.customAssets.char_xiaomei_v3_emotion_sheet ||
+        CONFIG.customAssets.char_xiaomei_v2_emotion_sheet
+      ));
       const charScale = useEmotionSheet
         ? (S.characterEmotion ?? 1.7)
         : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
@@ -925,9 +928,11 @@ export class OfficeScene extends Phaser.Scene {
     const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
 
-    // Phase 4 Step 5.12: emotion sheet 開啟 + dialogue line 帶 emotion 欄位 → 直接走 emo 動畫
+    // Phase 4 Step 5.12 / 5.14: emotion sheet（V2 或 V3）開啟 + dialogue line 帶 emotion → 走 emo 動畫
     // allowed: idle / talk / smile / thinking / surprised / skeptical / wave
-    if (CONFIG.customAssets.char_xiaomei_v2_emotion_sheet && emotion) {
+    const emoSheetOn = CONFIG.customAssets.char_xiaomei_v3_emotion_sheet
+                    || CONFIG.customAssets.char_xiaomei_v2_emotion_sheet;
+    if (emoSheetOn && emotion) {
       const allowed = new Set(['idle','talk','smile','thinking','surprised','skeptical','wave']);
       const key = allowed.has(emotion) ? `xiaomei_emo_${emotion}` : 'xiaomei_emo_talk';
       return key;

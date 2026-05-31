@@ -51,7 +51,10 @@ export class BootScene extends Phaser.Scene {
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    if (ca.char_xiaomei_v2_emotion_sheet) {
+    if (ca.char_xiaomei_v3_emotion_sheet) {
+      // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（V2 重畫、修怪手 + 嘴位）
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v3_emotion_sheet_256.png', { frameWidth: 256, frameHeight: 256 });
+    } else if (ca.char_xiaomei_v2_emotion_sheet) {
       // Phase 4 Step 5.12: Codex 73 號 emotion sheet（4 col × 7 row = 28 frames、每格 256×256）
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_emotion_sheet_256.png', { frameWidth: 256, frameHeight: 256 });
     } else if (ca.char_xiaomei_v3_actions) {
@@ -541,6 +544,44 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v3_emotion_sheet) {
+        // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（256×256、7 表情 × 4 frame）
+        // V3 修了 V2 的 talk 嘴位 + wave 怪手問題
+        // row 1=idle / row 2=talk / row 3=smile / row 4=thinking / row 5=surprised
+        // row 6=skeptical / row 7=wave
+        const V3_ANIMS = [
+          // 既有 anim key（OfficeScene 內部用）→ 對應 V3 sheet 區間
+          ['xiaomei_idle',         0,  3, 4],
+          ['xiaomei_talking',      4,  7, 5],
+          ['xiaomei_typing',       4,  7, 5],   // legacy alias
+          ['xiaomei_thinking',    12, 15, 4],
+          ['xiaomei_reacting',    16, 19, 5],   // surprised
+          ['xiaomei_pointing',    24, 27, 5],   // wave
+          ['xiaomei_tired',       20, 23, 4],   // skeptical
+          // Codex 79 spec：xiaomei_v3_* key、給之後 line.emotion 直接呼叫
+          ['xiaomei_v3_idle',       0,  3, 4],
+          ['xiaomei_v3_talk',       4,  7, 5],
+          ['xiaomei_v3_smile',      8, 11, 4],
+          ['xiaomei_v3_thinking',  12, 15, 4],
+          ['xiaomei_v3_surprised', 16, 19, 5],
+          ['xiaomei_v3_skeptical', 20, 23, 4],
+          ['xiaomei_v3_wave',      24, 27, 5],
+          // 也補 emo_* alias、跟 V2 emotion sheet 同步、_chooseLineAction 不用分支
+          ['xiaomei_emo_idle',      0,  3, 4],
+          ['xiaomei_emo_talk',      4,  7, 5],
+          ['xiaomei_emo_smile',     8, 11, 4],
+          ['xiaomei_emo_thinking', 12, 15, 4],
+          ['xiaomei_emo_surprised',16, 19, 5],
+          ['xiaomei_emo_skeptical',20, 23, 4],
+          ['xiaomei_emo_wave',     24, 27, 5],
+        ];
+        V3_ANIMS.forEach(([key, start, end, frameRate]) => {
+          this.anims.create({
+            key,
+            frames: this.anims.generateFrameNumbers(texKey, { start, end }),
+            frameRate, repeat: -1,
+          });
         });
       } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2_emotion_sheet) {
         // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256×256、7 表情 × 4 frame）
