@@ -269,7 +269,11 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 3.0b: 用 visualId 決定 texture（morning/afternoon = A 組、evening/late_night = 阿明小美）
       const visualId = this._getVisualId(id);
       const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
-      const charScale = isV2 ? (S.characterV2 ?? 0.28) : S.character;
+      // Phase 4 Step 5.12: 小美 emotion sheet（256×256）需要不同 scale、不然會變小不點
+      const useEmotionSheet = (id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2_emotion_sheet);
+      const charScale = useEmotionSheet
+        ? (S.characterEmotion ?? 1.7)
+        : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
       const sprite = this.add.sprite(charX, charY, `char_${visualId}`, 0)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
       sprite.play(this._animKey(id, 'idle'));
@@ -910,10 +914,18 @@ export class OfficeScene extends Phaser.Scene {
    *
    * 不改 API schema、純前端判斷；emotion 欄位若有未來也可在這裡擴展。
    */
-  _chooseLineAction(id, text, fallbackStatus = 'talking') {
+  _chooseLineAction(id, text, fallbackStatus = 'talking', emotion = null) {
     // Phase 4 Step 3.0b: 改用 _animKey 對應到 visualId（A 組 morning/afternoon 自動切）
     const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
+
+    // Phase 4 Step 5.12: emotion sheet 開啟 + dialogue line 帶 emotion 欄位 → 直接走 emo 動畫
+    // allowed: idle / talk / smile / thinking / surprised / skeptical / wave
+    if (CONFIG.customAssets.char_xiaomei_v2_emotion_sheet && emotion) {
+      const allowed = new Set(['idle','talk','smile','thinking','surprised','skeptical','wave']);
+      const key = allowed.has(emotion) ? `xiaomei_emo_${emotion}` : 'xiaomei_emo_talk';
+      return key;
+    }
 
     const s = String(text || '');
     if (!s) return fallback;
@@ -1018,7 +1030,8 @@ export class OfficeScene extends Phaser.Scene {
       const chunk = chunks[idx];
       ch.bubbleText.setText(chunk);
       // Phase 3 Step 6.2: 每個 chunk 都自選 action（不再只 idx===0 選一次）→ 句內也能切多種動作
-      ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking'));
+      // Phase 4 Step 5.12: 把 dialogue line 的 optional emotion 傳進去（emotion sheet 啟用才會生效）
+      ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking', line.emotion));
       if (idx === 0) {
         // Phase 3 Step 5: 小美生效；阿明維持 talking
         this._showBubble(line.speaker);

@@ -74,6 +74,7 @@ export const CONFIG = {
   scale: {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
+    characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
@@ -161,6 +162,10 @@ export const CONFIG = {
 
     // Phase 3 Step 4: 小美動作 spritesheet（6 frames、保留向下相容）
     char_xiaomei_actions: true,
+
+    // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256x256 × 4 col × 7 row = 7 表情 × 4 frame）
+    // 預設 off、需手動驗證比例 / 站位 / 與 bubble 不衝突再開啟
+    char_xiaomei_v2_emotion_sheet: false,
 
     // 角色 v2 draft（Phase 3 Step 1.2 測試用、保留）
     char_aming_v2:   true,
