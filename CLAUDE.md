@@ -105,7 +105,11 @@
 | Topic UI | **拿掉 LED 顯示**（觀眾不需看到「今日話題」）|
 | 後端 prompt | **保留** topic / 新聞素材（Claude 仍需具體素材）|
 | Step 6.5 prefetch | **砍掉**（batch 模式不需要）|
-| 月成本估算 | **NT$100-150**（之前估的 NT$57k 是因為按「即時」算）|
+| Batch 大小 | **12-16 段/batch**（GPT 65 號修正、不是 200 段、避免 JSON 解析風險）|
+| Pool / Memory | **兩層獨立檔**（GPT 65 號修正、不合併、Pool 24h reset / Memory 跨天保留）|
+| Anti-repeat | **metadata + selector**（不單靠 prompt、硬限制+軟權重）|
+| 月成本估算 | **~NT$700-1000**（校正後、之前 NT$100-150 太樂觀、漏算 24H 播放總量）|
+| 預算上限 | **NT$1,500/月**（buffer ~50%）|
 
 詳細討論在 `62_24H_MVP_DISCUSSION_NOTES.md`、最終決策會合成 `63_24H_MVP_ARCHITECTURE_DECISION.md`。
 
@@ -203,7 +207,8 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **3 Step 6.4** | 啟動立即 seed first topic（修空 topic 死循環）|
 | **3 Step 6.5** | prefetch 下一輪 + 縮 4 個人為 delay（gap 從 5~10s 降到 0.5~1s）|
 | **3 Step 6.6** | `/api/chat` 500 修復（max_tokens 400→800、JSON 容錯）|
-| **★ 重大澄清** | **2026-05-31 產品定位澄清**：不是新聞台、是「假 24H AI 角色聊天表演」。月成本估算從 NT$57k 降到 NT$100-150。**改變整個 24H MVP 架構方向** |
+| **★ 重大澄清** | **2026-05-31 產品定位澄清**：不是新聞台、是「假 24H AI 角色聊天表演」。月成本估算從 NT$57k 降到 ~NT$700-1000（校正後、非最初的 NT$100-150）。**改變整個 24H MVP 架構方向** |
+| **★ GPT 65 號** | **2026-06-01 GPT 對 D/E 技術回覆**：Pool/Memory 雙層、Batch 12-16 段、metadata+selector anti-repeat、模式命名去新聞化（live_chat/chat_replay/topic_tease/chill_chat）|
 | **24H MVP** | 規劃中（討論於 62 筆記、共識見 63 決策文件、Phase 4 開始實作）|
 
 ### 已知待辦 / 限制

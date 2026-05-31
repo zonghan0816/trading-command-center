@@ -117,16 +117,32 @@
 - 角色設定 = 真的（阿明小美一致）
 - 只有「即時性」是錯覺、但**「報紙印好上市」本來就有時差**、沒人說那是假報紙
 
-### 對成本估算的衝擊
+### 對成本估算的衝擊（2026-06-01 校正、GPT 65 號回覆後）
 
-| 模式 | 之前估算 | 真實需求 |
+⚠️ **我之前 NT$100-150/月 估太樂觀、漏算了 24H 播放總量**。
+
+**真實計算**：
+
+```
+24 小時 ÷ 30 秒/段 = 2880 段/天 (要播)
+70% recycled + 30% fresh = 864 段需要新生成/天
+864 段 × ~150 token/段 ≈ 130,000 output token/天
+130,000 × $5/M ≈ NT$19/天 = NT$580/月 (純輸出成本)
+
+加上輸入 + metadata + 跨 batch 摘要：
+總計 ~NT$700-1000/月（不是 NT$100-150）
+```
+
+**校正後的成本對照**：
+
+| 模式 | 月成本估算 | 跟 NT$1500 預算比 |
 |---|---|---|
-| 24/7 全 live + prefetch | NT$57,000/月 | 不需要 |
-| **混合模式（95% batch + 5% live）** | — | **NT$100-150/月** |
-| 純 batch 模式 | — | NT$450-900/月 |
-| 加 Anthropic Batch API 折扣 50% | — | 再砍一半 |
+| 24/7 全 live + prefetch（之前舊架構）| NT$57,000 | ❌ 39 倍超支 |
+| 我提的 200 段/batch + 5% live | **~NT$700-900** | ✅ 47-60% |
+| **GPT 提的 12-16 段/batch + 5% live** | **~NT$750-1000** | ✅ 50-67% |
+| **差異** | +NT$50-150/月 | +5-10% |
 
-→ **使用者一句澄清、月成本從 NT$57k 變 NT$100-150**
+→ **省幅雖沒之前說的 99.4%、但月 NT$1,000 內仍極划算、預算 buffer 50%**
 
 ### 對既有架構的衝擊
 
@@ -174,14 +190,20 @@
 - ❌ 變成「半小時前錄的廣播」感
 
 **混合策略選項**：
-- 90% 時間放 batch 預生成
-- 10% 時間（黃金時段或重大新聞）即時生成
-- 月成本 ~NT$2,400
+- 95% 時間放 batch 預生成
+- 5% 時間（重大新聞首次出現）即時生成
+- 月成本 ~NT$700-1000（校正後、見前面）
+
+**Batch 大小（2026-06-01 GPT 65 號修正、採納）**：
+- ❌ 我原本提的 200 段/batch — **太大、不採用**
+- ✅ GPT 提的 **12-16 段/batch** — Pool target 30、剩 15 觸發 refill
+- 理由：200 段 prompt 太肥、JSON 解析失敗風險高（Step 6.6 max_tokens=400 才剛踩過）、Claude 注意力散
 
 **工程挑戰**：
-- Batch 一次生 200 段、品質可能比一次生 3 段差
-- 解法：每段獨立 prompt + 共享 system message + Anthropic batch API（折扣 50%）
-- Pool 管理機制（refill / 過期 / topic 換）
+- ~~Batch 一次生 200 段、品質可能比一次生 3 段差~~
+- ✅ 改用 12-16 段、每段獨立 metadata（topic / tone / angle / segment_type）
+- ✅ Pool 管理機制（refill / 過期 / topic 換）
+- ✅ Anti-repeat 不靠 prompt、靠 metadata + selector
 
 **跟既有 roadmap 的位置**：
 - 等於 GPT Phase E（生成-播放分離）的核心
@@ -301,13 +323,19 @@
 - 突發事件怎麼定義？
 - 是否強制 break batch 流、進 live 模式？
 
-### D. Memory Recycle 整合
-- `wwt_dialogue_memory.json` 跟新的 batch pool 是同個池子嗎？
-- 還是分開（live 進 memory / batch 進 pool）？
+### D. Memory Recycle 整合 ✅ **已解決（GPT 65 號回覆）**
+- ❌ 不合併、保留兩層獨立檔案
+- ✅ `wwt_dialogue_pool.json` = 可播放內容（24h reset）
+- ✅ `wwt_dialogue_memory.json` = 反重複索引 + highlights（跨天）
+- ✅ 用 `dialogue_id` 連結
+- 詳見下方「11. GPT 65 號回覆採納決議」
 
-### E. Anti-repeat 邏輯怎麼搬到 batch
-- 現在反重複是「跨輪比較」、batch 是「一次生 200 段」
-- 怎麼在 batch 內保證不重複？
+### E. Anti-repeat 邏輯怎麼搬到 batch ✅ **已解決（GPT 65 號回覆）**
+- ❌ 不靠 prompt 規則
+- ✅ 改用 metadata（topic / tone / angle / segment_type）+ Playback selector
+- ✅ Batch 12-16 段（不是 200）、跨 batch 帶壓縮摘要
+- ✅ Playback selector 硬限制 + 軟權重混合
+- 詳見下方「11. GPT 65 號回覆採納決議」
 
 ### F. 預算護欄落點
 - 每月上限 NT$X
@@ -547,6 +575,94 @@
 **落腳處**：24H MVP Step 5 Quality / Safety
 **優先序**：⭐⭐⭐⭐⭐（24H 無人值守必備）
 **改動規模**：server.py ~80 行（含敏感詞表 + log 機制）
+
+---
+
+## ✅ 11. GPT 65 號回覆採納決議（2026-06-01）
+
+**承接**：`65_GPT_REPLY_TO_63_DE_TECHNICAL.md`、Claude 評估後**全部 11 條採納**
+
+### 11 條 MVP 決議（全部採納）
+
+| # | 決議 | 替換掉的舊想法 |
+|---|---|---|
+| 1 | **Pool / Memory 不合併、改成兩層獨立資料** | ❌ 我想的「Memory 廢棄」 |
+| 2 | Pool = 播放真相、Memory = 反重複與內容資產索引 | — |
+| 3 | Pool status: `pending` / `cooling` / `recyclable` / `expired` / `rejected` | — |
+| 4 | Recycle MVP 用 **6 小時冷卻** | — |
+| 5 | Recycle selector 用**加權隨機**、不純循環 | ❌ 我問的「循序 vs 隨機」二選一 |
+| 6 | Batch **每次 12-16 段**（不是 200）| ❌ 我提的「200 段/batch」 |
+| 7 | Refill 條件沿用 pending < 15 | — |
+| 8 | Anti-repeat **靠 metadata + selector**、不單靠 prompt | ❌ 我提的「prompt 規則加強」 |
+| 9 | 跨 batch **只帶壓縮摘要**、不帶完整對話 | — |
+| 10 | Playback selector **硬限制 + 軟權重**混合 | ❌ 我提的「強制錯開 5 段」太硬 |
+| 11 | 所有內容類型以「**聊天直播**」為主、不做新聞輪播 | ❌ 我滑回的新聞 framing |
+
+### 模式命名（GPT 修正）
+
+| ❌ 別用 | ✅ 改用 |
+|---|---|
+| `news_roll` | `live_chat` — 新鮮 AI 聊天 |
+| `news_broadcast` | `chat_replay` — 舊聊天片段重播 / recycle |
+| `正經資訊台` | `topic_tease` — 用新聞標題引出聊天話題 |
+| | `chill_chat` — 深夜放鬆 / 低成本陪伴 |
+
+### Pool / Memory 雙層架構
+
+```json
+// wwt_dialogue_pool.json — 24h reset、播放真相
+{
+  "dialogue_id": "uuid",
+  "topic": "...",
+  "tone": "critical",
+  "angle": "money_pressure",
+  "segment_type": "live_chat",
+  "lines": [...],
+  "status": "pending",       // pending/cooling/recyclable/expired/rejected
+  "quality_score": 0.85,
+  "created_at": "...",
+  "played_at": null,
+  "cooling_until": null
+}
+
+// wwt_dialogue_memory.json — 跨天保留、反重複索引 + highlights
+{
+  "recent_summaries": [
+    {"dialogue_id": "...", "topic": "...", "tone": "...", "angle": "...", "summary": "..."}
+  ],
+  "highlights": [
+    {"dialogue_id": "...", "quality_score": 0.95, "lines": [...]}
+  ]
+}
+```
+
+### Playback selector 規則
+
+**硬限制（一定不）**：
+- 不連 2 段同 `dialogue_id`
+- 不連 2 段同 `topic`
+- 不連 2 段同 `tone`
+
+**軟權重（傾向）**：
+- 最近 5 段出現過的 `tone` 降權
+- 最近 5 段出現過的 `angle` 降權
+- `quality_score` 高加權
+- 重大新聞 `topic` 加權
+
+### 成本影響（重新校正）
+
+| 項 | 月成本 | 跟 NT$1,500 預算比 |
+|---|---|---|
+| 我原本（200 段 batch）| ~NT$700-900 | 47-60% |
+| GPT 採納版（12-16 段 batch）| ~NT$750-1000 | 50-67% |
+| **差異** | +NT$50-150 | +5-10% |
+
+→ **多花一點點 token、換到大量可靠性**、超值得
+
+### 落腳處
+
+- 實作：合成到 `66_24H_MVP_ARCHITECTURE_DECISION.md`、然後進 Phase 4 Step 1 起步
+- 等 GPT 回 64 號（素材清單）→ 合成 → 開工
 
 ---
 
