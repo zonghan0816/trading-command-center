@@ -811,6 +811,29 @@ async def update_state(request: Request):
     return {"ok": True}
 
 
+# ── Phase 3 Step 6.7: 暫停 / 恢復對話生成 ───────────────────────────
+@app.post("/api/pause")
+def pause_chat():
+    """暫停新對話生成。當前播放的對話會完成、但不會 fetch 下一輪。
+    保持 OBS 畫面不中斷、適合直播時讓觀眾喘口氣讀字幕。
+    """
+    st = _load_state()
+    st["paused"] = True
+    st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+    _save_state(st)
+    return {"ok": True, "paused": True}
+
+
+@app.post("/api/resume")
+def resume_chat():
+    """恢復對話生成。"""
+    st = _load_state()
+    st["paused"] = False
+    st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+    _save_state(st)
+    return {"ok": True, "paused": False}
+
+
 @app.post("/api/topic")
 async def set_topic(request: Request):
     """手動輸入話題，觸發討論模式。

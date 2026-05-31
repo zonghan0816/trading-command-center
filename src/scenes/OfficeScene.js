@@ -11,8 +11,15 @@ const STATIONS = {
 
 const DATA_FLOWS = CONFIG.layout.dataFlows;
 
-// 熱門關鍵字（state.keywords 不存在時的預設值、最多顯示 5 個）
-const DEFAULT_KEYWORDS = ['台北房價', 'AI工作', '演唱會', '健保費', '物價指數'];
+// Phase 3 Step 6.7: TOP 5 改成觀眾互動 CTA（62 notes item 6 + 10 決議）
+// 24H MVP 過渡、之後可能改成跑馬燈或其他形式
+const DEFAULT_KEYWORDS = [
+  '看了喜歡記得按讚',
+  '訂閱頻道 + 小鈴鐺',
+  '留言告訴主持人',
+  '分享給朋友看',
+  '24H AI 不打烊陪你',
+];
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
 const KEYWORD_MAX      = 5;
 
@@ -139,7 +146,7 @@ export class OfficeScene extends Phaser.Scene {
     // 文字元素保留在下方
 
     // TOP5 標題（Fix 2.5: 往下 8px，略往右對齊背景框）
-    this.add.text(wbCX + 10, wbTopY + 22, '▸ TOP 5', {
+    this.add.text(wbCX + 10, wbTopY + 22, '▸ 觀眾互動', {
       fontSize: '18px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
       shadow: { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 8, fill: true },
     }).setOrigin(0.5, 0).setDepth(28.5);
@@ -201,7 +208,8 @@ export class OfficeScene extends Phaser.Scene {
       const charHeight = isV2
         ? Math.round(1536 * (S.characterV2 ?? 0.28))
         : Math.round(64 * S.character);
-      const bW = 400, bH = 115;
+      // Phase 3 Step 6.7: bubble 放大、字更醒目（500×140 → 550×155）
+      const bW = 550, bH = 155;
       const accentColor = (id === 'aming') ? 0xFF8C00 : 0x00E5FF;
 
       // 角色顯示寬度（v2 = 1024 * 0.28 ≈ 287px）
@@ -225,9 +233,10 @@ export class OfficeScene extends Phaser.Scene {
       bubbleBg.setDepth(depth + 3).setAlpha(0);
 
       const bubbleText = this.add.text(bCX, bCY, '', {
-        fontSize: '20px', color: '#E8F4FF',
+        // Phase 3 Step 6.7: 字級 24 → 26、配合更大 bubble
+        fontSize: '26px', color: '#E8F4FF',
         fontFamily: '"Microsoft JhengHei", "PingFang TC", Arial, sans-serif',
-        lineSpacing: 6,
+        lineSpacing: 8,
         padding: { x: 0, y: 6 },
         wordWrap: { width: bW - 44, useAdvancedWrap: true }, align: 'center',
       }).setOrigin(0.5, 0.5).setDepth(depth + 3.1).setAlpha(0);
@@ -322,10 +331,8 @@ export class OfficeScene extends Phaser.Scene {
     this.state = data;
     const ACTIVE = ['talking', 'thinking', 'researching', 'reacting'];
 
-    // 熱門關鍵字：state.keywords 變化時動態重繪（_renderKeywords 內含防抖）
-    if (data.keywords !== undefined) {
-      this._renderKeywords(data.keywords);
-    }
+    // Phase 3 Step 6.7: TOP 5 已改成觀眾互動 CTA 固定文案、不再跟 state.keywords 連動
+    // 24H MVP 之後改成跑馬燈或其他形式時、再重新接
 
     // 任務 4.5: discussion mode 強制阿明/小美 35% / 65% 站位（內含防抖、已在位就 skip）
     if (data.mode === 'discussion') {
@@ -630,6 +637,12 @@ export class OfficeScene extends Phaser.Scene {
   // ── AI 即時對話系統 ──────────────────────────────────────────
   async _fetchAndPlayDialogue() {
     if (this._chatInProgress) return;
+
+    // Phase 3 Step 6.7: 暫停中、500ms 後再檢查（讓 OBS 畫面不停、但不打 API）
+    if (this.state?.paused) {
+      this.time.delayedCall(500, this._fetchAndPlayDialogue, [], this);
+      return;
+    }
 
     // Phase 3 Step 6.5: 先看 prefetch cache 有沒有可用的下一輪
     if (this._nextDialogue) {

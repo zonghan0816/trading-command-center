@@ -171,8 +171,8 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 |---|---|
 | 中央 LED 螢幕 | 第一焦點、顯示 topic 與 mode 切換動畫 |
 | 主持人 + Bubble | 第二焦點、依台詞語氣切 sprite frame |
-| 右下 TOP5 熱門榜 | 第三焦點、純文字、依 state.keywords 動態渲染 |
-| 右上 Status Panel | 第四焦點、只顯示 topic + mode + 時間（host 區塊已移除）|
+| 右下 觀眾互動 CTA | ✅ Step 6.7（2026-05-31）改自 TOP5、固定顯示 5 條 CTA（按讚/訂閱/小鈴鐺等）、不再連動 state.keywords |
+| 右上 Status Panel | ✅ Step 6.7 已隱藏（`display: none`）、等 24H AI LIVE 品牌字素材到位再放 |
 | 棚景背景 | 早 / 中 / 晚三套、依本機時間自動 crossfade（60 秒 alpha 過渡）|
 
 **解析度**：固定 1920×1080、`Phaser.Scale.FIT`、給 OBS Browser Source 直播。
@@ -207,6 +207,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **3 Step 6.4** | 啟動立即 seed first topic（修空 topic 死循環）|
 | **3 Step 6.5** | prefetch 下一輪 + 縮 4 個人為 delay（gap 從 5~10s 降到 0.5~1s）|
 | **3 Step 6.6** | `/api/chat` 500 修復（max_tokens 400→800、JSON 容錯）|
+| **3 Step 6.7** | UX 微調：chunkMs 調慢（讀完才換）、bubble 放大 550×155×26px、`/api/pause`+`/api/resume`、右上 panel 隱藏、TOP 5 改觀眾互動 CTA |
 | **★ 重大澄清** | **2026-05-31 產品定位澄清**：不是新聞台、是「假 24H AI 角色聊天表演」。月成本估算從 NT$57k 降到 ~NT$700-1000（校正後、非最初的 NT$100-150）。**改變整個 24H MVP 架構方向** |
 | **★ GPT 65 號** | **2026-06-01 GPT 對 D/E 技術回覆**：Pool/Memory 雙層、Batch 12-16 段、metadata+selector anti-repeat、模式命名去新聞化（live_chat/chat_replay/topic_tease/chill_chat）|
 | **24H MVP** | 規劃中（討論於 62 筆記、共識見 63 決策文件、Phase 4 開始實作）|
