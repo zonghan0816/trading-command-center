@@ -127,35 +127,35 @@ export const CONFIG = {
   //  true  = 載入 assets/ 資料夾中對應的 .png 檔
   //
   customAssets: {
-    // Phase 4 Step 1: 24H MVP 角色 v3 actions（1024×1536 × 4 frames、優先於前面所有）
-    // frame 0=idle, 1=talking, 2=thinking, 3=reacting
-    // fallback: pointing→talking(1)、tired→thinking(2)
-    char_aming_v3_actions:   true,
-    char_xiaomei_v3_actions: true,
-    char_aming_v3_sitting:   true,  // 坐姿備用、未來時段切換用
-    char_xiaomei_v3_sitting: true,
-    char_A_man_standing:     true,  // A 組（白天時段）站姿
-    char_A_man_sitting:      true,
-    char_A_woman_standing:   true,
-    char_A_woman_sitting:    true,
+    // Phase 4 Step 3.1: 暫時還原舊版視覺、只保留 badge + 跑馬燈
+    // 24H MVP 素材都關掉、回退邏輯會自動用舊棚景 + 舊角色
+    // 之後要恢復、把這 18 個 false 改回 true 即可
+    char_aming_v3_actions:   false,
+    char_xiaomei_v3_actions: false,
+    char_aming_v3_sitting:   false,
+    char_xiaomei_v3_sitting: false,
+    char_A_man_standing:     false,
+    char_A_man_sitting:      false,
+    char_A_woman_standing:   false,
+    char_A_woman_sitting:    false,
 
-    // Phase 4 Step 1: 新棚景（窗框分離、可疊天氣 overlay）
-    studio_base_window_separate: true,
+    // 新棚景（暫關、改用舊三套 wwt_studio_background_* 自動 crossfade）
+    studio_base_window_separate: false,
 
-    // Phase 4 Step 1: 天氣 overlay (5 種)
-    weather_sunny:   true,
-    weather_cloudy:  true,
-    weather_rainy:   true,
-    weather_thunder: true,
-    weather_typhoon: true,
+    // 天氣 overlay（暫關）
+    weather_sunny:   false,
+    weather_cloudy:  false,
+    weather_rainy:   false,
+    weather_thunder: false,
+    weather_typhoon: false,
 
-    // Phase 4 Step 1: 道具 overlay（4 時段）
-    prop_morning:    true,
-    prop_afternoon:  true,
-    prop_evening:    true,
-    prop_late_night: true,
+    // 道具 overlay（暫關）
+    prop_morning:    false,
+    prop_afternoon:  false,
+    prop_evening:    false,
+    prop_late_night: false,
 
-    // Phase 4 Step 1: UI 元素
+    // ✅ 保留：UI 元素（24H AI LIVE badge + 跑馬燈）
     ui_brand_24h:  true,
     ui_marquee_bg: true,
 
