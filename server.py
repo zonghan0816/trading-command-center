@@ -56,6 +56,14 @@ _NEWS_FETCH_LIMIT = 15
 _news_topics_cache: list[str] = []
 _current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 topic 後歸 0
 
+# ── Phase 4 Step 5: Cost Guard 預算護欄 ───────────────────────
+# Anthropic Claude Haiku 4.5 定價（每 1M token）
+_PRICE_INPUT_PER_MTOK  = 1.00   # USD
+_PRICE_OUTPUT_PER_MTOK = 5.00   # USD
+# 預算上限（USD、NT$1=$1/30、Haiku 4.5 起家用量）
+_DAILY_BUDGET_USD   = 2.00      # ≈ NT$60/天
+_MONTHLY_BUDGET_USD = 50.00     # ≈ NT$1500/月（使用者指定）
+
 # Phase 3 Step 6 擴充：8 種對話 tone（前 4 既有、後 4 新增、給同 topic 不同調性）
 _DIALOGUE_TONES = [
     "debate", "react", "monologue", "casual",
@@ -184,6 +192,105 @@ def normalize_state(state) -> dict:
     state["hosts"] = hosts
 
     return state
+
+
+# ── Phase 4 Step 5: Cost Guard helpers ─────────────────────────────
+def _get_cost_usage(st: dict) -> dict:
+    """從 state 取出當前用量、自動處理日/月切換歸零。
+    結構: {"today": {"date": "2026-06-01", "amount_usd": 0.00},
+           "month": {"month": "2026-06",   "amount_usd": 0.00}}
+    """
+    today = datetime.now().strftime("%Y-%m-%d")
+    month = datetime.now().strftime("%Y-%m")
+    usage = st.get("cost_usage") if isinstance(st.get("cost_usage"), dict) else {}
+    if not isinstance(usage.get("today"), dict) or usage["today"].get("date") != today:
+        usage["today"] = {"date": today, "amount_usd": 0.0}
+    if not isinstance(usage.get("month"), dict) or usage["month"].get("month") != month:
+        usage["month"] = {"month": month, "amount_usd": 0.0}
+    return usage
+
+
+def _add_cost_to_state(st: dict, cost_usd: float) -> dict:
+    """累積 cost 到 state、回傳更新後的 usage。Mutate state in-place。"""
+    usage = _get_cost_usage(st)
+    usage["today"]["amount_usd"] = round(usage["today"]["amount_usd"] + cost_usd, 6)
+    usage["month"]["amount_usd"] = round(usage["month"]["amount_usd"] + cost_usd, 6)
+    st["cost_usage"] = usage
+    return usage
+
+
+def _check_budget(st: dict) -> tuple[bool, str]:
+    """檢查是否超預算、回傳 (是否超支, 原因字串)"""
+    usage = _get_cost_usage(st)
+    daily   = usage["today"]["amount_usd"]
+    monthly = usage["month"]["amount_usd"]
+    if monthly >= _MONTHLY_BUDGET_USD:
+        return True, f"monthly budget exceeded: ${monthly:.3f}/${_MONTHLY_BUDGET_USD:.2f}"
+    if daily >= _DAILY_BUDGET_USD:
+        return True, f"daily budget exceeded: ${daily:.3f}/${_DAILY_BUDGET_USD:.2f}"
+    return False, ""
+
+
+def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
+    """估算單次 Claude call 的 USD 成本"""
+    return (input_tokens  * _PRICE_INPUT_PER_MTOK  / 1_000_000) + \
+           (output_tokens * _PRICE_OUTPUT_PER_MTOK / 1_000_000)
+
+
+# ── Phase 4 Step 5.5: Lightweight Quality Breaker ──────────────────
+# 對白回傳前掃描、命中危險字串就替換成 safe fallback line、避免 Claude 偶發 slip 漏網
+_QUALITY_BLOCK_PATTERNS = [
+    # 包裝過的指控（Step 4.2 對應）
+    "聽說",   "網友爆料", "網路盛傳", "有人說", "據傳", "傳聞", "據說",
+    # 直接指控（Step 4 強化）
+    "一定是收", "肯定是收", "就是收了錢", "一定有問題", "肯定有問題",
+    # 政治紅線（避免站隊）
+    "舔共", "舔美", "舔中", "賣台", "親共", "媚共",
+    # 敏感過重話題（萬一從 prompt slip 漏出）
+    "性侵", "強姦", "虐童", "戀童", "弒",
+]
+
+_QUALITY_FALLBACK_LINES = [
+    "說真的、這事看下去蠻有意思的、要繼續觀察。",
+    "你看、這現象其實年年都這樣演、不意外。",
+    "問題就在這、十年前是這樣、十年後還是這樣。",
+    "我跟你講喔、這種事看新聞看到都麻木了。",
+    "所以呢？結果還是回到同一個結構問題。",
+    "不意外啊、套路重複到都能背了。",
+]
+
+
+def _quality_check_line(text: str) -> tuple[str, bool]:
+    """檢查單句、若命中危險字 → 替換為 safe fallback。
+    回傳 (text_or_safe_line, was_blocked)
+    """
+    if not text:
+        return text, False
+    for pat in _QUALITY_BLOCK_PATTERNS:
+        if pat in text:
+            print(f"[quality] blocked pattern '{pat}' in: {text[:60]}")
+            return random.choice(_QUALITY_FALLBACK_LINES), True
+    return text, False
+
+
+def _quality_check_dialogue(dialogue: list) -> tuple[list, int]:
+    """掃整輪 dialogue、回傳 (clean_dialogue, blocked_count)"""
+    if not isinstance(dialogue, list):
+        return dialogue, 0
+    blocked_count = 0
+    clean = []
+    for line in dialogue:
+        if not isinstance(line, dict):
+            clean.append(line)
+            continue
+        text = line.get("text", "")
+        safe_text, blocked = _quality_check_line(text)
+        if blocked:
+            blocked_count += 1
+            line = dict(line)
+            line["text"] = safe_text
+        clean.append(line)
+    return clean, blocked_count
 
 
 # ── 主題關鍵字字典（derive_keywords 用、純規則式不需要 LLM）─────────────
@@ -731,6 +838,8 @@ def _build_prompt(state: dict, turn_type: str,
 - ❌ **不說「OO 一定是收錢」「OO 就是要 XX」這種臆測**
 - ❌ **不替任何訴訟未定的案件下有罪推定**
 - ❌ **不在兩岸 / 統獨 / 藍綠議題站隊**
+- ❌ **不用「聽說」「網友爆料」「網路盛傳」「有人說」「據傳」這種包裝過的指控**
+  （把未證實的事用「聽說」開頭並不會讓它變成可以說的事實）
 
 #### 諷刺方向（區分「諷刺現象」vs「指控個人」）
 
@@ -774,6 +883,23 @@ async def generate_chat():
         return JSONResponse({"error": "ANTHROPIC_API_KEY not set"}, status_code=503)
 
     state     = _load_state()
+
+    # Phase 4 Step 5: Cost Guard 入口檢查、超支立刻擋下、不打 Claude API
+    over, reason = _check_budget(state)
+    if over:
+        usage = _get_cost_usage(state)
+        print(f"[budget] BLOCKED: {reason}")
+        return JSONResponse({
+            "error": "over_budget",
+            "reason": reason,
+            "paused": True,
+            "usage": usage,
+            "limits": {
+                "daily_usd":   _DAILY_BUDGET_USD,
+                "monthly_usd": _MONTHLY_BUDGET_USD,
+            },
+        }, status_code=503)
+
     topic     = state.get("topic", "")
     # Phase 3 Step 6.3: tone / angle 都改用 per-topic shuffled queue（同 topic 8 輪內不重複）
     turn_type = _next_tone_for_topic(topic)
@@ -814,7 +940,12 @@ async def generate_chat():
             else:
                 return JSONResponse({"error": f"JSON parse failed: {e}"}, status_code=500)
 
-        # 更新 state：把最後對白存入 hosts
+        # Phase 4 Step 5.5: Lightweight Quality Breaker — 對白回傳前掃描、命中危險字替換
+        dialogue, blocked_count = _quality_check_dialogue(dialogue)
+        if blocked_count > 0:
+            print(f"[quality] 替換掉 {blocked_count} 句 (本輪共 {len(dialogue)} 句)")
+
+        # 更新 state：把最後對白存入 hosts + Step 5 累積 cost
         st = _load_state()
         for line in dialogue:
             spk = line.get("speaker")
@@ -822,6 +953,16 @@ async def generate_chat():
                 st["hosts"][spk]["status"]      = "talking"
                 st["hosts"][spk]["last_output"] = line["text"]
         st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+
+        # Phase 4 Step 5: 累積本次 API call 成本
+        input_tokens  = getattr(msg.usage, 'input_tokens', 0)  if hasattr(msg, 'usage') else 0
+        output_tokens = getattr(msg.usage, 'output_tokens', 0) if hasattr(msg, 'usage') else 0
+        cost_usd = _estimate_cost_usd(input_tokens, output_tokens)
+        usage_after = _add_cost_to_state(st, cost_usd)
+        print(f"[cost] +${cost_usd:.5f} (in={input_tokens}/out={output_tokens}) | "
+              f"today ${usage_after['today']['amount_usd']:.3f}/${_DAILY_BUDGET_USD:.2f} | "
+              f"month ${usage_after['month']['amount_usd']:.3f}/${_MONTHLY_BUDGET_USD:.2f}")
+
         _save_state(st)
 
         # Phase 3 Step 6: 同 topic 累積回合數、rotate loop 依此決定是否該換新話題
@@ -860,6 +1001,36 @@ async def update_state(request: Request):
 
 
 # ── Phase 3 Step 6.7: 暫停 / 恢復對話生成 ───────────────────────────
+# ── Phase 4 Step 5: 預算查詢 / 重置 ───────────────────────
+@app.get("/api/budget")
+def get_budget():
+    """取得當前預算用量。"""
+    st = _load_state()
+    usage = _get_cost_usage(st)
+    over, reason = _check_budget(st)
+    return {
+        "usage": usage,
+        "limits": {
+            "daily_usd":   _DAILY_BUDGET_USD,
+            "monthly_usd": _MONTHLY_BUDGET_USD,
+        },
+        "over_budget": over,
+        "reason":      reason,
+    }
+
+
+@app.post("/api/budget/reset")
+def reset_budget():
+    """手動重置今日 + 本月用量（測試 / 異常處理用）。"""
+    st = _load_state()
+    st["cost_usage"] = {
+        "today": {"date": datetime.now().strftime("%Y-%m-%d"), "amount_usd": 0.0},
+        "month": {"month": datetime.now().strftime("%Y-%m"),    "amount_usd": 0.0},
+    }
+    _save_state(st)
+    return {"ok": True, "cost_usage": st["cost_usage"]}
+
+
 @app.post("/api/pause")
 def pause_chat():
     """暫停新對話生成。當前播放的對話會完成、但不會 fetch 下一輪。
