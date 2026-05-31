@@ -883,7 +883,9 @@ export class OfficeScene extends Phaser.Scene {
 
     const chunks = this._chunkText(line.text);
     // Phase 3 Step 5.1: 新 chunkMs 公式、節奏稍快但不要快到看不完
-    const chunkMs = (chunk) => Math.min(4200, Math.max(1800, 1400 + chunk.length * 45));
+    // Phase 3 Step 6.7: 字幕讀完前不換段、放慢為接近中文閱讀速度（10 字/秒 → 5 字/秒）
+    // base 1400→2000、字單價 45→100、min 1800→2500、max 4200→5500
+    const chunkMs = (chunk) => Math.min(5500, Math.max(2500, 2000 + chunk.length * 100));
 
     const showChunks = (idx) => {
       if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
