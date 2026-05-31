@@ -49,16 +49,20 @@ _CASUAL_TOPICS = [
 # Phase 4 Step 5.7: 改抓 7 個分類、避免只有政治頭條、增加娛樂/運動/科技多樣性
 _GOOGLE_NEWS_TW_BASE = "https://news.google.com/rss"
 _GOOGLE_NEWS_TW_TAIL = "?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
-_NEWS_CATEGORIES: list[tuple[str, str]] = [
-    ("頭條", ""),                # 預設 top stories
-    ("社會", "NATION"),
-    ("國際", "WORLD"),
-    ("財經", "BUSINESS"),
-    ("娛樂", "ENTERTAINMENT"),
-    ("運動", "SPORTS"),
-    ("科技", "TECHNOLOGY"),
+# Phase 4 Step 5.8: 使用者指定 8 分類（對應 Google News 中文 UI tabs、不要當地）
+# 每 tuple = (顯示 label, [sections to fetch and merge])
+# section "" → 預設 top stories；其他 → topic 區段
+_NEWS_CATEGORIES: list[tuple[str, list[str]]] = [
+    ("焦點",       [""]),                          # Top stories
+    ("台灣",       ["NATION"]),
+    ("國際",       ["WORLD"]),
+    ("商業",       ["BUSINESS"]),
+    ("科學與科技", ["SCIENCE", "TECHNOLOGY"]),    # 兩個 RSS 合併、外面當一類
+    ("娛樂",       ["ENTERTAINMENT"]),
+    ("體育",       ["SPORTS"]),
+    ("健康",       ["HEALTH"]),
 ]
-_PER_CATEGORY_LIMIT = 4              # 每類抓 4 條、合計 ~28 條、dedupe 後 ~24
+_PER_CATEGORY_LIMIT = 3              # 每類抓 3 條、合計 ~24 條、dedupe 後 ~22
 
 _NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
@@ -425,14 +429,22 @@ def _save_news_cache(headlines: list[str]) -> None:
         print(f"[news] save cache failed: {e}")
 
 
-def _fetch_one_category(label: str, section: str, per_limit: int) -> list[str]:
-    """抓一個 Google News 分類的 RSS、回傳乾淨 headline list。
-    section="" → top stories；其他如 NATION / BUSINESS / SPORTS 等。
+def _build_news_url(section: str) -> str:
+    """依 section 形態組 RSS URL。
+    "" → top stories；"geo/XXX" → 地理區段；其他 → topic 區段。
     """
-    if section:
-        url = f"{_GOOGLE_NEWS_TW_BASE}/headlines/section/topic/{section}{_GOOGLE_NEWS_TW_TAIL}"
-    else:
-        url = f"{_GOOGLE_NEWS_TW_BASE}{_GOOGLE_NEWS_TW_TAIL}"
+    if not section:
+        return f"{_GOOGLE_NEWS_TW_BASE}{_GOOGLE_NEWS_TW_TAIL}"
+    if section.startswith("geo/"):
+        return f"{_GOOGLE_NEWS_TW_BASE}/headlines/section/{section}{_GOOGLE_NEWS_TW_TAIL}"
+    return f"{_GOOGLE_NEWS_TW_BASE}/headlines/section/topic/{section}{_GOOGLE_NEWS_TW_TAIL}"
+
+
+def _fetch_one_section(label: str, section: str, per_limit: int) -> list[str]:
+    """抓一個 Google News section 的 RSS、回傳乾淨 headline list。
+    失敗回 []、不 raise。
+    """
+    url = _build_news_url(section)
     try:
         req = urllib.request.Request(
             url,
@@ -456,7 +468,7 @@ def _fetch_one_category(label: str, section: str, per_limit: int) -> list[str]:
                 break
         return headlines
     except Exception as e:
-        print(f"[news] fetch '{label}' failed: {e}")
+        print(f"[news] fetch '{label}/{section or 'top'}' failed: {e}")
         return []
 
 
@@ -464,22 +476,28 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     """從 Google News Taiwan 多個分類抓即時頭條、合併 + dedupe 回傳乾淨 headline list。
 
     用 stdlib（urllib + xml.etree）、不引入新依賴。
-    分類：頭條 / 社會 / 國際 / 財經 / 娛樂 / 運動 / 科技
+    分類：焦點 / 台灣 / 國際 / 當地 / 商業 / 科學與科技 / 娛樂 / 體育 / 健康
+    一個 label 底下可能對應多個 section（例如 科學與科技）、會合併。
     全部失敗回 []、不 raise、不影響服務啟動。
     """
     all_headlines: list[str] = []
     seen: set[str] = set()
     breakdown: list[str] = []
-    for label, section in _NEWS_CATEGORIES:
-        cat_headlines = _fetch_one_category(label, section, _PER_CATEGORY_LIMIT)
+    # 每 section 抓 2 倍候選、留 dedup buffer（例如 當地 ≈ 台灣、需多一些 candidates）
+    raw_per_section = max(_PER_CATEGORY_LIMIT * 2, 6)
+    for label, sections in _NEWS_CATEGORIES:
+        cat_pool: list[str] = []
+        for section in sections:
+            cat_pool.extend(_fetch_one_section(label, section, raw_per_section))
+        random.shuffle(cat_pool)  # 同類內順序打散、避免每次都拿相同前 N
         new_in_cat = 0
-        for h in cat_headlines:
+        for h in cat_pool:
             if h in seen:
                 continue
             seen.add(h)
             all_headlines.append(h)
             new_in_cat += 1
-            if len(all_headlines) >= limit:
+            if new_in_cat >= _PER_CATEGORY_LIMIT or len(all_headlines) >= limit:
                 break
         breakdown.append(f"{label}={new_in_cat}")
         if len(all_headlines) >= limit:
