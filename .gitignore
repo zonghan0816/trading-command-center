@@ -10,3 +10,4 @@ wwt_state.json
 wwt_state.json.tmp
 wwt_news_cache.json
 wwt_dialogue_memory.json
+wwt_observe_log.jsonl

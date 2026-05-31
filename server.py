@@ -134,8 +134,25 @@ _HERE = Path(__file__).parent
 STATE_FILE = _HERE / "wwt_state.json"
 NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
 DIALOGUE_MEMORY_FILE = _HERE / "wwt_dialogue_memory.json"
+OBSERVE_LOG_FILE = _HERE / "wwt_observe_log.jsonl"   # Phase 4 Step 5.11: 24H 觀察期 JSONL 記錄
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
+
+
+def _log_observe(event: str, **payload) -> None:
+    """Phase 4 Step 5.11: append-only JSONL 觀察日誌、不阻塞 runtime。
+    寫失敗一律吞掉、不能因 log 寫不出而干擾直播。
+    """
+    try:
+        line = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "event": event,
+            **payload,
+        }
+        with open(OBSERVE_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 def _default_state() -> dict:
@@ -293,6 +310,7 @@ def _quality_check_line(text: str) -> tuple[str, bool]:
     for pat in _QUALITY_BLOCK_PATTERNS:
         if pat in text:
             print(f"[quality] blocked pattern '{pat}' in: {text[:60]}")
+            _log_observe("quality_hit", pattern=pat, original=text[:120])
             return random.choice(_QUALITY_FALLBACK_LINES), True
     return text, False
 
@@ -712,7 +730,10 @@ def _apply_news_topic(chosen: str, *, unlock: bool = False) -> dict:
     if not st.get("keywords_locked"):
         st["keywords"] = derive_keywords(chosen)
     _save_state(st)
+    prev_rounds = _current_topic_rounds
     _current_topic_rounds = 0
+    _log_observe("topic_set", topic=chosen, prev_rounds=prev_rounds, unlock=unlock,
+                 queue_size=len(_topic_queue), recent_size=len(_recent_topics_history))
     return st
 
 
@@ -726,10 +747,14 @@ async def _news_refresh_loop():
         try:
             topics = await asyncio.to_thread(fetch_news_topics)
             if topics:
+                prev_set = set(_news_topics_cache)
                 _news_topics_cache = topics
                 _save_news_cache(topics)  # 覆寫磁碟、舊話題自動被新一輪取代
                 added = _refill_topic_queue()
+                new_count = sum(1 for h in topics if h not in prev_set)
                 print(f"[news] cache refreshed: {len(topics)} headlines（queue +{added}、剩 {len(_topic_queue)}）")
+                _log_observe("news_refresh", total=len(topics), new_in_batch=new_count,
+                             queue_refilled=added, queue_size=len(_topic_queue))
         except Exception as e:
             print(f"[news] refresh loop error: {e}")
         await asyncio.sleep(_NEWS_REFRESH_SEC)
@@ -1138,6 +1163,19 @@ async def generate_chat():
         # Phase 3 Step 6.3: 寫入這一輪 dialogue 到 memory（給下一輪做反重複參考）
         _append_dialogue_memory(topic, turn_type, angle, dialogue)
 
+        # Phase 4 Step 5.11: 觀察日誌、記每輪對白關鍵指標（不含全文）
+        first_words = ""
+        if dialogue and isinstance(dialogue[0], dict):
+            first_words = str(dialogue[0].get("text", ""))[:14]
+        _log_observe(
+            "dialogue",
+            topic=topic, tone=turn_type, angle=angle,
+            round_num=_current_topic_rounds, line_count=len(dialogue),
+            first_line_opener=first_words, quality_blocked=blocked_count,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            cost_usd=round(cost_usd, 6),
+        )
+
         # speaker_a = 第一句說話的人；speaker_b = 另一人（走路目標）
         speaker_a = dialogue[0]["speaker"]
         speaker_b = next(
@@ -1315,6 +1353,107 @@ def get_topic_queue():
         "size":    len(_topic_queue),
         "cache_size":   len(_news_topics_cache),
         "recent_history": list(_recent_topics_history),
+    }
+
+
+@app.get("/api/observe/summary")
+def get_observe_summary():
+    """Phase 4 Step 5.11: 從 wwt_observe_log.jsonl 算 24H 觀察期關鍵指標。
+
+    回傳：
+    - dialogues / rotates / refreshes / quality_hits 件數
+    - 總成本、平均每對話成本、推算 24/7 日成本
+    - topic 出現次數 + 撞題 (出現 ≥ 2 次的 topic)
+    - 開場詞重複（重複感的代理指標）
+    - 同事件不同標題撞題（標題前 6 字相同）
+    """
+    if not OBSERVE_LOG_FILE.exists():
+        return {"ok": False, "error": "no observe log yet"}
+    events: list[dict] = []
+    try:
+        with open(OBSERVE_LOG_FILE, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except Exception:
+                    continue
+    except Exception as e:
+        return {"ok": False, "error": f"read failed: {e}"}
+
+    if not events:
+        return {"ok": True, "events_total": 0}
+
+    first_ts = events[0].get("ts", "")
+    last_ts = events[-1].get("ts", "")
+
+    dialogues = [e for e in events if e.get("event") == "dialogue"]
+    rotates = [e for e in events if e.get("event") == "topic_set"]
+    refreshes = [e for e in events if e.get("event") == "news_refresh"]
+    quality_hits = [e for e in events if e.get("event") == "quality_hit"]
+
+    # 成本
+    total_cost = sum(float(d.get("cost_usd", 0)) for d in dialogues)
+    avg_cost = (total_cost / len(dialogues)) if dialogues else 0.0
+
+    # 推算 24/7 日成本（假設等速）
+    elapsed_sec = 0
+    if len(dialogues) >= 2:
+        try:
+            t0 = datetime.strptime(dialogues[0]["ts"], "%Y-%m-%d %H:%M:%S")
+            t1 = datetime.strptime(dialogues[-1]["ts"], "%Y-%m-%d %H:%M:%S")
+            elapsed_sec = max(int((t1 - t0).total_seconds()), 1)
+        except Exception:
+            elapsed_sec = 0
+    projected_24h = (total_cost / elapsed_sec * 86400) if elapsed_sec > 0 else 0.0
+
+    # Topic 撞題（同 topic 出現 ≥ 2 次）
+    topic_counts: dict[str, int] = {}
+    for r in rotates:
+        t = str(r.get("topic", "")).strip()
+        if not t:
+            continue
+        topic_counts[t] = topic_counts.get(t, 0) + 1
+    collisions = {t: c for t, c in topic_counts.items() if c >= 2}
+
+    # 同事件不同標題（前 6 字相同的 topic 視為同事件）
+    prefix_groups: dict[str, list[str]] = {}
+    for t in topic_counts.keys():
+        key = t[:6]
+        prefix_groups.setdefault(key, []).append(t)
+    near_collisions = {k: v for k, v in prefix_groups.items() if len(v) >= 2}
+
+    # 重複感代理：開場 7 字相同的對話次數
+    opener_counts: dict[str, int] = {}
+    for d in dialogues:
+        opener = str(d.get("first_line_opener", "")).strip()
+        if not opener:
+            continue
+        opener_counts[opener] = opener_counts.get(opener, 0) + 1
+    repeated_openers = {o: c for o, c in opener_counts.items() if c >= 2}
+
+    return {
+        "ok": True,
+        "window": {"first": first_ts, "last": last_ts, "elapsed_sec": elapsed_sec},
+        "counts": {
+            "dialogues":    len(dialogues),
+            "topic_sets":   len(rotates),
+            "news_refresh": len(refreshes),
+            "quality_hits": len(quality_hits),
+        },
+        "cost": {
+            "total_usd":     round(total_cost, 4),
+            "avg_per_dialogue_usd": round(avg_cost, 6),
+            "projected_24h_usd":    round(projected_24h, 3),
+            "daily_budget":  _DAILY_BUDGET_USD,
+            "monthly_budget": _MONTHLY_BUDGET_USD,
+        },
+        "topic_collisions":        collisions,        # 完全相同的撞題
+        "topic_near_collisions":   near_collisions,   # 同事件不同標題
+        "repeated_openers":        repeated_openers,  # 重複感指標
+        "quality_hit_patterns":    [q.get("pattern", "") for q in quality_hits],
     }
 
 
