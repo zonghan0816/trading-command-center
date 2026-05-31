@@ -839,6 +839,7 @@ async def generate_chat():
         )
         return {"dialogue": dialogue, "speaker_a": speaker_a, "speaker_b": speaker_b,
                 "tone": turn_type, "angle": angle,
+                "topic": topic,  # Phase 4: 回傳 topic、給前端 prefetch 比對用
                 "topic_round": _current_topic_rounds}
 
     except Exception as e:

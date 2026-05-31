@@ -142,10 +142,11 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // Phase 4 Step 1: 預設天氣（Step 2 會接氣象 API、現在依時段大致選一張）
+  // Phase 4 Step 3.0c: 改用 slot 不用 hour、配合 URL ?slot= 切換
   _pickInitialWeatherKey() {
-    const hour = new Date().getHours();
-    // 早晨晴、白天 50/50 晴或陰、晚上陰、深夜雷雨機率小
-    const candidates = (hour >= 6 && hour < 18)
+    const slot = this._currentSlot || this._getCurrentTimeSlot();
+    const isDaytime = slot === 'morning' || slot === 'afternoon';
+    const candidates = isDaytime
       ? ['weather_sunny', 'weather_sunny', 'weather_cloudy']
       : ['weather_cloudy', 'weather_rainy'];
     const pick = candidates[Math.floor(Math.random() * candidates.length)];
@@ -782,8 +783,9 @@ export class OfficeScene extends Phaser.Scene {
       if (res.ok) {
         const data = await res.json();
         if (data?.dialogue?.length >= 2) {
+          // Phase 4: 紀錄當下 topic、避免 topic 換了還播舊內容
           this._nextDialogue = data;
-          console.info('[TDT] prefetch ready');
+          console.info(`[TDT] prefetch ready (topic=${(data.topic || '').slice(0, 20)})`);
         }
       }
     } catch (e) {
@@ -793,11 +795,19 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  /** Phase 3 Step 6.5: 取出已 prefetch 的 dialogue、清快取。invalid 回 null。*/
+  /** Phase 3 Step 6.5: 取出已 prefetch 的 dialogue、清快取。invalid 回 null。
+   *  Phase 4: 比對 topic、若已換 topic 則丟棄、避免播舊話題對白。
+   */
   _consumePrefetchedDialogue() {
     const data = this._nextDialogue;
     this._nextDialogue = null;
     if (!data?.dialogue || data.dialogue.length < 2) return null;
+    // Phase 4: topic 對不上就丟（state.topic 來自 _pollState 5 秒拉一次的最新值）
+    const currentTopic = (this.state && this.state.topic) || '';
+    if (data.topic && data.topic !== currentTopic) {
+      console.info(`[TDT] prefetch discarded: topic changed (${data.topic.slice(0, 20)} → ${currentTopic.slice(0, 20)})`);
+      return null;
+    }
     return data;
   }
 
