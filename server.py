@@ -49,7 +49,7 @@ _CASUAL_TOPICS = [
 _GOOGLE_NEWS_TW_RSS = "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
 _NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
-_MIN_ROUNDS_PER_TOPIC = 3            # 同 topic 至少跑 3 輪不同 tone 才換新話題（之前 5 太久）
+_MIN_ROUNDS_PER_TOPIC = 2            # 同 topic 跑 2 輪就換（節奏快、避免重複感）
 _NEWS_FETCH_LIMIT = 15
 
 # Module-level 新聞快取 + topic round 計數
