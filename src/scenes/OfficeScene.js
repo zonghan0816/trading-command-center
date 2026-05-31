@@ -783,8 +783,8 @@ export class OfficeScene extends Phaser.Scene {
       if (res.ok) {
         const data = await res.json();
         if (data?.dialogue?.length >= 2) {
-          // Phase 4: 紀錄當下 topic、避免 topic 換了還播舊內容
           this._nextDialogue = data;
+          // Phase 4: 紀錄 topic 給 console 看、但不丟 cache、讓它自然講完
           console.info(`[TDT] prefetch ready (topic=${(data.topic || '').slice(0, 20)})`);
         }
       }
@@ -796,17 +796,17 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   /** Phase 3 Step 6.5: 取出已 prefetch 的 dialogue、清快取。invalid 回 null。
-   *  Phase 4: 比對 topic、若已換 topic 則丟棄、避免播舊話題對白。
+   *  Phase 4: topic 換了也讓 cached 那輪講完再換、自然過渡、不硬切。
    */
   _consumePrefetchedDialogue() {
     const data = this._nextDialogue;
     this._nextDialogue = null;
     if (!data?.dialogue || data.dialogue.length < 2) return null;
-    // Phase 4: topic 對不上就丟（state.topic 來自 _pollState 5 秒拉一次的最新值）
+    // 注意：topic 換了仍會用 cache（讓上一個話題那輪自然講完）
+    // 下一輪 _fetchAndPlayDialogue 重新呼叫時、server 已是新 topic、會拿新對白
     const currentTopic = (this.state && this.state.topic) || '';
     if (data.topic && data.topic !== currentTopic) {
-      console.info(`[TDT] prefetch discarded: topic changed (${data.topic.slice(0, 20)} → ${currentTopic.slice(0, 20)})`);
-      return null;
+      console.info(`[TDT] cache 用舊 topic (${data.topic.slice(0, 20)})、播完自然切 (${currentTopic.slice(0, 20)})`);
     }
     return data;
   }
