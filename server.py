@@ -49,7 +49,7 @@ _CASUAL_TOPICS = [
 _GOOGLE_NEWS_TW_RSS = "https://news.google.com/rss?hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
 _NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
-_MIN_ROUNDS_PER_TOPIC = 5            # 同 topic 至少跑 5 輪不同 tone 才換新話題
+_MIN_ROUNDS_PER_TOPIC = 3            # 同 topic 至少跑 3 輪不同 tone 才換新話題（之前 5 太久）
 _NEWS_FETCH_LIMIT = 15
 
 # Module-level 新聞快取 + topic round 計數
@@ -617,7 +617,12 @@ async def _topic_rotate_loop():
 
                 # seed 不受 topic_locked 限制（空 topic 沒什麼好保護的）
                 if should_seed or (should_rotate and not st.get("topic_locked")):
-                    chosen = random.choice(_news_topics_cache)
+                    # Phase 4: rotate 時排除當前 topic、避免抽到同一個
+                    current_topic = str(st.get("topic", "")).strip()
+                    candidates = [h for h in _news_topics_cache if h != current_topic]
+                    if not candidates:
+                        candidates = _news_topics_cache  # 極端情況、cache 全跟 current 一樣
+                    chosen = random.choice(candidates)
                     _apply_news_topic(chosen, unlock=False)
                     if should_seed:
                         print(f"[news] seeded missing topic → {chosen}")
@@ -1134,7 +1139,12 @@ def rotate_topic_now():
     """
     if not _news_topics_cache:
         return JSONResponse({"ok": False, "error": "news cache empty"}, status_code=503)
-    chosen = random.choice(_news_topics_cache)
+    # Phase 4: 排除當前 topic、不要抽到自己
+    current_topic = str(_load_state().get("topic", "")).strip()
+    candidates = [h for h in _news_topics_cache if h != current_topic]
+    if not candidates:
+        candidates = _news_topics_cache
+    chosen = random.choice(candidates)
     # Phase 3 Step 6.4: 共用 _apply_news_topic、避免邏輯重複
     st = _apply_news_topic(chosen, unlock=True)
     return {"ok": True, "topic": chosen, "keywords": st["keywords"],
