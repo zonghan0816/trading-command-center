@@ -661,6 +661,33 @@ export class BootScene extends Phaser.Scene {
         });
       }
     });
+
+    // Phase 4 Step 3.0b: 為 A 組 + 坐姿變體建立動畫（v3 4-frame mapping）
+    // texture key 規劃：char_a_man / char_a_woman / char_aming_sitting / char_xiaomei_sitting / char_a_man_sitting / char_a_woman_sitting
+    const v3FrameMap = {
+      idle: 0, talking: 1, typing: 1, thinking: 2, reacting: 3,
+      pointing: 1,  // fallback to talking
+      tired: 2,     // fallback to thinking
+    };
+    const extraIds = [
+      'a_man', 'a_woman',
+      'aming_sitting', 'xiaomei_sitting',
+      'a_man_sitting', 'a_woman_sitting',
+    ];
+    extraIds.forEach(id => {
+      const tex = `char_${id}`;
+      if (!this.textures.exists(tex)) return;
+      Object.entries(v3FrameMap).forEach(([anim, frame]) => {
+        const key = `${id}_${anim}`;
+        if (!this.anims.exists(key)) {
+          this.anims.create({
+            key,
+            frames: [{ key: tex, frame }],
+            frameRate: 1, repeat: -1,
+          });
+        }
+      });
+    });
   }
 
   _drawChar(g, ox, oy, FW, FH, role, frame) {

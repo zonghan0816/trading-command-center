@@ -22,6 +22,15 @@ const DEFAULT_KEYWORDS = [
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
 const KEYWORD_MAX      = 5;
 
+// Phase 4 Step 3.0b: 4 時段 → 視覺角色組對應
+// morning/afternoon = A 組（A_man + A_woman）、evening/late_night = B 組（阿明小美）
+const SLOT_VISUAL_MAP = {
+  morning:    { aming: 'a_man',   xiaomei: 'a_woman'   },
+  afternoon:  { aming: 'a_man',   xiaomei: 'a_woman'   },
+  evening:    { aming: 'aming',   xiaomei: 'xiaomei'   },
+  late_night: { aming: 'aming',   xiaomei: 'xiaomei'   },
+};
+
 // 任務 4.5: 主持人碰撞避免
 // HOST_MIN_DISTANCE 是兩主持人之間至少要保持的水平距離（px）
 const HOST_MIN_DISTANCE = 180;
@@ -52,6 +61,10 @@ export class OfficeScene extends Phaser.Scene {
       this._nextDialogue = null;            // 已 prefetch 好的下一輪 data（待 consume）
       this._prefetchInProgress = false;     // prefetch fetch 是否進行中
       this._prefetchStartedForSeq = null;   // 已對哪個 seq 觸發過 prefetch（避免同輪重複觸發）
+
+      // Phase 4 Step 3.0: cache 當前時段、給 _buildWorkstations / sprite.play 用
+      this._currentSlot = this._getCurrentTimeSlot();
+      console.info('[TDT] slot:', this._currentSlot);
 
       this._buildBackground();
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
@@ -139,8 +152,26 @@ export class OfficeScene extends Phaser.Scene {
     return this.textures.exists(pick) ? pick : 'weather_sunny';
   }
 
+  // Phase 4 Step 3.0b: hostId → visualId（時段對應）+ 動畫 key helper
+  _getVisualId(hostId) {
+    const map = SLOT_VISUAL_MAP[this._currentSlot] || SLOT_VISUAL_MAP.evening;
+    return map[hostId] || hostId;
+  }
+  _animKey(hostId, action) {
+    return `${this._getVisualId(hostId)}_${action}`;
+  }
+
   // Phase 4 Step 2: 4 時段判定（06-12 morning / 12-18 afternoon / 18-24 evening / 00-06 late_night）
+  // Phase 4 Step 3.0a: 加 URL `?slot=morning|afternoon|evening|late_night` 強制切換、給開發/驗收用
   _getCurrentTimeSlot() {
+    if (typeof window !== 'undefined' && window.location && window.location.search) {
+      const params = new URLSearchParams(window.location.search);
+      const forced = params.get('slot');
+      if (['morning', 'afternoon', 'evening', 'late_night'].includes(forced)) {
+        console.info('[TDT] forced slot via URL:', forced);
+        return forced;
+      }
+    }
     const hour = new Date().getHours();
     if (hour >= 6  && hour < 12) return 'morning';
     if (hour >= 12 && hour < 18) return 'afternoon';
@@ -149,15 +180,18 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // Phase 4 Step 2: 依當前時段疊上對應道具 PNG（depth 1、在角色之下）
-  // Phase 4 Step 2.1: alpha 0.78 讓道具退到「支援場景」、不搶舞台
+  // Phase 4 Step 2.2: 縮小到 50% + 釘底部中央、避免擋到中央 LED
   _buildPropOverlay() {
     const slot = this._getCurrentTimeSlot();
     const propKey = `prop_${slot}`;
     if (this.textures.exists(propKey)) {
-      this.propLayer = this.add.image(0, 0, propKey)
-        .setOrigin(0, 0).setDepth(1).setDisplaySize(this.W, this.H)
-        .setAlpha(0.78);
-      console.info(`[TDT] prop: ${propKey} (alpha 0.78)`);
+      // 桌子等道具縮小到 960×540（50% of 1920×1080）、bottom-center 對齊、下偏 20px
+      this.propLayer = this.add.image(this.W / 2, this.H - 20, propKey)
+        .setOrigin(0.5, 1)
+        .setDepth(1)
+        .setDisplaySize(960, 540)
+        .setAlpha(0.85);
+      console.info(`[TDT] prop: ${propKey} (50% size, bottom-center, alpha 0.85)`);
     } else {
       console.info(`[TDT] prop skip: ${propKey} 沒載入`);
     }
@@ -231,11 +265,13 @@ export class OfficeScene extends Phaser.Scene {
       //   .setOrigin(0.5, 1).setDepth(depth - 1).setScale(S.chairBack);
 
       // 角色 sprite（v2 draft 用 characterV2 scale）
-      const isV2 = CONFIG.customAssets[`char_${id}_v2`];
+      // Phase 4 Step 3.0b: 用 visualId 決定 texture（morning/afternoon = A 組、evening/late_night = 阿明小美）
+      const visualId = this._getVisualId(id);
+      const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
       const charScale = isV2 ? (S.characterV2 ?? 0.28) : S.character;
-      const sprite = this.add.sprite(charX, charY, `char_${id}`, 0)
+      const sprite = this.add.sprite(charX, charY, `char_${visualId}`, 0)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
-      sprite.play(`${id}_idle`);
+      sprite.play(this._animKey(id, 'idle'));
       sprite.roleId = id;
 
       this.tweens.add({
@@ -412,7 +448,7 @@ export class OfficeScene extends Phaser.Scene {
         }
         if (['talking', 'researching'].includes(mod.status) && !ch.isWalking) {
           // Phase 3 Step 4: talking 用 _talking 動畫（小美 actions frame 1）
-          ch.sprite.play(`${id}_talking`);
+          ch.sprite.play(this._animKey(id, 'talking'));
           // Part 3: 移動凍結，不再走到其他角色
           if (!this._freezeMovement) {
             const targets = DATA_FLOWS[id] || [];
@@ -421,18 +457,18 @@ export class OfficeScene extends Phaser.Scene {
             }
           }
         } else if (mod.status === 'thinking') {
-          ch.sprite.play(`${id}_thinking`);
+          ch.sprite.play(this._animKey(id, 'thinking'));
           this._animateTyping(id);
         } else if (mod.status === 'reacting') {
           // Phase 3 Step 4: reacting 獨立分支、播 _reacting（小美 actions frame 3）、不再落到 thinking
-          ch.sprite.play(`${id}_reacting`);
+          ch.sprite.play(this._animKey(id, 'reacting'));
           this._animateTyping(id);
         }
       } else if (justBecameInactive && !ch.isWalking) {
-        ch.sprite.play(`${id}_idle`);
+        ch.sprite.play(this._animKey(id, 'idle'));
         this._hideBubble(id);
       } else if (mod.status === 'idle' && !ch.isWalking) {
-        ch.sprite.play(`${id}_idle`);
+        ch.sprite.play(this._animKey(id, 'idle'));
       }
     });
 
@@ -501,7 +537,7 @@ export class OfficeScene extends Phaser.Scene {
         ease: 'Power2',
         onUpdate: () => this._syncBubble(id),
         onComplete: () => {
-          ch.sprite.play(`${id}_idle`);
+          ch.sprite.play(this._animKey(id, 'idle'));
         },
       });
     }
@@ -553,14 +589,14 @@ export class OfficeScene extends Phaser.Scene {
             if (!aborted && this._distanceToOtherHost(id) < HOST_MIN_DISTANCE) {
               aborted = true;
               walkTween.stop();
-              ch.sprite.play(`${id}_idle`);
+              ch.sprite.play(this._animKey(id, 'idle'));
               ch.isWalking = false;
               if (onComplete) onComplete();
             }
           },
           onComplete: () => {
             if (aborted) return;  // 已被距離檢查中止、不再執行正常流程
-            ch.sprite.play(`${id}_thinking`);
+            ch.sprite.play(this._animKey(id, 'thinking'));
             this.time.delayedCall(400, () => { if (onComplete) onComplete(); });
           },
         });
@@ -573,7 +609,7 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch) { if (onComplete) onComplete(); return; }
 
-    const walkAnim = `${id}_typing`;
+    const walkAnim = this._animKey(id, 'typing');
     ch.sprite.play(walkAnim);
     const dist = Math.abs(ch.x - ch.sprite.x);
     this.tweens.add({
@@ -590,7 +626,7 @@ export class OfficeScene extends Phaser.Scene {
           ease: 'Power2.easeIn',
           onComplete: () => {
             ch.isWalking = false;
-            ch.sprite.play(`${id}_idle`);
+            ch.sprite.play(this._animKey(id, 'idle'));
             this._syncBubble(id);
             this._hideBubble(id);
             this.tweens.add({
@@ -795,7 +831,7 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     // Phase 3 Step 4: movement frozen → walker 直接進入 talking 狀態
-    const walkerAnim = this._freezeMovement ? `${walkerId}_talking` : `${walkerId}_typing`;
+    const walkerAnim = this._freezeMovement ? this._animKey(walkerId, 'talking') : this._animKey(walkerId, 'typing');
     walker.sprite.play(walkerAnim);
     // Phase 3 Step 5.1: 移除 _updateHTMLPanel(_buildPanelData())、避免假 state（topic=''、mode='idle'）覆蓋真實 polled state；
     // 改由 _pollState 維持 panel；chat 進行中 host 區塊已透過 skipHostLines 凍結
@@ -854,23 +890,21 @@ export class OfficeScene extends Phaser.Scene {
    * 不改 API schema、純前端判斷；emotion 欄位若有未來也可在這裡擴展。
    */
   _chooseLineAction(id, text, fallbackStatus = 'talking') {
-    const fallback = `${id}_${fallbackStatus}`;
+    // Phase 4 Step 3.0b: 改用 _animKey 對應到 visualId（A 組 morning/afternoon 自動切）
+    const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
 
     const s = String(text || '');
     if (!s) return fallback;
 
     // Phase 3 Step 6.2: 多字 phrase 優先 override
-    // 順序對齊整體優先序：reacting > tired > pointing（同 chunk 多個 phrase 命中時、reacting 先勝）
     const PHRASE_OVERRIDE = [
-      // reacting - 強烈反應（優先序最高）
       ['完全荒謬',     'reacting'],
       ['太誇張',       'reacting'],
       ['怎麼會這樣',   'reacting'],
       ['不是吧',       'reacting'],
       ['不可能吧',     'reacting'],
       ['我看了會瘋',   'reacting'],
-      // tired - 經濟壓力 / 無奈
       ['誰買得起',     'tired'],
       ['買不起',       'tired'],
       ['薪水漲不動',   'tired'],
@@ -878,7 +912,6 @@ export class OfficeScene extends Phaser.Scene {
       ['沒辦法',       'tired'],
       ['受不了',       'tired'],
       ['沒救了',       'tired'],
-      // pointing - 帶問句指出
       ['所以呢',       'pointing'],
       ['重點是',       'pointing'],
       ['問題在',       'pointing'],
@@ -887,10 +920,9 @@ export class OfficeScene extends Phaser.Scene {
       ['現在就是',     'pointing'],
     ];
     for (const [phrase, action] of PHRASE_OVERRIDE) {
-      if (s.includes(phrase)) return `${id}_${action}`;
+      if (s.includes(phrase)) return this._animKey(id, action);
     }
 
-    // [action, keywords] — 順序即優先序：reacting > tired > pointing > thinking > talking
     const PATTERN_ORDER = [
       ['reacting', ['靠', '真的假的', '怎麼可能', '蛤', '哇', '誒', '啊？', '喔？']],
       ['tired',    ['唉', '累', '頭痛', '麻煩', '嘆氣', '煩', '失望', '無奈', '房價']],
@@ -900,7 +932,7 @@ export class OfficeScene extends Phaser.Scene {
 
     for (const [action, keywords] of PATTERN_ORDER) {
       if (keywords.some(kw => s.includes(kw))) {
-        return `${id}_${action}`;
+        return this._animKey(id, action);
       }
     }
     return fallback;
@@ -915,7 +947,7 @@ export class OfficeScene extends Phaser.Scene {
     const ch = this.characters[id];
     if (!ch || ch.isWalking) return;
     ch.state = 'idle';
-    ch.sprite.play(`${id}_idle`);
+    ch.sprite.play(this._animKey(id, 'idle'));
   }
 
   _chunkText(text, maxLen = 32) {
@@ -1000,7 +1032,7 @@ export class OfficeScene extends Phaser.Scene {
     ch.state = 'running';
     ch.bubbleText.setText(text.slice(0, 80));
     // Phase 3 Step 4: demo 對話也用 _talking 動畫
-    ch.sprite.play(`${id}_talking`);
+    ch.sprite.play(this._animKey(id, 'talking'));
     this._showBubble(id);
 
     const done = () => {
