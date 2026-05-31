@@ -14,10 +14,9 @@ const DATA_FLOWS = CONFIG.layout.dataFlows;
 // Phase 3 Step 6.7: TOP 5 改成觀眾互動 CTA（62 notes item 6 + 10 決議）
 // 24H MVP 過渡、之後可能改成跑馬燈或其他形式
 const DEFAULT_KEYWORDS = [
-  '看了喜歡記得按讚',
-  '訂閱頻道 + 小鈴鐺',
-  '留言告訴主持人',
+  '按讚 + 訂閱 + 鈴鐺',
   '分享給朋友看',
+  '留言告訴主持人',
   '24H AI 不打烊陪你',
 ];
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
@@ -146,10 +145,7 @@ export class OfficeScene extends Phaser.Scene {
     // 文字元素保留在下方
 
     // TOP5 標題（Fix 2.5: 往下 8px，略往右對齊背景框）
-    this.add.text(wbCX + 10, wbTopY + 22, '▸ 觀眾互動', {
-      fontSize: '18px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
-      shadow: { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 8, fill: true },
-    }).setOrigin(0.5, 0).setDepth(28.5);
+    // Phase 3 Step 6.7: 標題「▸ 觀眾互動」拿掉（使用者要求、CTA 自說明）
 
     // 儲存座標、給 _renderKeywords / state poll 用
     this._kwBaseX        = wbCX;
@@ -208,8 +204,8 @@ export class OfficeScene extends Phaser.Scene {
       const charHeight = isV2
         ? Math.round(1536 * (S.characterV2 ?? 0.28))
         : Math.round(64 * S.character);
-      // Phase 3 Step 6.7: bubble 放大、字更醒目（500×140 → 550×155）
-      const bW = 550, bH = 155;
+      // Phase 3 Step 6.7: bubble 放大、字更醒目（最終 480×135、不再蓋到角色身體）
+      const bW = 480, bH = 135;
       const accentColor = (id === 'aming') ? 0xFF8C00 : 0x00E5FF;
 
       // 角色顯示寬度（v2 = 1024 * 0.28 ≈ 287px）
@@ -218,10 +214,10 @@ export class OfficeScene extends Phaser.Scene {
         : Math.round(48 * S.character);
 
       const headTopY = charY - charHeight;
-      // 泡泡從角色邊緣外側開始，不覆蓋身體
+      // 泡泡從角色邊緣外側開始、Step 6.7: 改用 charWidth/2 + 10 間距、確實不覆蓋身體
       let bCX = (id === 'aming')
-        ? Math.max(40 + bW / 2, charX - charWidth / 3 - bW / 2)   // 阿明：1/3 sprite 寬偏移
-        : Math.min(1880 - bW / 2, charX + charWidth / 3 + bW / 2); // 小美：1/3 sprite 寬偏移
+        ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10)
+        : Math.min(1880 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
       let bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
 
       // Graphics 用相對座標建立（定位在 bCX, bCY），setPosition 才能正確移動
@@ -297,15 +293,16 @@ export class OfficeScene extends Phaser.Scene {
 
     const RANKS = ['①', '②', '③', '④', '⑤'];
     const boardLeft = this._kwBaseX - 178;  // Fix 2.5: 整體右移 14px
+    // Phase 3 Step 6.7: 字級 21 → 25、row spacing 42 → 52（配合更大字 + 4 條）
     kws.forEach((kw, i) => {
-      const y = this._kwBaseY + 50 + i * 36;  // Fix 2.5: row spacing 46→36
+      const y = this._kwBaseY + 50 + i * 52;
       const isFirst = i === 0;
       const rn = this.add.text(boardLeft, y, RANKS[i] ?? '', {
-        fontSize: '17px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
+        fontSize: '25px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
         shadow: isFirst ? { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 6, fill: true } : undefined,
       }).setOrigin(0, 0).setDepth(28.5);
-      const kt = this.add.text(boardLeft + 28, y, kw, {
-        fontSize: '17px', color: '#E8F4FF', fontFamily: 'Consolas, monospace',
+      const kt = this.add.text(boardLeft + 36, y, kw, {
+        fontSize: '25px', color: '#E8F4FF', fontFamily: 'Consolas, monospace',
       }).setOrigin(0, 0).setDepth(28.5);
       this._kwTexts.push(rn, kt);
     });
