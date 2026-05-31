@@ -754,32 +754,50 @@ def _build_prompt(state: dict, turn_type: str,
     else:
         angle_block = ""
 
-    # ── Phase 3 Step 6.3：反重複區塊（明確列出最近 tone / angle / 台詞摘要）──
+    # ── Phase 3 Step 6.3 / Phase 4 強化：反重複區塊 ──
     anti_repeat_block = ""
     if recent_memory and isinstance(recent_memory.get("rounds"), list) and recent_memory["rounds"]:
         recent_rounds = recent_memory["rounds"][-_DIALOGUE_MEMORY_MAX_ROUNDS:]
         recent_tones  = [r.get("tone", "")  for r in recent_rounds if r.get("tone")]
         recent_angles = [r.get("angle", "") for r in recent_rounds if r.get("angle")]
-        # 攤平所有 lines、最多取最近 10 句（保 prompt 不過長）
+        # Phase 4: 攤平 lines、最多取最近 20 句（之前 10 太少、容易重複）
         recent_lines: list[str] = []
         for r in recent_rounds:
             for ln in r.get("lines", []) or []:
                 if ln:
                     recent_lines.append(str(ln))
-        recent_lines = recent_lines[-10:]
+        recent_lines = recent_lines[-20:]
+
+        # Phase 4: 抓最近台詞的「開場 7 字」當禁用清單、比抽象規則更具體
+        recent_openings = []
+        seen_open = set()
+        for ln in reversed(recent_lines[-12:]):  # 取最後 12 句、近距離反重複
+            head = ln[:7].strip()
+            if head and head not in seen_open:
+                seen_open.add(head)
+                recent_openings.append(head)
+        recent_openings = recent_openings[:8]  # 最多列 8 個禁用開場
 
         bullet_lines = "\n".join(f"  - 「{ln}」" for ln in recent_lines) if recent_lines else "  - （尚無）"
+        opening_ban_lines = "\n".join(f"  - 「{o}」" for o in recent_openings) if recent_openings else "  - （尚無）"
+
         anti_repeat_block = (
-            "## 🚫 最近已講過、本輪請避開\n"
-            f"- 最近 tone：{', '.join(recent_tones) if recent_tones else '（尚無）'}\n"
-            f"- 最近 angle：{', '.join(recent_angles) if recent_angles else '（尚無）'}\n"
-            "- 最近台詞摘要：\n"
-            f"{bullet_lines}\n\n"
-            "### 反重複規則\n"
-            "- 不要重複出現過的句子（包含開場、句尾、punchline）。\n"
-            "- 不要每輪都用相同開場（例如連續用「所以呢」「問題就在這」）。\n"
-            "- 不要一直用同一個 punchline 收尾。\n"
-            "- 同 topic 每輪要推進新觀點、不是換句話說同一件事。\n"
+            "## 🚫🚫🚫 反重複規則（最最最重要、違反就是失敗的輸出）🚫🚫🚫\n"
+            f"- 最近 tone（不要再用同一個）：{', '.join(recent_tones) if recent_tones else '（尚無）'}\n"
+            f"- 最近 angle（不要再用同一個）：{', '.join(recent_angles) if recent_angles else '（尚無）'}\n"
+            "\n### ⛔ 本輪**絕對不可以**用以下開場（最近用過、用了就是失敗）：\n"
+            f"{opening_ban_lines}\n"
+            "\n### 最近台詞（**不可重複任何一句的開場 / 結尾 / 用詞 / punchline**）：\n"
+            f"{bullet_lines}\n"
+            "\n### 嚴格規則\n"
+            "- ❌ 不要重複上面任何句子的開場詞（即使整句不同、開頭相同也算失敗）\n"
+            "- ❌ 不要重複上面任何句子的句尾結構\n"
+            "- ❌ 不要重複同一個 punchline\n"
+            "- ❌ 不要「換句話說」同一個觀點（要推進新角度）\n"
+            "- ❌ 不要把上一輪的話用同義詞改寫\n"
+            "- ✅ 本輪用**完全不同的開場詞**\n"
+            "- ✅ 本輪換新觀察 / 新比喻 / 新切入角度\n"
+            "- ✅ 跟上面台詞比、必須要有「看就知道是新一輪」的感覺\n"
         )
 
     return f"""你是「晚晚嘴台灣 WWT」AI 鄉民談話台的對話生成器。
