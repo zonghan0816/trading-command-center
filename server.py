@@ -62,9 +62,9 @@ _NEWS_CATEGORIES: list[tuple[str, list[str]]] = [
     ("體育",       ["SPORTS"]),
     ("健康",       ["HEALTH"]),
 ]
-_PER_CATEGORY_LIMIT = 3              # 每類抓 3 條、合計 ~24 條、dedupe 後 ~22
+_PER_CATEGORY_LIMIT = 4              # 每類抓 4 條、合計 ~32 條、dedupe 後 ~28（Step 5.9）
 
-_NEWS_REFRESH_SEC = 600              # 10 分鐘刷新一次新聞快取
+_NEWS_REFRESH_SEC = 300              # 5 分鐘刷新一次（Step 5.9: 對話追話題、刷快一點）
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
 _MIN_ROUNDS_PER_TOPIC = 2            # 同 topic 跑 2 輪就換（節奏快、避免重複感）
 _NEWS_FETCH_LIMIT = 30               # 總上限（多類別合併後）
