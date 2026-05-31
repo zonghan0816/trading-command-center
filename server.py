@@ -75,6 +75,9 @@ _news_topics_cache: list[str] = []
 _current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 topic 後歸 0
 # Phase 4 Step 5.7: 最近用過的 topic queue、避免短期重複（rotate / 手動換 topic 都會 push）
 _recent_topics_history: list[str] = []
+# Phase 4 Step 5.10: 下一棒 topic queue、永遠預備 N 個、rotate 直接 pop（不再臨時抽）
+_TOPIC_QUEUE_TARGET = 2              # 永遠預備好 2 個下一個 topic
+_topic_queue: list[str] = []
 
 # ── Phase 4 Step 5: Cost Guard 預算護欄 ───────────────────────
 # Anthropic Claude Haiku 4.5 定價（每 1M token）
@@ -520,19 +523,60 @@ def _push_recent_topic(t: str) -> None:
         _recent_topics_history = _recent_topics_history[-_RECENT_TOPICS_LIMIT:]
 
 
-def _pick_fresh_topic(current_topic: str) -> str:
-    """從 cache 選一個避開最近 N 個用過的 topic、再隨機抽。
-    放寬順序：避最近 6 → 避當前 → 隨便挑（避免完全卡死）。
+def _pick_fresh_topic(current_topic: str, also_exclude: set | None = None) -> str:
+    """從 cache 選一個避開最近 N 個用過的 topic + 額外 exclude set、再隨機抽。
+    放寬順序：避最近+額外 → 只避當前+額外 → 只避額外 → 隨便挑。
     """
     if not _news_topics_cache:
         return ""
-    recent_set = set(_recent_topics_history)
+    extra = also_exclude or set()
+    recent_set = set(_recent_topics_history) | extra
     candidates = [h for h in _news_topics_cache if h not in recent_set]
     if not candidates:
-        candidates = [h for h in _news_topics_cache if h != current_topic]
+        ban = {current_topic} | extra if current_topic else set(extra)
+        candidates = [h for h in _news_topics_cache if h not in ban]
+    if not candidates:
+        candidates = [h for h in _news_topics_cache if h not in extra]
     if not candidates:
         candidates = _news_topics_cache
     return random.choice(candidates)
+
+
+def _refill_topic_queue() -> int:
+    """補滿 _topic_queue 到 _TOPIC_QUEUE_TARGET、回傳實際補了幾個。
+    候選排除：當前 topic + recent_history + 已在 queue 的。
+    cache 太空 → 補不滿就停（下次 cache refresh 後會再補）。
+    """
+    global _topic_queue
+    if not _news_topics_cache:
+        return 0
+    added = 0
+    safety = 8  # 避免死迴圈
+    while len(_topic_queue) < _TOPIC_QUEUE_TARGET and safety > 0:
+        safety -= 1
+        try:
+            current = str(_load_state().get("topic", "")).strip()
+        except Exception:
+            current = ""
+        already = set(_topic_queue)
+        chosen = _pick_fresh_topic(current, also_exclude=already)
+        if not chosen or chosen in already:
+            break
+        _topic_queue.append(chosen)
+        added += 1
+    return added
+
+
+def _pop_next_topic() -> str:
+    """從 queue 拿下一棒、然後立即補滿、回傳 topic。queue 空 + cache 也空 → 回 ''。"""
+    global _topic_queue
+    if not _topic_queue:
+        _refill_topic_queue()
+    if not _topic_queue:
+        return ""
+    next_topic = _topic_queue.pop(0)
+    _refill_topic_queue()  # 拿一個就補一個、永遠保持 target 個在線
+    return next_topic
 
 
 # ── Phase 3 Step 6.3：tone / angle queue helpers ────────────────
@@ -673,8 +717,9 @@ def _apply_news_topic(chosen: str, *, unlock: bool = False) -> dict:
 
 
 async def _news_refresh_loop():
-    """背景任務：每 10 分鐘刷新新聞快取。
+    """背景任務：每 N 分鐘刷新新聞快取。
     replace 策略：新一輪 fetch 整批覆蓋舊快取（記憶體 + 磁碟）。
+    Phase 4 Step 5.10: 刷完立即補滿 _topic_queue。
     """
     global _news_topics_cache
     while True:
@@ -683,7 +728,8 @@ async def _news_refresh_loop():
             if topics:
                 _news_topics_cache = topics
                 _save_news_cache(topics)  # 覆寫磁碟、舊話題自動被新一輪取代
-                print(f"[news] cache refreshed: {len(topics)} headlines（已存檔）")
+                added = _refill_topic_queue()
+                print(f"[news] cache refreshed: {len(topics)} headlines（queue +{added}、剩 {len(_topic_queue)}）")
         except Exception as e:
             print(f"[news] refresh loop error: {e}")
         await asyncio.sleep(_NEWS_REFRESH_SEC)
@@ -710,17 +756,16 @@ async def _topic_rotate_loop():
 
                 # seed 不受 topic_locked 限制（空 topic 沒什麼好保護的）
                 if should_seed or (should_rotate and not st.get("topic_locked")):
-                    # Phase 4 Step 5.7: 排除最近 6 個用過的 topic、避免短期重複
-                    current_topic = str(st.get("topic", "")).strip()
-                    chosen = _pick_fresh_topic(current_topic)
+                    # Phase 4 Step 5.10: 直接從 queue 取下一棒、永遠預備 2 個
+                    chosen = _pop_next_topic()
                     if not chosen:
-                        continue  # cache 空、跳過這輪
+                        continue  # cache 全空、跳過這輪
                     _apply_news_topic(chosen, unlock=False)
                     _push_recent_topic(chosen)
                     if should_seed:
-                        print(f"[news] seeded missing topic → {chosen}")
+                        print(f"[news] seeded missing topic → {chosen}（queue 剩 {len(_topic_queue)}）")
                     else:
-                        print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪、歷史排除 {len(_recent_topics_history)}）")
+                        print(f"[news] rotated topic → {chosen}（前 topic 跑了 {_MIN_ROUNDS_PER_TOPIC}+ 輪、queue 剩 {len(_topic_queue)}）")
         except Exception as e:
             print(f"[news] rotate loop error: {e}")
         await asyncio.sleep(_TOPIC_ROTATE_CHECK_SEC)
@@ -767,6 +812,9 @@ async def _startup_news_tasks():
             else:
                 print(f"[news] state already has topic（{st.get('topic')}）、不 seed")
                 _push_recent_topic(str(st.get("topic", "")))  # 接續上次 state、把它列入歷史
+            # Phase 4 Step 5.10: 啟動完先把下一棒 queue 預備好
+            added = _refill_topic_queue()
+            print(f"[news] topic queue 初始化、預備 {added} 個下一棒")
         except Exception as e:
             print(f"[news] seed initial topic error: {e}")
 
@@ -1258,6 +1306,18 @@ async def refresh_news_cache():
             "headlines": list(_news_topics_cache)}
 
 
+@app.get("/api/topic_queue")
+def get_topic_queue():
+    """Phase 4 Step 5.10: 查目前預備好的下一棒 topics（debug 用）。"""
+    return {
+        "target":  _TOPIC_QUEUE_TARGET,
+        "queue":   list(_topic_queue),
+        "size":    len(_topic_queue),
+        "cache_size":   len(_news_topics_cache),
+        "recent_history": list(_recent_topics_history),
+    }
+
+
 @app.post("/api/news/rotate_topic")
 def rotate_topic_now():
     """手動觸發 topic 換成新聞快取中的隨機一條。
@@ -1268,15 +1328,14 @@ def rotate_topic_now():
     """
     if not _news_topics_cache:
         return JSONResponse({"ok": False, "error": "news cache empty"}, status_code=503)
-    # Phase 4 Step 5.7: 同樣排除最近 6 個用過的 topic
-    current_topic = str(_load_state().get("topic", "")).strip()
-    chosen = _pick_fresh_topic(current_topic)
+    # Phase 4 Step 5.10: 走 queue 路徑、跟自動 rotate 統一
+    chosen = _pop_next_topic()
     if not chosen:
         return JSONResponse({"ok": False, "error": "no fresh topic available"}, status_code=503)
     st = _apply_news_topic(chosen, unlock=True)
     _push_recent_topic(chosen)
     return {"ok": True, "topic": chosen, "keywords": st["keywords"],
-            "topic_locked": False, "topic_round": 0}
+            "topic_locked": False, "topic_round": 0, "queue_size": len(_topic_queue)}
 
 
 # ── 靜態檔案 ──────────────────────────────────────────────────────
