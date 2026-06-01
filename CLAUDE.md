@@ -20,7 +20,7 @@
 
 ## 一句話介紹
 
-**TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「阿明哥」「小美姐」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
+**TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「阿明哥」「王于安」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
 
 ---
 
@@ -52,7 +52,7 @@
 |---|---|---|---|---|
 | 6AM-12PM | 基本棚 | 麥克風架、咖啡杯 | 站著 | A 組（暫定）|
 | 12PM-6PM | 基本棚 | 桌、茶杯、蛋糕盤 | 坐 | A 組（暫定）|
-| 6PM-12AM | 基本棚 | 主播台 | 站 | B 組（含阿明小美）|
+| 6PM-12AM | 基本棚 | 主播台 | 站 | B 組（含阿明 / 王于安） |
 | 12AM-6AM | 基本棚 | 2 張床、枕頭、床頭燈 | 坐床上 | B 組（暫定）|
 
 **設計重點**：
@@ -90,7 +90,7 @@
 |---|---|
 | AI 生成內容 | ✅ 真的（Claude 生成）|
 | 新聞內容 | ✅ 真的（Google News）|
-| 角色設定 | ✅ 真的（阿明小美一致）|
+| 角色設定 | ✅ 真的（阿明 / 王于安一致） |
 | 即時性 | ❌ 是錯覺（預生成循環播）|
 
 像「報紙印好次日上市」本來就有時差、沒人說那是假報紙。
@@ -129,7 +129,7 @@
 | 主持人 | 站位 | 個性 | 動作 |
 |---|---|---|---|
 | **阿明哥** | 左半場 (35%) | 50 歲台灣大叔、議論派、碎念、退休風 | v2 draft 單張 PNG（暫無 multi-frame actions）|
-| **小美姐** | 右半場 (65%) | 30 歲都會女性、吐槽派、反諷型 | actions spritesheet 6 frames（idle/talking/thinking/reacting/pointing/tired）|
+| **王于安** | 右半場 (65%) | 30 歲女主播底子轉政論主持（王乃伃風）、反差萌、網感重、Podcast 控場 | emotion sheet 7 emotions（idle/talk/smile/thinking/surprised/skeptical/wave） |
 
 主持人**固定站位、不走動**（Phase 2F Step 3 以後 movement frozen）。對話用泡泡 + sprite frame 切換表現。
 
