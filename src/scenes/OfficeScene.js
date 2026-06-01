@@ -274,8 +274,11 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 3.0b: 用 visualId 決定 texture（morning/afternoon = A 組、evening/late_night = 阿明小美）
       const visualId = this._getVisualId(id);
       const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
-      // Phase 4 Step 5.16: emotion sheet 已全清、目前只剩 v2 draft path
-      const charScale = isV2 ? (S.characterV2 ?? 0.28) : S.character;
+      // Phase 4 Step 5.17: 王于安 individual PNG（1254×1254）用自己的 scale
+      const useIndividual = (id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_individual);
+      const charScale = useIndividual
+        ? (S.characterIndividual ?? 0.34)
+        : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
       const sprite = this.add.sprite(charX, charY, `char_${visualId}`, 0)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
       sprite.play(this._animKey(id, 'idle'));
@@ -927,8 +930,16 @@ export class OfficeScene extends Phaser.Scene {
     const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
 
-    // Phase 4 Step 5.16: emotion sheet 已全清、emotion 欄位暫無對應動畫、走 keyword fallback
-    // Step 5.17 接個別 PNG 時會在這加回 emotion 路由
+    // Phase 4 Step 5.17: individual PNG ON + line.emotion 有值 → 直接路由
+    // 12 allowed: idle / talk / smile / thinking / surprised / skeptical / wave
+    //           / angry / laughing / sad / relieved / cheering
+    if (CONFIG.customAssets.char_xiaomei_individual && emotion) {
+      const ALLOWED = new Set([
+        'idle','talk','smile','thinking','surprised','skeptical','wave',
+        'angry','laughing','sad','relieved','cheering',
+      ]);
+      return ALLOWED.has(emotion) ? `xiaomei_emo_${emotion}` : 'xiaomei_emo_talk';
+    }
 
     const s = String(text || '');
     if (!s) return fallback;

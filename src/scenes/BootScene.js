@@ -51,9 +51,22 @@ export class BootScene extends Phaser.Scene {
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    // 王于安載入 — Phase 4 Step 5.16: 簡化、目前只有 v2 draft fallback
-    // 17 個舊 sheet / 單張 PNG 在 assets/char_xiaomei/legacy/、不會被載
-    if (ca.char_xiaomei_v2) {
+    // 王于安載入 — Phase 4 Step 5.17: 個別 PNG（每 emotion/action 一張）
+    if (ca.char_xiaomei_individual) {
+      const dir = '/assets/char_xiaomei';
+      // emo_idle.png 同時當 base texture（OfficeScene 初始 sprite 用 char_xiaomei）
+      this.load.image('char_xiaomei', `${dir}/emo_idle.png`);
+      // 12 emotion textures
+      ['idle','talk','smile','thinking','surprised','skeptical','wave',
+       'angry','laughing','sad','relieved','cheering'].forEach(e => {
+        this.load.image(`xiaomei_emo_${e}_tex`, `${dir}/emo_${e}.png`);
+      });
+      // 3 action textures
+      ['tired','pointing','walking'].forEach(a => {
+        this.load.image(`xiaomei_act_${a}_tex`, `${dir}/act_${a}.png`);
+      });
+    } else if (ca.char_xiaomei_v2) {
+      // Fallback：v2 draft 單張
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
     }
 
@@ -551,6 +564,39 @@ export class BootScene extends Phaser.Scene {
           this.anims.create({
             key: `${role.id}_${anim}`,
             frames: [{ key: texKey, frame }],
+            frameRate: 1, repeat: -1,
+          });
+        });
+      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_individual) {
+        // Phase 4 Step 5.17: individual PNG（每 emotion/action 自己一張 texture）
+        // animation key → 對應 texture key（單 frame loop、play 時 sprite 切 texture）
+        const XM_ANIM_MAP = {
+          // 既有 keyword-driven 路徑（OfficeScene 用、向下相容）
+          xiaomei_idle:      'xiaomei_emo_idle_tex',
+          xiaomei_talking:   'xiaomei_emo_talk_tex',
+          xiaomei_typing:    'xiaomei_emo_talk_tex',     // legacy alias
+          xiaomei_thinking:  'xiaomei_emo_thinking_tex',
+          xiaomei_reacting:  'xiaomei_emo_surprised_tex',
+          xiaomei_pointing:  'xiaomei_act_pointing_tex',
+          xiaomei_tired:     'xiaomei_act_tired_tex',
+          // 12 個 emo_* key（line.emotion 直接路由）
+          xiaomei_emo_idle:      'xiaomei_emo_idle_tex',
+          xiaomei_emo_talk:      'xiaomei_emo_talk_tex',
+          xiaomei_emo_smile:     'xiaomei_emo_smile_tex',
+          xiaomei_emo_thinking:  'xiaomei_emo_thinking_tex',
+          xiaomei_emo_surprised: 'xiaomei_emo_surprised_tex',
+          xiaomei_emo_skeptical: 'xiaomei_emo_skeptical_tex',
+          xiaomei_emo_wave:      'xiaomei_emo_wave_tex',
+          xiaomei_emo_angry:     'xiaomei_emo_angry_tex',
+          xiaomei_emo_laughing:  'xiaomei_emo_laughing_tex',
+          xiaomei_emo_sad:       'xiaomei_emo_sad_tex',
+          xiaomei_emo_relieved:  'xiaomei_emo_relieved_tex',
+          xiaomei_emo_cheering:  'xiaomei_emo_cheering_tex',
+        };
+        Object.entries(XM_ANIM_MAP).forEach(([animKey, tex]) => {
+          this.anims.create({
+            key: animKey,
+            frames: [{ key: tex, frame: 0 }],
             frameRate: 1, repeat: -1,
           });
         });

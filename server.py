@@ -1061,7 +1061,7 @@ def _build_prompt(state: dict, turn_type: str,
 
 ## 表情 / 情緒（emotion 欄位、給王于安用、阿明可寫但暫不用）
 
-每句 JSON 必須帶 `emotion` 欄位、值從以下 7 種挑一個（其他值會被忽略）：
+每句 JSON 必須帶 `emotion` 欄位、值從以下 12 種挑一個（其他值會被忽略）：
 
 | emotion | 王乃伃式使用時機 |
 |---|---|
@@ -1071,11 +1071,17 @@ def _build_prompt(state: dict, turn_type: str,
 | `thinking` | 整理觀點、要畫重點前、Podcast 式收線 |
 | `talk` | 一般敘述、轉場、報新聞主軸 |
 | `wave` | 開場打招呼、跟觀眾互動、收場 CTA |
+| `angry` | 怒嗆、義憤填膺、「太誇張了吧」、看不下去 |
+| `laughing` | 大笑、真的覺得好笑到爆、笑到瞇眼 |
+| `sad` | 失望、「真的不行了」、對社會 / 來賓無奈 |
+| `relieved` | 「還好還好」、危機過、新聞反轉變好 |
+| `cheering` | 「加油」「大家撐住」、鼓勵觀眾 / 來賓 |
 | `idle` | 不說話時用、但你不會輸出 idle（不說話就沒有 line）|
 
 挑選原則：
 - 一輪對話內、王于安 emotion 要**有起伏**、不要每句都 talk
 - 「網感反應 → 整理 → 收線」三段式：surprised → thinking → smile/skeptical
+- 角度激烈時用 angry / sad、化解時用 relieved / laughing / cheering
 - 阿明 emotion 隨便寫 talk 或 thinking 即可（目前前端不用、未來保留）
 
 ## 輸出格式

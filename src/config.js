@@ -75,6 +75,7 @@ export const CONFIG = {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
+    characterIndividual: 0.34, // Phase 4 Step 5.17: 王于安 individual PNG 1254×1254 用、目標 ≈ 430 px 高
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
@@ -157,10 +158,11 @@ export const CONFIG = {
     ui_brand_24h:  true,
     ui_marquee_bg: true,
 
-    // 王于安 — 目前用 v2 draft 單張 PNG 當 fallback
-    // 17 個舊 sheet / 單張 PNG 已搬到 assets/char_xiaomei/legacy/
-    // 新個別 emotion PNG 在 assets/char_xiaomei/（待接線、Step 5.17）
-    char_xiaomei_v2: true,
+    // Phase 4 Step 5.17: 王于安 individual PNG（12 emotion + 3 action）
+    // 路徑 assets/char_xiaomei/{emo,act}_*.png、預設 ON
+    // 改成 false 會 fallback 到 v2 draft 單張
+    char_xiaomei_individual: true,
+    char_xiaomei_v2: true,           // fallback、Phase 5.17 沒打開時用
 
     // 阿明 v2 draft
     char_aming_v2: true,
