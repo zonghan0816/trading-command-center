@@ -163,6 +163,9 @@ export const CONFIG = {
     // 改成 false 會 fallback 到 v2 draft 單張
     char_xiaomei_individual: true,
     char_xiaomei_v2: true,           // fallback、Phase 5.17 沒打開時用
+    // BootScene._makeCharacters 用 char_xiaomei flag 判斷 isCustom、
+    // 沒這個會走程序生成分支、新分支跑不到
+    char_xiaomei: true,
 
     // 阿明 v2 draft
     char_aming_v2: true,
