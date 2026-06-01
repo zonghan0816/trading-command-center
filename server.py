@@ -1677,6 +1677,12 @@ def index():
     return FileResponse(str(_HERE / "index.html"))
 
 
+@app.get("/preview")
+def preview_emotions():
+    """Phase 4 Step 5.21: 王于安 15 張 PNG 色彩比對頁、可切換背景。"""
+    return FileResponse(str(_HERE / "preview_emotions.html"))
+
+
 if __name__ == "__main__":
     import uvicorn
     print("=" * 50)

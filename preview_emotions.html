@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>王于安 emotion 色彩比對</title>
+<style>
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #1a1830;  /* 接近棚景深色背景 */
+    font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+    color: #fff;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: 22px;
+  }
+  .info {
+    color: #aaa;
+    margin-bottom: 24px;
+    font-size: 14px;
+  }
+  .bg-toggle {
+    margin-bottom: 24px;
+  }
+  .bg-toggle button {
+    background: #444;
+    color: #fff;
+    border: 1px solid #666;
+    padding: 6px 14px;
+    margin-right: 8px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .bg-toggle button.active {
+    background: #FF8C55;
+    border-color: #FF8C55;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+  .cell {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid #333;
+    border-radius: 6px;
+    overflow: hidden;
+    text-align: center;
+  }
+  .cell img {
+    display: block;
+    width: 100%;
+    height: auto;
+    image-rendering: pixelated;
+  }
+  .label {
+    padding: 8px;
+    font-size: 14px;
+    background: rgba(0,0,0,0.4);
+    border-top: 1px solid #333;
+  }
+  .label .type {
+    color: #FF8C55;
+    font-size: 11px;
+    text-transform: uppercase;
+  }
+  .label .name {
+    color: #fff;
+    font-weight: bold;
+  }
+  .ref-cell {
+    border-color: #FF8C55;
+    border-width: 2px;
+    box-shadow: 0 0 10px rgba(255,140,85,0.3);
+  }
+  .ref-cell .label {
+    background: rgba(255,140,85,0.2);
+  }
+</style>
+</head>
+<body>
+  <h1>王于安 15 張 PNG 色彩比對</h1>
+  <div class="info">
+    所有 PNG 已對齊 emo_idle 平均色 RGB ~(201, 163, 160)。
+    切換不同背景看是否還有深淺感差異。
+  </div>
+
+  <div class="bg-toggle">
+    切換背景：
+    <button class="active" data-bg="#1a1830">深棚景</button>
+    <button data-bg="#0e1e30">深藍</button>
+    <button data-bg="#000000">純黑</button>
+    <button data-bg="#888888">灰</button>
+    <button data-bg="#ffffff">白</button>
+    <button data-bg="#FF6B35">主色橙</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <script>
+    const EMOTIONS = [
+      { type: 'emo', name: 'idle',      ref: true },
+      { type: 'emo', name: 'talk' },
+      { type: 'emo', name: 'smile' },
+      { type: 'emo', name: 'thinking' },
+      { type: 'emo', name: 'surprised' },
+      { type: 'emo', name: 'skeptical' },
+      { type: 'emo', name: 'wave' },
+      { type: 'emo', name: 'angry' },
+      { type: 'emo', name: 'laughing' },
+      { type: 'emo', name: 'sad' },
+      { type: 'emo', name: 'relieved' },
+      { type: 'emo', name: 'cheering' },
+      { type: 'act', name: 'tired' },
+      { type: 'act', name: 'pointing' },
+      { type: 'act', name: 'walking' },
+    ];
+
+    const grid = document.getElementById('grid');
+    EMOTIONS.forEach(e => {
+      const cell = document.createElement('div');
+      cell.className = 'cell' + (e.ref ? ' ref-cell' : '');
+      cell.innerHTML = `
+        <img src="/assets/char_xiaomei/${e.type}_${e.name}.png?v=${Date.now()}" alt="${e.name}">
+        <div class="label">
+          <div class="type">${e.type}${e.ref ? ' · 參考' : ''}</div>
+          <div class="name">${e.name}</div>
+        </div>
+      `;
+      grid.appendChild(cell);
+    });
+
+    // 背景切換
+    document.querySelectorAll('.bg-toggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.bg-toggle button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.body.style.background = btn.dataset.bg;
+      });
+    });
+  </script>
+</body>
+</html>
