@@ -49,27 +49,19 @@ def chromakey(img: Image.Image,
     # 完全是綠 → 透明
     full_green = (g >= green_min) & (g > r + green_dominance) & (g > b + green_dominance)
 
-    # 邊緣帶綠（spill）→ 半透明 + 拉低 G 通道避免綠邊
+    # 邊緣帶綠（spill）→ 只做 despill（拉低 G）、不動 alpha
+    # 之前版本對 partial_green 降 alpha、導致角色輪廓半透明、深色背景透過來看起來偏暗
+    # 改成：只替 G 通道、邊緣維持 100% opacity、不會被背景污染
     partial_green = (g > r + spill_threshold) & (g > b + spill_threshold) & (~full_green)
 
-    # 設 alpha
+    # 設 alpha：full_green = 0、其他保留原 alpha
     arr[..., 3] = np.where(full_green, 0, arr[..., 3])
 
-    # 邊緣綠色噴濺處理：把 G 替換成 max(R, B)、消除綠 fringe
+    # despill：把 partial_green 區的 G 替換成 max(R, B)、消除綠 fringe
     new_g = np.where(partial_green,
                      np.maximum(r, b),
                      g).astype(np.int16)
     arr[..., 1] = new_g
-
-    # 半透明邊緣：partial green 區域 alpha 微降（讓邊緣柔和）
-    alpha = arr[..., 3]
-    edge_factor = (g - np.maximum(r, b)).clip(0, 60)  # 綠超出 R/B 的程度
-    partial_alpha_reduction = (edge_factor * 2).astype(np.int16)  # 最多 -120
-    arr[..., 3] = np.where(
-        partial_green,
-        (alpha - partial_alpha_reduction).clip(0, 255),
-        alpha,
-    )
 
     return Image.fromarray(arr.clip(0, 255).astype(np.uint8), mode="RGBA")
 
