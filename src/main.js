@@ -25,8 +25,8 @@ window.addEventListener('load', () => {
     height: 1080,
     backgroundColor: '#0e1e30',
     parent: 'game-container',
-    pixelArt: true,
-    antialias: false,
+    pixelArt: false,
+    antialias: true,
     scene: [BootScene, OfficeScene],
     scale: {
       mode: Phaser.Scale.FIT,
