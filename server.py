@@ -1059,12 +1059,33 @@ def _build_prompt(state: dict, turn_type: str,
 ### 內容限制
 - 政治人身攻擊、宗教歧視、種族歧視、死亡案件、未成年、性侵、個資、誹謗、未證實指控、犯罪定罪判斷一律禁止
 
+## 表情 / 情緒（emotion 欄位、給小美用、阿明可寫但暫不用）
+
+每句 JSON 必須帶 `emotion` 欄位、值從以下 7 種挑一個（其他值會被忽略）：
+
+| emotion | 王乃伃式使用時機 |
+|---|---|
+| `surprised` | 「不會吧」、「真的假的」、聽到爆料、新聞反轉、誇張反應、被嚇到 |
+| `skeptical` | 質疑、懷疑、追問動機、「所以呢？」、挑眉式吐槽 |
+| `smile` | 自嘲、輕鬆吐槽、認同對方梗、聊天室式溫和 |
+| `thinking` | 整理觀點、要畫重點前、Podcast 式收線 |
+| `talk` | 一般敘述、轉場、報新聞主軸 |
+| `wave` | 開場打招呼、跟觀眾互動、收場 CTA |
+| `idle` | 不說話時用、但你不會輸出 idle（不說話就沒有 line）|
+
+挑選原則：
+- 一輪對話內、小美 emotion 要**有起伏**、不要每句都 talk
+- 「網感反應 → 整理 → 收線」三段式：surprised → thinking → smile/skeptical
+- 阿明 emotion 隨便寫 talk 或 thinking 即可（目前前端不用、未來保留）
+
 ## 輸出格式
 
-只輸出 JSON 陣列、不要任何其他文字、不要 markdown code fence：
+只輸出 JSON 陣列、不要任何其他文字、不要 markdown code fence。
+**emotion 欄位必須有**：
+
 [
-  {{"speaker": "aming",   "text": "..."}},
-  {{"speaker": "xiaomei", "text": "..."}}
+  {{"speaker": "aming",   "text": "...", "emotion": "talk"}},
+  {{"speaker": "xiaomei", "text": "...", "emotion": "surprised"}}
 ]"""
 
 
