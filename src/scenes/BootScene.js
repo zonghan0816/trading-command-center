@@ -593,11 +593,10 @@ export class BootScene extends Phaser.Scene {
           xiaomei_emo_cheering:  'xiaomei_emo_cheering_tex',
         };
         Object.entries(XM_ANIM_MAP).forEach(([animKey, tex]) => {
-          // image-loaded texture 沒 frame 0、Phaser 預設 frame name 是 __BASE
-          // 不指定 frame 就會用 __BASE
+          // image-loaded texture 的 frame name 是 '__BASE'、明寫避免 Phaser 抓不到
           this.anims.create({
             key: animKey,
-            frames: [{ key: tex }],
+            frames: [{ key: tex, frame: '__BASE' }],
             frameRate: 1, repeat: -1,
           });
         });
