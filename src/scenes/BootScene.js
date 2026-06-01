@@ -51,31 +51,14 @@ export class BootScene extends Phaser.Scene {
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    if (ca.char_xiaomei_pixel_sheet) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_pixel_sheet.png', { frameWidth: 256, frameHeight: 256 });
-    } else if (ca.char_xiaomei_gpt_sheet) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_gpt_sheet.png', { frameWidth: 256, frameHeight: 256 });
-    } else if (ca.char_xiaomei_gemini_sheet) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_gemini_sheet.png', { frameWidth: 256, frameHeight: 256 });
-    } else if (ca.char_xiaomei_v3_emotion_sheet) {
-      // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（V2 重畫、修怪手 + 嘴位）
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v3_emotion_sheet_256.png', { frameWidth: 256, frameHeight: 256 });
-    } else if (ca.char_xiaomei_v2_emotion_sheet) {
-      // Phase 4 Step 5.12: Codex 73 號 emotion sheet（4 col × 7 row = 28 frames、每格 256×256）
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_emotion_sheet_256.png', { frameWidth: 256, frameHeight: 256 });
-    } else if (ca.char_xiaomei_v3_actions) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
-    } else if (ca.char_xiaomei_actions) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_actions.png', { frameWidth: 1024, frameHeight: 1536 });
-    } else if (ca.char_xiaomei_v2) {
+    // 王于安載入 — Phase 4 Step 5.16: 簡化、目前只有 v2 draft fallback
+    // 17 個舊 sheet / 單張 PNG 在 assets/char_xiaomei/legacy/、不會被載
+    if (ca.char_xiaomei_v2) {
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
-    } else if (ca.char_xiaomei) {
-      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei.png', { frameWidth: 48, frameHeight: 64 });
     }
 
-    // 坐姿備用 (Step 2 切換用、現在先載)
-    if (ca.char_aming_v3_sitting)   this.load.spritesheet('char_aming_sitting',   '/assets/char_aming_sitting_actions.png',   { frameWidth: 1024, frameHeight: 1536 });
-    if (ca.char_xiaomei_v3_sitting) this.load.spritesheet('char_xiaomei_sitting', '/assets/char_xiaomei_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+    // 坐姿備用（阿明、Step 2 切換用、現在先載）
+    if (ca.char_aming_v3_sitting) this.load.spritesheet('char_aming_sitting', '/assets/char_aming_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
     // A 組（白天時段、Step 2 切換用）
     if (ca.char_A_man_standing)   this.load.spritesheet('char_a_man',         '/assets/char_A_man_standing_actions.png',   { frameWidth: 1024, frameHeight: 1536 });
     if (ca.char_A_man_sitting)    this.load.spritesheet('char_a_man_sitting', '/assets/char_A_man_sitting_actions.png',    { frameWidth: 1024, frameHeight: 1536 });
@@ -551,90 +534,7 @@ export class BootScene extends Phaser.Scene {
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
         });
-      } else if (role.id === 'xiaomei' && (CONFIG.customAssets.char_xiaomei_gpt_sheet || CONFIG.customAssets.char_xiaomei_gemini_sheet || CONFIG.customAssets.char_xiaomei_pixel_sheet)) {
-        // GPT / Gemini 生成版（同 V3 格式：4col × 7row、每格 256×256）
-        const GPT_ANIMS = [
-          ['xiaomei_idle',      0,  3, 4], ['xiaomei_talking',   4,  7, 5],
-          ['xiaomei_typing',    4,  7, 5], ['xiaomei_thinking', 12, 15, 4],
-          ['xiaomei_reacting', 16, 19, 5], ['xiaomei_pointing', 24, 27, 5],
-          ['xiaomei_tired',    20, 23, 4],
-          ['xiaomei_emo_idle',      0,  3, 4], ['xiaomei_emo_talk',      4,  7, 5],
-          ['xiaomei_emo_smile',     8, 11, 4], ['xiaomei_emo_thinking', 12, 15, 4],
-          ['xiaomei_emo_surprised',16, 19, 5], ['xiaomei_emo_skeptical',20, 23, 4],
-          ['xiaomei_emo_wave',     24, 27, 5],
-        ];
-        GPT_ANIMS.forEach(([key, start, end, frameRate]) => {
-          this.anims.create({ key, frames: this.anims.generateFrameNumbers('char_xiaomei', { start, end }), frameRate, repeat: -1 });
-        });
-      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v3_emotion_sheet) {
-        // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（256×256、7 表情 × 4 frame）
-        // V3 修了 V2 的 talk 嘴位 + wave 怪手問題
-        // row 1=idle / row 2=talk / row 3=smile / row 4=thinking / row 5=surprised
-        // row 6=skeptical / row 7=wave
-        const V3_ANIMS = [
-          // 既有 anim key（OfficeScene 內部用）→ 對應 V3 sheet 區間
-          ['xiaomei_idle',         0,  3, 4],
-          ['xiaomei_talking',      4,  7, 5],
-          ['xiaomei_typing',       4,  7, 5],   // legacy alias
-          ['xiaomei_thinking',    12, 15, 4],
-          ['xiaomei_reacting',    16, 19, 5],   // surprised
-          ['xiaomei_pointing',    24, 27, 5],   // wave
-          ['xiaomei_tired',       20, 23, 4],   // skeptical
-          // Codex 79 spec：xiaomei_v3_* key、給之後 line.emotion 直接呼叫
-          ['xiaomei_v3_idle',       0,  3, 4],
-          ['xiaomei_v3_talk',       4,  7, 5],
-          ['xiaomei_v3_smile',      8, 11, 4],
-          ['xiaomei_v3_thinking',  12, 15, 4],
-          ['xiaomei_v3_surprised', 16, 19, 5],
-          ['xiaomei_v3_skeptical', 20, 23, 4],
-          ['xiaomei_v3_wave',      24, 27, 5],
-          // 也補 emo_* alias、跟 V2 emotion sheet 同步、_chooseLineAction 不用分支
-          ['xiaomei_emo_idle',      0,  3, 4],
-          ['xiaomei_emo_talk',      4,  7, 5],
-          ['xiaomei_emo_smile',     8, 11, 4],
-          ['xiaomei_emo_thinking', 12, 15, 4],
-          ['xiaomei_emo_surprised',16, 19, 5],
-          ['xiaomei_emo_skeptical',20, 23, 4],
-          ['xiaomei_emo_wave',     24, 27, 5],
-        ];
-        V3_ANIMS.forEach(([key, start, end, frameRate]) => {
-          this.anims.create({
-            key,
-            frames: this.anims.generateFrameNumbers(texKey, { start, end }),
-            frameRate, repeat: -1,
-          });
-        });
-      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2_emotion_sheet) {
-        // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256×256、7 表情 × 4 frame）
-        // row 1=idle / row 2=talk / row 3=smile / row 4=thinking / row 5=surprised
-        // row 6=skeptical / row 7=wave
-        const EMOTION_ANIMS = [
-          // 既有 anim key（OfficeScene 內部用）→ 對應 emotion sheet 區間
-          ['xiaomei_idle',         0,  3, 4],
-          ['xiaomei_talking',      4,  7, 5],
-          ['xiaomei_typing',       4,  7, 5],   // legacy alias
-          ['xiaomei_thinking',    12, 15, 4],
-          ['xiaomei_reacting',    16, 19, 5],   // surprised
-          ['xiaomei_pointing',    24, 27, 5],   // wave
-          ['xiaomei_tired',       20, 23, 4],   // skeptical
-          // 新增 emotion-specific key、給 line.emotion 直接呼叫
-          ['xiaomei_emo_idle',      0,  3, 4],
-          ['xiaomei_emo_talk',      4,  7, 5],
-          ['xiaomei_emo_smile',     8, 11, 4],
-          ['xiaomei_emo_thinking', 12, 15, 4],
-          ['xiaomei_emo_surprised',16, 19, 5],
-          ['xiaomei_emo_skeptical',20, 23, 4],
-          ['xiaomei_emo_wave',     24, 27, 5],
-        ];
-        EMOTION_ANIMS.forEach(([key, start, end, frameRate]) => {
-          this.anims.create({
-            key,
-            frames: this.anims.generateFrameNumbers(texKey, { start, end }),
-            frameRate, repeat: -1,
-          });
-        });
-      } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming_v3_actions) ||
-                 (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v3_actions)) {
+      } else if (role.id === 'aming' && CONFIG.customAssets.char_aming_v3_actions) {
         // Phase 4 Step 1: 24H MVP v3 4-frame spritesheet
         // frame order: 0=idle, 1=talking, 2=thinking, 3=reacting
         // pointing → talking、tired → thinking 做 fallback
@@ -654,26 +554,6 @@ export class BootScene extends Phaser.Scene {
             frameRate: 1, repeat: -1,
           });
         });
-      } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_actions) {
-        // Phase 3 Step 4: 小美 actions spritesheet（1024×1536 × 6 frames）
-        // frame 0=idle, 1=talking, 2=thinking, 3=reacting, 4=pointing, 5=tired
-        // Phase 3 Step 5: 新增 pointing / tired 動作、供 _chooseLineAction 依台詞語氣切換
-        const FRAME_MAP = {
-          idle:     0,
-          talking:  1,
-          typing:   1,  // legacy alias（對話進行中時部分舊路徑仍呼叫 typing）
-          thinking: 2,
-          reacting: 3,
-          pointing: 4,  // Phase 3 Step 5
-          tired:    5,  // Phase 3 Step 5
-        };
-        Object.entries(FRAME_MAP).forEach(([anim, frame]) => {
-          this.anims.create({
-            key: `${role.id}_${anim}`,
-            frames: [{ key: texKey, frame }],
-            frameRate: 1, repeat: -1,
-          });
-        });
       } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming_v2) ||
                  (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v2)) {
         // v2 draft 單張 PNG（1024×1536，只有 frame 0）
@@ -685,9 +565,8 @@ export class BootScene extends Phaser.Scene {
             frameRate: 1, repeat: -1,
           });
         });
-      } else if ((role.id === 'aming'   && CONFIG.customAssets.char_aming) ||
-                 (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei)) {
-        // 阿明哥 / 小美姐 spritesheet（192×64，4 幀 × 48×64）
+      } else if (role.id === 'aming' && CONFIG.customAssets.char_aming) {
+        // 阿明哥 v1 spritesheet（192×64，4 幀 × 48×64）
         // Frame 0 = idle / Frame 1 = talk / Frame 2 = react / Frame 3 = think
         this.anims.create({
           key: `${role.id}_idle`,

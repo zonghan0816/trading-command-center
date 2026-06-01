@@ -130,11 +130,8 @@ export const CONFIG = {
   customAssets: {
     // Phase 4 Step 3.1: 暫時還原舊版視覺、只保留 badge + 跑馬燈
     // 24H MVP 素材都關掉、回退邏輯會自動用舊棚景 + 舊角色
-    // 之後要恢復、把這 18 個 false 改回 true 即可
     char_aming_v3_actions:   false,
-    char_xiaomei_v3_actions: false,
     char_aming_v3_sitting:   false,
-    char_xiaomei_v3_sitting: false,
     char_A_man_standing:     false,
     char_A_man_sitting:      false,
     char_A_woman_standing:   false,
@@ -160,27 +157,16 @@ export const CONFIG = {
     ui_brand_24h:  true,
     ui_marquee_bg: true,
 
-    // Phase 3 Step 4: 小美動作 spritesheet（6 frames、保留向下相容）
-    char_xiaomei_actions: false,
-
-    // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256x256 × 4 col × 7 row = 7 表情 × 4 frame）
-    char_xiaomei_v2_emotion_sheet: false,
-
-    // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet
-    char_xiaomei_v3_emotion_sheet: false,
-
-    // GPT / Gemini 生成版 emotion sheet（同格式：256×256 × 4col × 7row）
-    char_xiaomei_gpt_sheet:    true,   // ← 目前使用
-    char_xiaomei_gemini_sheet: false,
-    char_xiaomei_pixel_sheet:  false,
-
-    // 角色 v2 draft（Phase 3 Step 1.2 測試用、保留）
-    char_aming_v2:   true,
+    // 王于安 — 目前用 v2 draft 單張 PNG 當 fallback
+    // 17 個舊 sheet / 單張 PNG 已搬到 assets/char_xiaomei/legacy/
+    // 新個別 emotion PNG 在 assets/char_xiaomei/（待接線、Step 5.17）
     char_xiaomei_v2: true,
 
-    // 角色 v1（保留）
-    char_aming:   true,
-    char_xiaomei: true,
+    // 阿明 v2 draft
+    char_aming_v2: true,
+
+    // 角色 v1（純 fallback、檔案存在才會 load）
+    char_aming: true,
 
     // 家具
     desk:          true,   // assets/desk.png 已存在

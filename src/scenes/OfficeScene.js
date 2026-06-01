@@ -274,17 +274,8 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 3.0b: 用 visualId 決定 texture（morning/afternoon = A 組、evening/late_night = 阿明小美）
       const visualId = this._getVisualId(id);
       const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
-      // Phase 4 Step 5.12 / 5.14: 小美 V2 或 V3 emotion sheet（256×256）需要不同 scale
-      const useEmotionSheet = (id === 'xiaomei' && (
-        CONFIG.customAssets.char_xiaomei_v3_emotion_sheet ||
-        CONFIG.customAssets.char_xiaomei_v2_emotion_sheet ||
-        CONFIG.customAssets.char_xiaomei_gpt_sheet ||
-        CONFIG.customAssets.char_xiaomei_gemini_sheet ||
-        CONFIG.customAssets.char_xiaomei_pixel_sheet
-      ));
-      const charScale = useEmotionSheet
-        ? (S.characterEmotion ?? 1.7)
-        : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
+      // Phase 4 Step 5.16: emotion sheet 已全清、目前只剩 v2 draft path
+      const charScale = isV2 ? (S.characterV2 ?? 0.28) : S.character;
       const sprite = this.add.sprite(charX, charY, `char_${visualId}`, 0)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
       sprite.play(this._animKey(id, 'idle'));
@@ -936,18 +927,8 @@ export class OfficeScene extends Phaser.Scene {
     const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
 
-    // emotion sheet（V2 / V3 / GPT / Gemini）開啟 + dialogue line 帶 emotion → 走 emo 動畫
-    // allowed: idle / talk / smile / thinking / surprised / skeptical / wave
-    const emoSheetOn = CONFIG.customAssets.char_xiaomei_v3_emotion_sheet
-                    || CONFIG.customAssets.char_xiaomei_v2_emotion_sheet
-                    || CONFIG.customAssets.char_xiaomei_gpt_sheet
-                    || CONFIG.customAssets.char_xiaomei_gemini_sheet
-                    || CONFIG.customAssets.char_xiaomei_pixel_sheet;
-    if (emoSheetOn && emotion) {
-      const allowed = new Set(['idle','talk','smile','thinking','surprised','skeptical','wave']);
-      const key = allowed.has(emotion) ? `xiaomei_emo_${emotion}` : 'xiaomei_emo_talk';
-      return key;
-    }
+    // Phase 4 Step 5.16: emotion sheet 已全清、emotion 欄位暫無對應動畫、走 keyword fallback
+    // Step 5.17 接個別 PNG 時會在這加回 emotion 路由
 
     const s = String(text || '');
     if (!s) return fallback;
