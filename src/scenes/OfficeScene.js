@@ -282,6 +282,21 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 5.17: 不傳 frame index、相容 image 跟 spritesheet 兩種 texture
       const sprite = this.add.sprite(charX, charY, `char_${visualId}`)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
+
+      // Phase 4 Step 5.17.1: 4 個非標準尺寸 emotion（1086×1448）切到時用較小 scale
+      // 不然 1448 高 × 0.34 = 492 px 比 1254 高 × 0.34 = 426 px 大 15%
+      // 目標：1448 × X = 426 → X ≈ 0.294
+      if (useIndividual) {
+        const OVERSIZE_ANIMS = new Set([
+          'xiaomei_emo_sad', 'xiaomei_emo_laughing',
+          'xiaomei_emo_relieved', 'xiaomei_emo_cheering',
+        ]);
+        const OVERSIZE_SCALE = 0.294;
+        sprite.on('animationstart', (anim) => {
+          sprite.setScale(OVERSIZE_ANIMS.has(anim.key) ? OVERSIZE_SCALE : charScale);
+        });
+      }
+
       sprite.play(this._animKey(id, 'idle'));
       sprite.roleId = id;
 
