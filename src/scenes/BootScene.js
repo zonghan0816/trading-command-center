@@ -52,20 +52,17 @@ export class BootScene extends Phaser.Scene {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
     // 王于安載入 — Phase 4 Step 5.17: 個別 PNG（每 emotion/action 一張）
-    // 用 spritesheet 載入、frame 0 = 整張、相容 sprite 創建時的 frame 索引
+    // 用 load.image() — 各圖尺寸不一致（1254×1254 / 1086×1448）、用 spritesheet 會 zero-frame
     if (ca.char_xiaomei_individual) {
       const dir = '/assets/char_xiaomei';
-      const FW = 1254, FH = 1254;  // 個別 PNG 實際尺寸
-      // emo_idle.png 同時當 base texture（OfficeScene 初始 sprite 用 char_xiaomei）
-      this.load.spritesheet('char_xiaomei', `${dir}/emo_idle.png`, { frameWidth: FW, frameHeight: FH });
-      // 12 emotion textures
+      // emo_idle 同時當 base texture（OfficeScene 初始 sprite 用 char_xiaomei）
+      this.load.image('char_xiaomei', `${dir}/emo_idle.png`);
       ['idle','talk','smile','thinking','surprised','skeptical','wave',
        'angry','laughing','sad','relieved','cheering'].forEach(e => {
-        this.load.spritesheet(`xiaomei_emo_${e}_tex`, `${dir}/emo_${e}.png`, { frameWidth: FW, frameHeight: FH });
+        this.load.image(`xiaomei_emo_${e}_tex`, `${dir}/emo_${e}.png`);
       });
-      // 3 action textures
       ['tired','pointing','walking'].forEach(a => {
-        this.load.spritesheet(`xiaomei_act_${a}_tex`, `${dir}/act_${a}.png`, { frameWidth: FW, frameHeight: FH });
+        this.load.image(`xiaomei_act_${a}_tex`, `${dir}/act_${a}.png`);
       });
     } else if (ca.char_xiaomei_v2) {
       // Fallback：v2 draft 單張
@@ -596,9 +593,11 @@ export class BootScene extends Phaser.Scene {
           xiaomei_emo_cheering:  'xiaomei_emo_cheering_tex',
         };
         Object.entries(XM_ANIM_MAP).forEach(([animKey, tex]) => {
+          // image-loaded texture 沒 frame 0、Phaser 預設 frame name 是 __BASE
+          // 不指定 frame 就會用 __BASE
           this.anims.create({
             key: animKey,
-            frames: [{ key: tex, frame: 0 }],
+            frames: [{ key: tex }],
             frameRate: 1, repeat: -1,
           });
         });

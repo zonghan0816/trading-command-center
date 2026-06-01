@@ -279,7 +279,8 @@ export class OfficeScene extends Phaser.Scene {
       const charScale = useIndividual
         ? (S.characterIndividual ?? 0.34)
         : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
-      const sprite = this.add.sprite(charX, charY, `char_${visualId}`, 0)
+      // Phase 4 Step 5.17: 不傳 frame index、相容 image 跟 spritesheet 兩種 texture
+      const sprite = this.add.sprite(charX, charY, `char_${visualId}`)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
       sprite.play(this._animKey(id, 'idle'));
       sprite.roleId = id;
