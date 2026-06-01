@@ -156,7 +156,12 @@ export class OfficeScene extends Phaser.Scene {
   // Phase 4 Step 3.0b: hostId → visualId（時段對應）+ 動畫 key helper
   _getVisualId(hostId) {
     const map = SLOT_VISUAL_MAP[this._currentSlot] || SLOT_VISUAL_MAP.evening;
-    return map[hostId] || hostId;
+    const candidate = map[hostId] || hostId;
+    // A 組 texture 未載入時回退到原角色（avoid invisible sprite）
+    if (candidate.startsWith('a_') && !this.textures.exists(`char_${candidate}`)) {
+      return hostId;
+    }
+    return candidate;
   }
   _animKey(hostId, action) {
     return `${this._getVisualId(hostId)}_${action}`;
@@ -272,7 +277,10 @@ export class OfficeScene extends Phaser.Scene {
       // Phase 4 Step 5.12 / 5.14: 小美 V2 或 V3 emotion sheet（256×256）需要不同 scale
       const useEmotionSheet = (id === 'xiaomei' && (
         CONFIG.customAssets.char_xiaomei_v3_emotion_sheet ||
-        CONFIG.customAssets.char_xiaomei_v2_emotion_sheet
+        CONFIG.customAssets.char_xiaomei_v2_emotion_sheet ||
+        CONFIG.customAssets.char_xiaomei_gpt_sheet ||
+        CONFIG.customAssets.char_xiaomei_gemini_sheet ||
+        CONFIG.customAssets.char_xiaomei_pixel_sheet
       ));
       const charScale = useEmotionSheet
         ? (S.characterEmotion ?? 1.7)
@@ -928,10 +936,13 @@ export class OfficeScene extends Phaser.Scene {
     const fallback = this._animKey(id, fallbackStatus);
     if (id !== 'xiaomei') return fallback;
 
-    // Phase 4 Step 5.12 / 5.14: emotion sheet（V2 或 V3）開啟 + dialogue line 帶 emotion → 走 emo 動畫
+    // emotion sheet（V2 / V3 / GPT / Gemini）開啟 + dialogue line 帶 emotion → 走 emo 動畫
     // allowed: idle / talk / smile / thinking / surprised / skeptical / wave
     const emoSheetOn = CONFIG.customAssets.char_xiaomei_v3_emotion_sheet
-                    || CONFIG.customAssets.char_xiaomei_v2_emotion_sheet;
+                    || CONFIG.customAssets.char_xiaomei_v2_emotion_sheet
+                    || CONFIG.customAssets.char_xiaomei_gpt_sheet
+                    || CONFIG.customAssets.char_xiaomei_gemini_sheet
+                    || CONFIG.customAssets.char_xiaomei_pixel_sheet;
     if (emoSheetOn && emotion) {
       const allowed = new Set(['idle','talk','smile','thinking','surprised','skeptical','wave']);
       const key = allowed.has(emotion) ? `xiaomei_emo_${emotion}` : 'xiaomei_emo_talk';

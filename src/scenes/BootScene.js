@@ -51,7 +51,13 @@ export class BootScene extends Phaser.Scene {
     } else if (ca.char_aming) {
       this.load.spritesheet('char_aming', '/assets/char_aming.png', { frameWidth: 48, frameHeight: 64 });
     }
-    if (ca.char_xiaomei_v3_emotion_sheet) {
+    if (ca.char_xiaomei_pixel_sheet) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_pixel_sheet.png', { frameWidth: 256, frameHeight: 256 });
+    } else if (ca.char_xiaomei_gpt_sheet) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_gpt_sheet.png', { frameWidth: 256, frameHeight: 256 });
+    } else if (ca.char_xiaomei_gemini_sheet) {
+      this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_gemini_sheet.png', { frameWidth: 256, frameHeight: 256 });
+    } else if (ca.char_xiaomei_v3_emotion_sheet) {
       // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（V2 重畫、修怪手 + 嘴位）
       this.load.spritesheet('char_xiaomei', '/assets/char_xiaomei_v3_emotion_sheet_256.png', { frameWidth: 256, frameHeight: 256 });
     } else if (ca.char_xiaomei_v2_emotion_sheet) {
@@ -544,6 +550,21 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if (role.id === 'xiaomei' && (CONFIG.customAssets.char_xiaomei_gpt_sheet || CONFIG.customAssets.char_xiaomei_gemini_sheet || CONFIG.customAssets.char_xiaomei_pixel_sheet)) {
+        // GPT / Gemini 生成版（同 V3 格式：4col × 7row、每格 256×256）
+        const GPT_ANIMS = [
+          ['xiaomei_idle',      0,  3, 4], ['xiaomei_talking',   4,  7, 5],
+          ['xiaomei_typing',    4,  7, 5], ['xiaomei_thinking', 12, 15, 4],
+          ['xiaomei_reacting', 16, 19, 5], ['xiaomei_pointing', 24, 27, 5],
+          ['xiaomei_tired',    20, 23, 4],
+          ['xiaomei_emo_idle',      0,  3, 4], ['xiaomei_emo_talk',      4,  7, 5],
+          ['xiaomei_emo_smile',     8, 11, 4], ['xiaomei_emo_thinking', 12, 15, 4],
+          ['xiaomei_emo_surprised',16, 19, 5], ['xiaomei_emo_skeptical',20, 23, 4],
+          ['xiaomei_emo_wave',     24, 27, 5],
+        ];
+        GPT_ANIMS.forEach(([key, start, end, frameRate]) => {
+          this.anims.create({ key, frames: this.anims.generateFrameNumbers('char_xiaomei', { start, end }), frameRate, repeat: -1 });
         });
       } else if (role.id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_v3_emotion_sheet) {
         // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（256×256、7 表情 × 4 frame）

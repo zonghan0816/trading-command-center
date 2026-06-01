@@ -164,12 +164,15 @@ export const CONFIG = {
     char_xiaomei_actions: false,
 
     // Phase 4 Step 5.12: Codex 73 號 emotion sheet（256x256 × 4 col × 7 row = 7 表情 × 4 frame）
-    // 預設 off、需手動驗證比例 / 站位 / 與 bubble 不衝突再開啟
     char_xiaomei_v2_emotion_sheet: false,
 
-    // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet（V2 重畫版、修怪手 + 嘴位）
-    // 預設 off、驗收後翻 ON 取代 V2
+    // Phase 4 Step 5.14: Codex 79 號 V3 emotion sheet
     char_xiaomei_v3_emotion_sheet: false,
+
+    // GPT / Gemini 生成版 emotion sheet（同格式：256×256 × 4col × 7row）
+    char_xiaomei_gpt_sheet:    true,   // ← 目前使用
+    char_xiaomei_gemini_sheet: false,
+    char_xiaomei_pixel_sheet:  false,
 
     // 角色 v2 draft（Phase 3 Step 1.2 測試用、保留）
     char_aming_v2:   true,
