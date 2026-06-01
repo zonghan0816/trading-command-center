@@ -177,7 +177,7 @@ export const CONFIG = {
 
     // 角色 v1（保留）
     char_aming:   true,
-    char_xiaomei: false,
+    char_xiaomei: true,
 
     // 家具
     desk:          true,   // assets/desk.png 已存在
