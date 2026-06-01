@@ -83,8 +83,11 @@ _topic_queue: list[str] = []
 
 # ── Phase 4 Step 5: Cost Guard 預算護欄 ───────────────────────
 # Anthropic Claude Haiku 4.5 定價（每 1M token）
-_PRICE_INPUT_PER_MTOK  = 1.00   # USD
-_PRICE_OUTPUT_PER_MTOK = 5.00   # USD
+_PRICE_INPUT_PER_MTOK         = 1.00   # USD - 一般 input
+_PRICE_OUTPUT_PER_MTOK        = 5.00   # USD - output
+# Phase 4 Step 5.20: prompt caching 計費
+_PRICE_CACHE_WRITE_PER_MTOK   = 1.25   # USD - cache write、~1.25x base input（5min TTL）
+_PRICE_CACHE_READ_PER_MTOK    = 0.10   # USD - cache read、~0.1x base input（90% off）
 # 預算上限（USD、NT$1=$1/30、Haiku 4.5 起家用量）
 # Phase 4 Step 5.1: 使用者調整、日 $2 太緊、改 $6（24/7 跑滿 ~$5/天、有 ~20% buffer）
 _DAILY_BUDGET_USD   = 12.00     # Step 5.19: B 選項、上調可 24/7、≈ NT$360/天
@@ -276,10 +279,19 @@ def _check_budget(st: dict) -> tuple[bool, str]:
     return False, ""
 
 
-def _estimate_cost_usd(input_tokens: int, output_tokens: int) -> float:
+def _estimate_cost_usd(
+    input_tokens: int,
+    output_tokens: int,
+    cache_write_tokens: int = 0,
+    cache_read_tokens: int = 0,
+) -> float:
     """估算單次 Claude call 的 USD 成本"""
-    return (input_tokens  * _PRICE_INPUT_PER_MTOK  / 1_000_000) + \
-           (output_tokens * _PRICE_OUTPUT_PER_MTOK / 1_000_000)
+    return (
+        (input_tokens         * _PRICE_INPUT_PER_MTOK       / 1_000_000) +
+        (output_tokens        * _PRICE_OUTPUT_PER_MTOK      / 1_000_000) +
+        (cache_write_tokens   * _PRICE_CACHE_WRITE_PER_MTOK / 1_000_000) +
+        (cache_read_tokens    * _PRICE_CACHE_READ_PER_MTOK  / 1_000_000)
+    )
 
 
 # ── Phase 4 Step 5.5.1: Quality Breaker 輕量化（使用者 74 號指示）──
@@ -849,126 +861,19 @@ async def _startup_news_tasks():
     asyncio.create_task(_topic_rotate_loop())
 
 
-def _build_prompt(state: dict, turn_type: str,
-                  angle: str = "", recent_memory: dict | None = None) -> str:
-    """依當前 state 和對話節奏，組出 Claude prompt。
+def _build_static_prompt() -> str:
+    """Phase 4 Step 5.20: prompt 的「靜態」部分、每次呼叫都一樣的內容。
 
-    Phase 2E Task 5：Topic Driven
-    Phase 3 Step 6.3：加入 angle 切入指引 + 「最近已講過、請避開」反重複區塊
+    放這裡：
+    - 主持人設定（_CHARS 來源、穩定）
+    - 8 種 tone 模板表（全部列出、給 Claude 對應）
+    - 生成規則、事實基底、emotion 表、輸出格式
+
+    用 Anthropic prompt caching 緩存這段、後續 5 分鐘內呼叫只付 ~0.1x input cost。
+    Haiku 4.5 cache 門檻 = 4096 tokens、此段約 4000-5000 tokens、應可命中。
     """
     aming_catch   = "、".join(_CHARS['aming']['catchphrases'])
     xiaomei_catch = "、".join(_CHARS['xiaomei']['catchphrases'])
-
-    topic    = state.get("topic", "").strip()
-    summary  = state.get("topic_summary", "").strip()
-    keywords = state.get("keywords") or []
-    mode     = state.get("mode", "idle")
-
-    # ── 話題區塊（discussion 強制引用、其他模式寬鬆閒聊）─────────────
-    if mode == "discussion" and topic:
-        topic_block_parts = [f"## 🎯 今日話題（對話必須圍繞此話題）\n{topic}"]
-        if summary:
-            topic_block_parts.append(f"## 話題背景\n{summary}")
-        if keywords:
-            kws_str = "、".join(str(k) for k in keywords[:5])
-            topic_block_parts.append(f"## 相關關鍵字\n{kws_str}")
-        topic_block = "\n\n".join(topic_block_parts)
-
-        cite_rule = (
-            "## 🚨 引用規則（最重要、違反這條就是失敗的輸出）\n"
-            "- **每 3 句對白至少要有一次**明確提到 topic 或上方關鍵字、或具體引用 topic 背景\n"
-            "- 對白主體必須圍繞此話題、絕不能變成跟 topic 無關的閒聊\n"
-            "- 對白要有實質內容（具體看法、引述、吐槽 topic 細節），不是空泛感嘆\n"
-            "- **諷刺/批評針對『現象 / 結構 / 規律』、不針對特定人或政黨**（見下方事實基底規則）\n\n"
-            "### 引用範例（topic='油價飆漲'）\n"
-            "  ✅ 阿明：油價一漲、物價就跟著漲、消費者最後買單。（諷刺現象）\n"
-            "  ✅ 王于安：所以呢？凍漲只是把問題往後推啊。（諷刺套路）\n"
-            "  ✅ 阿明：這個結構年年炸、修了又修還是漏水。（諷刺制度）\n"
-            "  ❌ 阿明：中油又在搶錢、政府放任不管。（指控特定公司+政府）\n"
-            "  ❌ 王于安：執政黨從不認錯。（指控特定政黨）\n"
-            "  ❌ 阿明：以前不是這樣。（沒提油價、沒實質內容）\n"
-        )
-    else:
-        casual = random.choice(_CASUAL_TOPICS)
-        topic_block = f"## 閒聊話題（沒設定正式 topic、輕鬆聊）\n{casual}"
-        cite_rule = "## 引用規則\n- 話題輕鬆即可、不強制深度引用，但對白仍要有具體內容、不是空泛口頭禪。"
-
-    # 依 turn_type 決定結構說明（8 種 tone、給同 topic 不同調性）
-    # Phase 4 Step 4: 全部鎖在「諷刺現象不指控人」、不站隊不點名
-    structures = {
-        # 既有
-        "debate":    "阿明哥先說觀點，王于安反嗆，阿明哥再補充或認輸。共 3 句。觀點針對『現象/制度/規律』、不針對個人或政黨。",
-        "react":     "王于安先提問，阿明哥認真分析（1-2 句），王于安一句吐槽收尾。共 3-4 句。分析基於新聞事實、不臆測動機。",
-        "monologue": "阿明哥連說 2 句分析，王于安一句簡短回應結尾。共 3 句。",
-        "casual":    "隨機誰先說都行，輕鬆閒聊，3 句。",
-        # 新增（Phase 3 Step 6 / Phase 4 Step 4 鎖規則）
-        "critical":  "兩人輪流批評 topic 的『結構問題 / 制度設計 / 套路』、用『問題在...』『重點是...』『應該要...』，3-4 句。"
-                     "❌ 不要批評特定人 / 政黨 / 公司、❌ 不要說『誰一定有問題』。✅ 批評現象本身、批評年年炸的規律。",
-        "mocking":   "兩人輪流嘲笑 topic 的『荒謬處 / 套路 / 重複歷史』、用『真的假的』『靠夭喔』『甘有可能』語氣，3-4 句。"
-                     "❌ 不嘲笑個人 / 政黨 / 受害者。✅ 嘲笑現象 / 規律 / 制度的荒謬。",
-        "humorous":  "兩人用幽默梗 / 玩笑話討論 topic 現象、輕鬆有趣不失分析、3-4 句。"
-                     "❌ 不開特定人玩笑、❌ 不開政治玩笑。✅ 開現象 / 套路 / 結構的玩笑。",
-        "sarcastic": "兩人用反諷語氣（『以前不是這樣』『不意外』『所以呢』『唉』），表面平靜實則在嘴 topic 的『規律 / 結構 / 套路』，3-4 句。"
-                     "❌ 不反諷特定人 / 政黨。✅ 反諷『十年前就這樣演、十年後還是這樣』、『制度設計問題』。",
-    }
-    structure = structures.get(turn_type, structures["casual"])
-
-    # ── Phase 3 Step 6.3：本輪 angle 區塊（從不同角度切入、不重複前幾輪角度）─
-    if angle and angle in _ANGLE_NOTES:
-        angle_block = (
-            "## 🎯 本輪切入角度（嚴格遵守）\n"
-            f"- angle = `{angle}`\n"
-            f"- 切入指引：{_ANGLE_NOTES[angle]}\n"
-            "- 本輪內容必須鎖死在這個角度切入、不要混進其他角度。\n"
-        )
-    else:
-        angle_block = ""
-
-    # ── Phase 3 Step 6.3 / Phase 4 強化：反重複區塊 ──
-    anti_repeat_block = ""
-    if recent_memory and isinstance(recent_memory.get("rounds"), list) and recent_memory["rounds"]:
-        recent_rounds = recent_memory["rounds"][-_DIALOGUE_MEMORY_MAX_ROUNDS:]
-        recent_tones  = [r.get("tone", "")  for r in recent_rounds if r.get("tone")]
-        recent_angles = [r.get("angle", "") for r in recent_rounds if r.get("angle")]
-        # Phase 4: 攤平 lines、最多取最近 20 句（之前 10 太少、容易重複）
-        recent_lines: list[str] = []
-        for r in recent_rounds:
-            for ln in r.get("lines", []) or []:
-                if ln:
-                    recent_lines.append(str(ln))
-        recent_lines = recent_lines[-20:]
-
-        # Phase 4: 抓最近台詞的「開場 7 字」當禁用清單、比抽象規則更具體
-        recent_openings = []
-        seen_open = set()
-        for ln in reversed(recent_lines[-12:]):  # 取最後 12 句、近距離反重複
-            head = ln[:7].strip()
-            if head and head not in seen_open:
-                seen_open.add(head)
-                recent_openings.append(head)
-        recent_openings = recent_openings[:8]  # 最多列 8 個禁用開場
-
-        bullet_lines = "\n".join(f"  - 「{ln}」" for ln in recent_lines) if recent_lines else "  - （尚無）"
-        opening_ban_lines = "\n".join(f"  - 「{o}」" for o in recent_openings) if recent_openings else "  - （尚無）"
-
-        anti_repeat_block = (
-            "## 🚫🚫🚫 反重複規則（最最最重要、違反就是失敗的輸出）🚫🚫🚫\n"
-            f"- 最近 tone（不要再用同一個）：{', '.join(recent_tones) if recent_tones else '（尚無）'}\n"
-            f"- 最近 angle（不要再用同一個）：{', '.join(recent_angles) if recent_angles else '（尚無）'}\n"
-            "\n### ⛔ 本輪**絕對不可以**用以下開場（最近用過、用了就是失敗）：\n"
-            f"{opening_ban_lines}\n"
-            "\n### 最近台詞（**不可重複任何一句的開場 / 結尾 / 用詞 / punchline**）：\n"
-            f"{bullet_lines}\n"
-            "\n### 嚴格規則\n"
-            "- ❌ 不要重複上面任何句子的開場詞（即使整句不同、開頭相同也算失敗）\n"
-            "- ❌ 不要重複上面任何句子的句尾結構\n"
-            "- ❌ 不要重複同一個 punchline\n"
-            "- ❌ 不要「換句話說」同一個觀點（要推進新角度）\n"
-            "- ❌ 不要把上一輪的話用同義詞改寫\n"
-            "- ✅ 本輪用**完全不同的開場詞**\n"
-            "- ✅ 本輪換新觀察 / 新比喻 / 新切入角度\n"
-            "- ✅ 跟上面台詞比、必須要有「看就知道是新一輪」的感覺\n"
-        )
 
     return f"""你是「晚晚嘴台灣 WWT」AI 鄉民談話台的對話生成器。
 
@@ -984,15 +889,16 @@ def _build_prompt(state: dict, turn_type: str,
 - 常用語：{xiaomei_catch}
 - 風格：王乃伃式 — 主播底子但有網感、犀利直率、會用時事梗 / 迷因接球、Podcast 控場（先讓阿明哥說、再進去吐槽 / 收線 / 畫重點）、用「我也是觀眾」的參與感取代權威感、不端著敢自嘲；常用語只能**穿插**在對白中、不能整句就是口頭禪
 
-{topic_block}
+## 對話節奏（8 種 tone 對照表、本輪 tone 在動態區指定）
 
-{angle_block}
-## 對話節奏
-{turn_type}：{structure}
-
-{cite_rule}
-
-{anti_repeat_block}
+- **debate**：阿明哥先說觀點，王于安反嗆，阿明哥再補充或認輸。共 3 句。觀點針對『現象/制度/規律』、不針對個人或政黨。
+- **react**：王于安先提問，阿明哥認真分析（1-2 句），王于安一句吐槽收尾。共 3-4 句。分析基於新聞事實、不臆測動機。
+- **monologue**：阿明哥連說 2 句分析，王于安一句簡短回應結尾。共 3 句。
+- **casual**：隨機誰先說都行，輕鬆閒聊，3 句。
+- **critical**：兩人輪流批評 topic 的『結構問題 / 制度設計 / 套路』、用『問題在...』『重點是...』『應該要...』，3-4 句。❌ 不要批評特定人 / 政黨 / 公司、❌ 不要說『誰一定有問題』。✅ 批評現象本身、批評年年炸的規律。
+- **mocking**：兩人輪流嘲笑 topic 的『荒謬處 / 套路 / 重複歷史』、用『真的假的』『靠夭喔』『甘有可能』語氣，3-4 句。❌ 不嘲笑個人 / 政黨 / 受害者。✅ 嘲笑現象 / 規律 / 制度的荒謬。
+- **humorous**：兩人用幽默梗 / 玩笑話討論 topic 現象、輕鬆有趣不失分析、3-4 句。❌ 不開特定人玩笑、❌ 不開政治玩笑。✅ 開現象 / 套路 / 結構的玩笑。
+- **sarcastic**：兩人用反諷語氣（『以前不是這樣』『不意外』『所以呢』『唉』），表面平靜實則在嘴 topic 的『規律 / 結構 / 套路』，3-4 句。❌ 不反諷特定人 / 政黨。✅ 反諷『十年前就這樣演、十年後還是這樣』、『制度設計問題』。
 
 ## 生成規則
 
@@ -1059,6 +965,38 @@ def _build_prompt(state: dict, turn_type: str,
 ### 內容限制
 - 政治人身攻擊、宗教歧視、種族歧視、死亡案件、未成年、性侵、個資、誹謗、未證實指控、犯罪定罪判斷一律禁止
 
+## 🚨 引用規則（discussion mode 用、本輪 mode = discussion 才生效）
+
+- **每 3 句對白至少要有一次**明確提到 topic 或上方關鍵字、或具體引用 topic 背景
+- 對白主體必須圍繞此話題、絕不能變成跟 topic 無關的閒聊
+- 對白要有實質內容（具體看法、引述、吐槽 topic 細節），不是空泛感嘆
+- **諷刺/批評針對『現象 / 結構 / 規律』、不針對特定人或政黨**（見上方事實基底規則）
+
+### 引用範例（topic='油價飆漲'）
+
+  ✅ 阿明：油價一漲、物價就跟著漲、消費者最後買單。（諷刺現象）
+  ✅ 王于安：所以呢？凍漲只是把問題往後推啊。（諷刺套路）
+  ✅ 阿明：這個結構年年炸、修了又修還是漏水。（諷刺制度）
+  ❌ 阿明：中油又在搶錢、政府放任不管。（指控特定公司+政府）
+  ❌ 王于安：執政黨從不認錯。（指控特定政黨）
+  ❌ 阿明：以前不是這樣。（沒提油價、沒實質內容）
+
+### 額外失敗對白範例（不要這樣寫）
+
+- ❌「政府應該負責」← 太抽象、沒提現象
+- ❌「這就是台灣的悲哀」← 沒引述 topic、純情緒
+- ❌「OO 一定是想 XX」← 臆測動機
+- ❌「我跟你講喔」← 純口頭禪、沒實質
+- ❌「不意外啦」← 短語、沒延伸觀察
+
+### 成功對白特徵
+
+- 1 句 20-40 字
+- 第一個 7 字之內出現具體名詞（topic / 關鍵字）
+- 句中至少 1 個觀察點（現象 / 比喻 / 數字 / 規律）
+- 句尾自然口語結束（不用句號接論述）
+- 整輪有「鋪墊 → 收線」起伏、不全平調
+
 ## 表情 / 情緒（emotion 欄位、給王于安用、阿明可寫但暫不用）
 
 每句 JSON 必須帶 `emotion` 欄位、值從以下 12 種挑一個（其他值會被忽略）：
@@ -1112,6 +1050,118 @@ def _build_prompt(state: dict, turn_type: str,
 ]"""
 
 
+def _build_dynamic_prompt(state: dict, turn_type: str,
+                          angle: str = "", recent_memory: dict | None = None) -> str:
+    """Phase 4 Step 5.20: prompt 的「動態」部分、每次呼叫不同的內容。
+
+    放這裡：
+    - topic / keywords（每 2 輪換）
+    - 本輪 tone（從靜態表挑一個）
+    - angle（每輪不同）
+    - cite_rule（依 mode）
+    - anti_repeat（最近 20 句、每次都不一樣）
+
+    這段不 cache、每次算全價 input。
+
+    Phase 2E Task 5：Topic Driven
+    Phase 3 Step 6.3：加入 angle 切入指引 + 「最近已講過、請避開」反重複區塊
+    """
+
+    topic    = state.get("topic", "").strip()
+    summary  = state.get("topic_summary", "").strip()
+    keywords = state.get("keywords") or []
+    mode     = state.get("mode", "idle")
+
+    # ── 話題區塊（discussion 強制引用、其他模式寬鬆閒聊）─────────────
+    if mode == "discussion" and topic:
+        topic_block_parts = [f"## 🎯 今日話題（對話必須圍繞此話題）\n{topic}"]
+        if summary:
+            topic_block_parts.append(f"## 話題背景\n{summary}")
+        if keywords:
+            kws_str = "、".join(str(k) for k in keywords[:5])
+            topic_block_parts.append(f"## 相關關鍵字\n{kws_str}")
+        topic_block = "\n\n".join(topic_block_parts)
+
+        # Step 5.20: discussion mode 的 cite_rule 已搬進 static prompt（cache 友好）
+        # 這裡只標註本輪 mode、Claude 看靜態 cite_rule 即可
+        cite_rule = "## 本輪 mode = discussion（請套用靜態 prompt 中的「引用規則」段落）"
+    else:
+        casual = random.choice(_CASUAL_TOPICS)
+        topic_block = f"## 閒聊話題（沒設定正式 topic、輕鬆聊）\n{casual}"
+        cite_rule = "## 引用規則\n- 話題輕鬆即可、不強制深度引用，但對白仍要有具體內容、不是空泛口頭禪。"
+
+    # 8 種 tone 模板已移到 _build_static_prompt()（cache 命中、省 input cost）
+    # 這裡只指定本輪用哪個 tone、靜態區的對照表會生效
+
+    # ── Phase 3 Step 6.3：本輪 angle 區塊（從不同角度切入、不重複前幾輪角度）─
+    if angle and angle in _ANGLE_NOTES:
+        angle_block = (
+            "## 🎯 本輪切入角度（嚴格遵守）\n"
+            f"- angle = `{angle}`\n"
+            f"- 切入指引：{_ANGLE_NOTES[angle]}\n"
+            "- 本輪內容必須鎖死在這個角度切入、不要混進其他角度。\n"
+        )
+    else:
+        angle_block = ""
+
+    # ── Phase 3 Step 6.3 / Phase 4 強化：反重複區塊 ──
+    anti_repeat_block = ""
+    if recent_memory and isinstance(recent_memory.get("rounds"), list) and recent_memory["rounds"]:
+        recent_rounds = recent_memory["rounds"][-_DIALOGUE_MEMORY_MAX_ROUNDS:]
+        recent_tones  = [r.get("tone", "")  for r in recent_rounds if r.get("tone")]
+        recent_angles = [r.get("angle", "") for r in recent_rounds if r.get("angle")]
+        # Phase 4: 攤平 lines、最多取最近 20 句（之前 10 太少、容易重複）
+        recent_lines: list[str] = []
+        for r in recent_rounds:
+            for ln in r.get("lines", []) or []:
+                if ln:
+                    recent_lines.append(str(ln))
+        recent_lines = recent_lines[-20:]
+
+        # Phase 4: 抓最近台詞的「開場 7 字」當禁用清單、比抽象規則更具體
+        recent_openings = []
+        seen_open = set()
+        for ln in reversed(recent_lines[-12:]):  # 取最後 12 句、近距離反重複
+            head = ln[:7].strip()
+            if head and head not in seen_open:
+                seen_open.add(head)
+                recent_openings.append(head)
+        recent_openings = recent_openings[:8]  # 最多列 8 個禁用開場
+
+        bullet_lines = "\n".join(f"  - 「{ln}」" for ln in recent_lines) if recent_lines else "  - （尚無）"
+        opening_ban_lines = "\n".join(f"  - 「{o}」" for o in recent_openings) if recent_openings else "  - （尚無）"
+
+        anti_repeat_block = (
+            "## 🚫🚫🚫 反重複規則（最最最重要、違反就是失敗的輸出）🚫🚫🚫\n"
+            f"- 最近 tone（不要再用同一個）：{', '.join(recent_tones) if recent_tones else '（尚無）'}\n"
+            f"- 最近 angle（不要再用同一個）：{', '.join(recent_angles) if recent_angles else '（尚無）'}\n"
+            "\n### ⛔ 本輪**絕對不可以**用以下開場（最近用過、用了就是失敗）：\n"
+            f"{opening_ban_lines}\n"
+            "\n### 最近台詞（**不可重複任何一句的開場 / 結尾 / 用詞 / punchline**）：\n"
+            f"{bullet_lines}\n"
+            "\n### 嚴格規則\n"
+            "- ❌ 不要重複上面任何句子的開場詞（即使整句不同、開頭相同也算失敗）\n"
+            "- ❌ 不要重複上面任何句子的句尾結構\n"
+            "- ❌ 不要重複同一個 punchline\n"
+            "- ❌ 不要「換句話說」同一個觀點（要推進新角度）\n"
+            "- ❌ 不要把上一輪的話用同義詞改寫\n"
+            "- ✅ 本輪用**完全不同的開場詞**\n"
+            "- ✅ 本輪換新觀察 / 新比喻 / 新切入角度\n"
+            "- ✅ 跟上面台詞比、必須要有「看就知道是新一輪」的感覺\n"
+        )
+
+    return f"""## 🎬 本輪設定（動態、每次不同）
+
+{topic_block}
+
+{angle_block}## 對話節奏（本輪指定）
+**tone = `{turn_type}`** — 對照靜態區的 8 種 tone 表、按該 tone 寫對白。
+
+{cite_rule}
+
+{anti_repeat_block}"""
+
+
 @app.post("/api/chat")
 async def generate_chat():
     """讓阿明哥與王于安用 Claude 生成鄉民對話"""
@@ -1143,7 +1193,12 @@ async def generate_chat():
     angle     = _next_angle_for_topic(topic)
     # Phase 3 Step 6.3: 取得同 topic 最近 8 輪記憶、放進 prompt 提示 Claude 避開
     recent_memory = _get_recent_dialogue_memory(topic)
-    prompt    = _build_prompt(state, turn_type, angle, recent_memory)
+    # Phase 4 Step 5.20: prompt caching
+    # 靜態部分（角色 / 規則 / emotion 表）放第一個 block + cache_control、5 分鐘 TTL
+    # 動態部分（topic / angle / anti-repeat）放第二個 block、不 cache
+    # 預期：cache hit 時 input cost ~75% off
+    static_prompt  = _build_static_prompt()
+    dynamic_prompt = _build_dynamic_prompt(state, turn_type, angle, recent_memory)
 
     try:
         client = anthropic.AsyncAnthropic(api_key=api_key)
@@ -1151,7 +1206,20 @@ async def generate_chat():
             model="claude-haiku-4-5-20251001",
             # Phase 3 Step 6.6: 400 → 800、避免被截斷在字串中間導致 JSON 不完整
             max_tokens=800,
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": static_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                    {
+                        "type": "text",
+                        "text": dynamic_prompt,
+                    },
+                ],
+            }],
         )
         raw = msg.content[0].text.strip()
         if "```" in raw:
@@ -1192,11 +1260,20 @@ async def generate_chat():
         st["updated_at"] = datetime.now().strftime("%H:%M:%S")
 
         # Phase 4 Step 5: 累積本次 API call 成本
-        input_tokens  = getattr(msg.usage, 'input_tokens', 0)  if hasattr(msg, 'usage') else 0
-        output_tokens = getattr(msg.usage, 'output_tokens', 0) if hasattr(msg, 'usage') else 0
-        cost_usd = _estimate_cost_usd(input_tokens, output_tokens)
+        # Step 5.20: 加 cache tokens（cache_creation = write、cache_read = read）
+        # 注意 input_tokens 是「沒被 cache 的部分」、不是 total
+        usage_obj = getattr(msg, 'usage', None)
+        input_tokens         = int(getattr(usage_obj, 'input_tokens', 0) or 0)
+        output_tokens        = int(getattr(usage_obj, 'output_tokens', 0) or 0)
+        cache_write_tokens   = int(getattr(usage_obj, 'cache_creation_input_tokens', 0) or 0)
+        cache_read_tokens    = int(getattr(usage_obj, 'cache_read_input_tokens', 0) or 0)
+        cost_usd = _estimate_cost_usd(input_tokens, output_tokens, cache_write_tokens, cache_read_tokens)
         usage_after = _add_cost_to_state(st, cost_usd)
-        print(f"[cost] +${cost_usd:.5f} (in={input_tokens}/out={output_tokens}) | "
+        # cache hit ratio：cache_read / (cache_read + input_tokens)
+        total_input_tokens = input_tokens + cache_write_tokens + cache_read_tokens
+        cache_hit_pct = (cache_read_tokens / total_input_tokens * 100) if total_input_tokens else 0
+        print(f"[cost] +${cost_usd:.5f} (in={input_tokens}/out={output_tokens} "
+              f"cw={cache_write_tokens}/cr={cache_read_tokens} hit={cache_hit_pct:.0f}%) | "
               f"today ${usage_after['today']['amount_usd']:.3f}/${_DAILY_BUDGET_USD:.2f} | "
               f"month ${usage_after['month']['amount_usd']:.3f}/${_MONTHLY_BUDGET_USD:.2f}")
 
@@ -1231,6 +1308,8 @@ async def generate_chat():
             first_line_opener=first_words, quality_blocked=blocked_count,
             emotions_used=emotions_used,
             input_tokens=input_tokens, output_tokens=output_tokens,
+            cache_write_tokens=cache_write_tokens,
+            cache_read_tokens=cache_read_tokens,
             cost_usd=round(cost_usd, 6),
         )
 
@@ -1515,6 +1594,21 @@ def get_observe_summary():
         round(total_emotions / len(dialogues), 2) if dialogues else 0.0
     )
 
+    # Phase 4 Step 5.20: prompt caching 統計
+    total_input         = sum(int(d.get("input_tokens", 0) or 0)        for d in dialogues)
+    total_cache_write   = sum(int(d.get("cache_write_tokens", 0) or 0)  for d in dialogues)
+    total_cache_read    = sum(int(d.get("cache_read_tokens", 0) or 0)   for d in dialogues)
+    total_input_all     = total_input + total_cache_write + total_cache_read
+    cache_hit_rate = (
+        round(total_cache_read / total_input_all * 100, 1)
+        if total_input_all else 0.0
+    )
+    # 推算「沒 cache 的話會花多少」、實際花多少、省了多少
+    cost_no_cache = ((total_input + total_cache_write + total_cache_read) * _PRICE_INPUT_PER_MTOK +
+                     sum(int(d.get("output_tokens", 0) or 0) for d in dialogues) * _PRICE_OUTPUT_PER_MTOK) / 1_000_000
+    cost_savings = max(0.0, cost_no_cache - total_cost)
+    cost_savings_pct = (cost_savings / cost_no_cache * 100) if cost_no_cache else 0.0
+
     return {
         "ok": True,
         "window": {"first": first_ts, "last": last_ts, "elapsed_sec": elapsed_sec},
@@ -1530,6 +1624,15 @@ def get_observe_summary():
             "projected_24h_usd":    round(projected_24h, 3),
             "daily_budget":  _DAILY_BUDGET_USD,
             "monthly_budget": _MONTHLY_BUDGET_USD,
+        },
+        "cache": {
+            "hit_rate_pct":      cache_hit_rate,
+            "total_input_tokens":      total_input,
+            "total_cache_write_tokens": total_cache_write,
+            "total_cache_read_tokens":  total_cache_read,
+            "cost_no_cache_usd":  round(cost_no_cache, 4),
+            "cost_savings_usd":   round(cost_savings, 4),
+            "cost_savings_pct":   round(cost_savings_pct, 1),
         },
         "topic_collisions":        collisions,        # 完全相同的撞題
         "topic_near_collisions":   near_collisions,   # 同事件不同標題
