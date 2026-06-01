@@ -87,8 +87,8 @@ _PRICE_INPUT_PER_MTOK  = 1.00   # USD
 _PRICE_OUTPUT_PER_MTOK = 5.00   # USD
 # 預算上限（USD、NT$1=$1/30、Haiku 4.5 起家用量）
 # Phase 4 Step 5.1: 使用者調整、日 $2 太緊、改 $6（24/7 跑滿 ~$5/天、有 ~20% buffer）
-_DAILY_BUDGET_USD   = 6.00      # ≈ NT$180/天
-_MONTHLY_BUDGET_USD = 50.00     # ≈ NT$1500/月（使用者指定）
+_DAILY_BUDGET_USD   = 12.00     # Step 5.19: B 選項、上調可 24/7、≈ NT$360/天
+_MONTHLY_BUDGET_USD = 80.00     # Step 5.19: 紅線 $50 → $80、≈ NT$2400/月
 
 # Phase 3 Step 6 擴充：8 種對話 tone（前 4 既有、後 4 新增、給同 topic 不同調性）
 _DIALOGUE_TONES = [
