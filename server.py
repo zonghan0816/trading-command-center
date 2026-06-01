@@ -1087,11 +1087,28 @@ def _build_prompt(state: dict, turn_type: str,
 ## 輸出格式
 
 只輸出 JSON 陣列、不要任何其他文字、不要 markdown code fence。
-**emotion 欄位必須有**：
 
+每行有兩種寫法：
+
+**A. 單一 emotion**（整句一個情緒）：
+```
+{{"speaker": "aming", "text": "你看油價又漲了", "emotion": "talk"}}
+```
+
+**B. 多 emotion 陣列**（一句內按標點分段、每段一個情緒）：
+```
+{{"speaker": "xiaomei", "text": "不會吧！這也太誇張。所以呢？", "emotions": ["surprised", "skeptical", "thinking"]}}
+```
+
+**建議優先用 B**、給字幕跟表情一起切的戲劇感：
+- 句子用「，。！？、；：」分段
+- emotions 陣列長度 = 標點分段後的句數（前端會 idx % length 容錯）
+- 阿明這層不影響（emotion 暫不用、但寫了也沒關係）
+
+完整範例：
 [
-  {{"speaker": "aming",   "text": "...", "emotion": "talk"}},
-  {{"speaker": "xiaomei", "text": "...", "emotion": "surprised"}}
+  {{"speaker": "aming", "text": "我跟你講喔、油價一漲、物價就跟著漲", "emotion": "talk"}},
+  {{"speaker": "xiaomei", "text": "不會吧！這也太誇張。所以呢、政府要做什麼？", "emotions": ["surprised", "skeptical", "thinking"]}}
 ]"""
 
 
@@ -1193,14 +1210,26 @@ async def generate_chat():
         _append_dialogue_memory(topic, turn_type, angle, dialogue)
 
         # Phase 4 Step 5.11: 觀察日誌、記每輪對白關鍵指標（不含全文）
+        # Phase 4 Step 5.18: 加 emotions_used（給王于安 emotion 分布統計用）
         first_words = ""
+        emotions_used: list[str] = []
         if dialogue and isinstance(dialogue[0], dict):
             first_words = str(dialogue[0].get("text", ""))[:14]
+        for line in dialogue:
+            if not isinstance(line, dict):
+                continue
+            if line.get("speaker") != "xiaomei":
+                continue  # 只記王于安、阿明 emotion 暫沒接
+            if isinstance(line.get("emotions"), list):
+                emotions_used.extend(str(e) for e in line["emotions"])
+            elif isinstance(line.get("emotion"), str):
+                emotions_used.append(line["emotion"])
         _log_observe(
             "dialogue",
             topic=topic, tone=turn_type, angle=angle,
             round_num=_current_topic_rounds, line_count=len(dialogue),
             first_line_opener=first_words, quality_blocked=blocked_count,
+            emotions_used=emotions_used,
             input_tokens=input_tokens, output_tokens=output_tokens,
             cost_usd=round(cost_usd, 6),
         )
@@ -1463,6 +1492,29 @@ def get_observe_summary():
         opener_counts[opener] = opener_counts.get(opener, 0) + 1
     repeated_openers = {o: c for o, c in opener_counts.items() if c >= 2}
 
+    # Phase 4 Step 5.18: emotion 分布統計（王于安）
+    ALL_EMOTIONS = ['idle', 'talk', 'smile', 'thinking', 'surprised', 'skeptical',
+                    'wave', 'angry', 'laughing', 'sad', 'relieved', 'cheering']
+    emotion_counts: dict[str, int] = {e: 0 for e in ALL_EMOTIONS}
+    for d in dialogues:
+        for e in d.get("emotions_used", []) or []:
+            if e in emotion_counts:
+                emotion_counts[e] += 1
+            else:
+                emotion_counts[e] = 1  # 未知 emotion 也記
+    total_emotions = sum(emotion_counts.values())
+    emotion_distribution = {
+        e: {
+            "count": c,
+            "pct": round(c / total_emotions * 100, 1) if total_emotions else 0.0,
+        }
+        for e, c in emotion_counts.items()
+    }
+    # 每對白平均 emotion 切換次數（多 emotion 陣列 vs 單 emotion 用量）
+    avg_emotions_per_dialogue = (
+        round(total_emotions / len(dialogues), 2) if dialogues else 0.0
+    )
+
     return {
         "ok": True,
         "window": {"first": first_ts, "last": last_ts, "elapsed_sec": elapsed_sec},
@@ -1483,6 +1535,9 @@ def get_observe_summary():
         "topic_near_collisions":   near_collisions,   # 同事件不同標題
         "repeated_openers":        repeated_openers,  # 重複感指標
         "quality_hit_patterns":    [q.get("pattern", "") for q in quality_hits],
+        "emotion_distribution":    emotion_distribution,    # 王于安 12 emotion 用量分布
+        "emotion_total":           total_emotions,           # 總 emotion 次數
+        "avg_emotions_per_dialogue": avg_emotions_per_dialogue,  # 每對白平均切換
     }
 
 

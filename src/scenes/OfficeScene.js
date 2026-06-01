@@ -1059,9 +1059,12 @@ export class OfficeScene extends Phaser.Scene {
       }
       const chunk = chunks[idx];
       ch.bubbleText.setText(chunk);
-      // Phase 3 Step 6.2: 每個 chunk 都自選 action（不再只 idx===0 選一次）→ 句內也能切多種動作
-      // Phase 4 Step 5.12: 把 dialogue line 的 optional emotion 傳進去（emotion sheet 啟用才會生效）
-      ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking', line.emotion));
+      // Phase 4 Step 5.18: 支援 line.emotions 陣列（每 chunk 一個 emotion）
+      // 沒陣列就 fallback line.emotion 單值（向下相容）
+      const emo = (Array.isArray(line.emotions) && line.emotions.length > 0)
+        ? line.emotions[idx % line.emotions.length]
+        : line.emotion;
+      ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking', emo));
       if (idx === 0) {
         // Phase 3 Step 5: 小美生效；阿明維持 talking
         this._showBubble(line.speaker);
