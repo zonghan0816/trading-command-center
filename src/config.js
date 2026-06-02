@@ -11,7 +11,7 @@ export const CONFIG = {
 
     // WWT 主持人座位（OfficeScene.js 更新後使用）
     hosts: {
-      aming:   { xRatio: 0.35, yOffsetFromWall: 440, seat: 'left'  },
+      aming:   { xRatio: 0.35, yOffsetFromWall: 430, seat: 'left'  },
       xiaomei: { xRatio: 0.68, yOffsetFromWall: 440, seat: 'right' },
     },
 
@@ -75,7 +75,8 @@ export const CONFIG = {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
-    characterIndividual: 0.34, // Phase 4 Step 5.17: 王于安 individual PNG 1254×1254 用、目標 ≈ 430 px 高
+    characterIndividual:      0.395, // 王于安 individual PNG 1254×1254 用
+    characterIndividualAming: 0.41, // 3Q 陳柏惟 individual PNG 用、獨立調整
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
@@ -167,7 +168,12 @@ export const CONFIG = {
     // 沒這個會走程序生成分支、新分支跑不到
     char_xiaomei: true,
 
-    // 阿明 v2 draft
+    // 3Q 陳柏惟 individual PNG（9 emotion）
+    // 路徑 assets/char_3q/emo_*.png
+    // false → fallback 到 char_aming_v2（阿明哥備用）
+    char_3q_individual: true,
+
+    // 阿明哥 v2 draft（3Q 出問題時的備用）
     char_aming_v2: true,
 
     // 角色 v1（純 fallback、檔案存在才會 load）

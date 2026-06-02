@@ -44,7 +44,14 @@ export class BootScene extends Phaser.Scene {
     // ── Phase 4 Step 1: 角色 spritesheet 載入（優先序：v3 > xiaomei_actions > v2 > v1）──
     // v3 = 4-frame standing/sitting actions（1024×1536 each、4096×1536 整張）
     // frame order: 0=idle, 1=talking, 2=thinking, 3=reacting
-    if (ca.char_aming_v3_actions) {
+    // 3Q 陳柏惟 individual PNG（優先）→ 阿明哥 v2 備用 → v1 fallback
+    if (ca.char_3q_individual) {
+      const dir3q = '/assets/char_3q';
+      this.load.image('char_aming', `${dir3q}/emo_idle.png`);  // base texture
+      ['idle','passionate','combat','excited','humor','sincere','resilient','angry','speech'].forEach(e => {
+        this.load.image(`aming_emo_${e}_tex`, `${dir3q}/emo_${e}.png`);
+      });
+    } else if (ca.char_aming_v3_actions) {
       this.load.spritesheet('char_aming', '/assets/char_aming_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
     } else if (ca.char_aming_v2) {
       this.load.spritesheet('char_aming', '/assets/char_aming_v2_draft.png', { frameWidth: 1024, frameHeight: 1536 });
@@ -545,6 +552,34 @@ export class BootScene extends Phaser.Scene {
           key: `${role.id}_thinking`,
           frames: [0, 3].map(f => ({ key: texKey, frame: f })),
           frameRate: 3, repeat: -1,
+        });
+      } else if (role.id === 'aming' && CONFIG.customAssets.char_3q_individual) {
+        // 3Q 陳柏惟 individual PNG（9 emotion）
+        // status 路由：idle/talking/thinking/reacting → 對應 3Q emotion
+        // 阿明哥備用：關掉 char_3q_individual → 自動走 v2 分支
+        const AMING_3Q_MAP = {
+          aming_idle:      'aming_emo_idle_tex',
+          aming_talking:   'aming_emo_passionate_tex',
+          aming_typing:    'aming_emo_passionate_tex',
+          aming_thinking:  'aming_emo_sincere_tex',
+          aming_reacting:  'aming_emo_excited_tex',
+          // 直接 emotion 路由（未來 server.py 給 aming emotion 時用）
+          aming_emo_idle:       'aming_emo_idle_tex',
+          aming_emo_passionate: 'aming_emo_passionate_tex',
+          aming_emo_combat:     'aming_emo_combat_tex',
+          aming_emo_excited:    'aming_emo_excited_tex',
+          aming_emo_humor:      'aming_emo_humor_tex',
+          aming_emo_sincere:    'aming_emo_sincere_tex',
+          aming_emo_resilient:  'aming_emo_resilient_tex',
+          aming_emo_angry:      'aming_emo_angry_tex',
+          aming_emo_speech:     'aming_emo_speech_tex',
+        };
+        Object.entries(AMING_3Q_MAP).forEach(([animKey, tex]) => {
+          this.anims.create({
+            key: animKey,
+            frames: [{ key: tex, frame: '__BASE' }],
+            frameRate: 1, repeat: -1,
+          });
         });
       } else if (role.id === 'aming' && CONFIG.customAssets.char_aming_v3_actions) {
         // Phase 4 Step 1: 24H MVP v3 4-frame spritesheet

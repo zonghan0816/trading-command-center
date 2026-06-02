@@ -14,10 +14,9 @@ const DATA_FLOWS = CONFIG.layout.dataFlows;
 // Phase 3 Step 6.7: TOP 5 改成觀眾互動 CTA（62 notes item 6 + 10 決議）
 // 24H MVP 過渡、之後可能改成跑馬燈或其他形式
 const DEFAULT_KEYWORDS = [
-  '按讚 + 訂閱 + 鈴鐺',
-  '分享給朋友看',
-  '留言告訴主持人',
-  '24H AI 不打烊陪你',
+  '按讚 + 訂閱 + 開啟鈴鐺',
+  '   來賓        主播',
+  '陳柏偉      王予安',
 ];
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
 const KEYWORD_MAX      = 5;
@@ -275,27 +274,16 @@ export class OfficeScene extends Phaser.Scene {
       const visualId = this._getVisualId(id);
       const isV2 = CONFIG.customAssets[`char_${visualId}_v2`] || visualId.startsWith('a_') || visualId === 'aming' || visualId === 'xiaomei';
       // Phase 4 Step 5.17: 王于安 individual PNG（1254×1254）用自己的 scale
-      const useIndividual = (id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_individual);
-      const charScale = useIndividual
-        ? (S.characterIndividual ?? 0.34)
-        : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
+      const useIndividual = (id === 'xiaomei' && CONFIG.customAssets.char_xiaomei_individual)
+                         || (id === 'aming'   && CONFIG.customAssets.char_3q_individual);
+      const charScale = (id === 'aming' && CONFIG.customAssets.char_3q_individual)
+        ? (S.characterIndividualAming ?? 0.39)
+        : useIndividual
+          ? (S.characterIndividual ?? 0.34)
+          : (isV2 ? (S.characterV2 ?? 0.28) : S.character);
       // Phase 4 Step 5.17: 不傳 frame index、相容 image 跟 spritesheet 兩種 texture
       const sprite = this.add.sprite(charX, charY, `char_${visualId}`)
         .setOrigin(0.5, 1).setDepth(depth).setScale(charScale).setInteractive();
-
-      // Phase 4 Step 5.17.1: 4 個非標準尺寸 emotion（1086×1448）切到時用較小 scale
-      // 不然 1448 高 × 0.34 = 492 px 比 1254 高 × 0.34 = 426 px 大 15%
-      // 目標：1448 × X = 426 → X ≈ 0.294
-      if (useIndividual) {
-        const OVERSIZE_ANIMS = new Set([
-          'xiaomei_emo_sad', 'xiaomei_emo_laughing',
-          'xiaomei_emo_relieved', 'xiaomei_emo_cheering',
-        ]);
-        const OVERSIZE_SCALE = 0.294;
-        sprite.on('animationstart', (anim) => {
-          sprite.setScale(OVERSIZE_ANIMS.has(anim.key) ? OVERSIZE_SCALE : charScale);
-        });
-      }
 
       sprite.play(this._animKey(id, 'idle'));
       sprite.roleId = id;
@@ -311,11 +299,6 @@ export class OfficeScene extends Phaser.Scene {
       // this.add.image(baseX, deskY, st.desk || 'desk')
       //   .setOrigin(0.5, 0).setDepth(depth + 1).setScale(S.desk);
 
-      // 名稱標籤（降飽和度、無 stroke）
-      this.add.text(charX, deskY - 80, st.label, {
-        fontSize: '14px', color: '#AA7850',
-        fontFamily: 'Consolas, monospace',
-      }).setOrigin(0.5, 1).setDepth(depth + 2);
 
       // 對話泡泡：放在頭部旁（阿明左側、小美右側）
       const charHeight = isV2
@@ -408,20 +391,17 @@ export class OfficeScene extends Phaser.Scene {
     this._kwTexts.forEach(t => t.destroy());
     this._kwTexts = [];
 
-    const RANKS = ['①', '②', '③', '④', '⑤'];
-    const boardLeft = this._kwBaseX - 178;  // Fix 2.5: 整體右移 14px
-    // Phase 3 Step 6.7: 字級 21 → 25、row spacing 42 → 52（配合更大字 + 4 條）
+    const boardLeft = this._kwBaseX - 178;
+    // 顏色規則：第 0 行 CTA = 橘、第 1 行標籤 = 青、第 2 行名字 = 金
+    const LINE_COLORS = ['#FF6B35', '#00E5FF', '#FFD700'];
     kws.forEach((kw, i) => {
-      const y = this._kwBaseY + 50 + i * 52;
-      const isFirst = i === 0;
-      const rn = this.add.text(boardLeft, y, RANKS[i] ?? '', {
-        fontSize: '25px', color: '#FF6B35', fontFamily: 'Consolas, monospace',
-        shadow: isFirst ? { offsetX: 0, offsetY: 0, color: '#FF6B35', blur: 6, fill: true } : undefined,
+      const y     = this._kwBaseY + 50 + i * 52;
+      const color = LINE_COLORS[i] ?? '#E8F4FF';
+      const kt = this.add.text(boardLeft, y, kw, {
+        fontSize: '25px', color,
+        fontFamily: 'Consolas, monospace',
       }).setOrigin(0, 0).setDepth(28.5);
-      const kt = this.add.text(boardLeft + 36, y, kw, {
-        fontSize: '25px', color: '#E8F4FF', fontFamily: 'Consolas, monospace',
-      }).setOrigin(0, 0).setDepth(28.5);
-      this._kwTexts.push(rn, kt);
+      this._kwTexts.push(kt);
     });
   }
 
@@ -944,6 +924,14 @@ export class OfficeScene extends Phaser.Scene {
   _chooseLineAction(id, text, fallbackStatus = 'talking', emotion = null) {
     // Phase 4 Step 3.0b: 改用 _animKey 對應到 visualId（A 組 morning/afternoon 自動切）
     const fallback = this._animKey(id, fallbackStatus);
+
+    // 3Q 陳柏惟 emotion 路由（9 種）
+    if (id === 'aming' && CONFIG.customAssets.char_3q_individual && emotion) {
+      const ALLOWED_3Q = new Set([
+        'idle','passionate','combat','excited','humor','sincere','resilient','angry','speech',
+      ]);
+      return ALLOWED_3Q.has(emotion) ? `aming_emo_${emotion}` : 'aming_emo_passionate';
+    }
     if (id !== 'xiaomei') return fallback;
 
     // Phase 4 Step 5.17: individual PNG ON + line.emotion 有值 → 直接路由

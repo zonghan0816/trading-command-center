@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
@@ -27,9 +28,13 @@ app = FastAPI(title="WWT 晚晚嘴台灣")
 # Phase 2E Task 5：升級為「議論時事的台灣鄉民」人設、不是空泛口頭禪機器
 _CHARS = {
     'aming': {
-        'name': '阿明哥',
-        'personality': '50歲台灣大叔，議論派、碎念、退休風、喜歡回憶以前、對時事有看法',
-        'catchphrases': ['我跟你講喔', '以前不是這樣', '說真的'],
+        'name': 'QQ 陳柏偉',
+        # 3Q 陳柏惟風格 — 熱血行動派、草根網路政治人物
+        # 核心情緒比例：熱情(40%) > 好鬥(25%) > 幽默(15%) > 誠懇(10%) > 不屈(10%)
+        # 優勢：草根親和力、議題創造力、快速吸引注意
+        # 弱點：容易把議論放大、情緒直接外顯、容易形成兩極評價
+        'personality': '30多歲台灣政治人物兼 YouTuber（3Q 陳柏惟風）— 熱血行動派、草根親和力強、網感極強；節奏快、情緒起伏大、常用台語和網路用語；立場鮮明、敢正面交鋒、不喜歡打太極；看到不公義會直接爆氣、但也會自嘲幽默化解氣氛；說話方式像跟朋友閒聊、不端架子；遇到強烈認同的事情會大力鼓掌呼籲',
+        'catchphrases': ['3Q', '就是這樣啊', '你嘛幫幫忙', '靠夭喔', '說真的啦'],
     },
     'xiaomei': {
         'name': '王于安',
@@ -74,6 +79,7 @@ _RECENT_TOPICS_LIMIT = 6             # 記住最近 6 個 topic、rotate 排除
 
 # Module-level 新聞快取 + topic round 計數
 _news_topics_cache: list[str] = []
+_pending_og_enrichment: list[tuple[str, str]] = []  # 層三暫存：(disambig_title, url)
 _current_topic_rounds: int = 0       # /api/chat 每次 +1、rotate / 手動換 topic 後歸 0
 # Phase 4 Step 5.7: 最近用過的 topic queue、避免短期重複（rotate / 手動換 topic 都會 push）
 _recent_topics_history: list[str] = []
@@ -475,8 +481,99 @@ def _build_news_url(section: str) -> str:
     return f"{_GOOGLE_NEWS_TW_BASE}/headlines/section/topic/{section}{_GOOGLE_NEWS_TW_TAIL}"
 
 
-def _fetch_one_section(label: str, section: str, per_limit: int) -> list[str]:
-    """抓一個 Google News section 的 RSS、回傳乾淨 headline list。
+# ── 層二：實體歧義規則表 ──────────────────────────────────────────
+# surface = RSS 標題中的短形式；require_any = 上下文需命中至少 1 個關鍵字才套用
+_ENTITY_RULES: list[dict] = [
+    {
+        'surface': '高市',
+        'canonical': '高市早苗（日本政治人物）',
+        'require_any': ['日本', '首相', '自民黨', 'LDP', '日系', '外務省', '參議院', 'Takaichi'],
+    },
+    {
+        'surface': '高市',
+        'canonical': '高雄市',
+        'require_any': ['高雄', '市長', '陳其邁', '南台灣', '地方政府'],
+    },
+    {
+        'surface': '荷',
+        'canonical': '荷莫茲海峽',
+        'require_any': ['伊朗', '波斯灣', '石油', '船隻', '海峽', '波灣', '中東'],
+    },
+    {
+        'surface': '賴',
+        'canonical': '賴清德（台灣總統）',
+        'require_any': ['總統', '民進黨', '府', '兩岸', '執政'],
+    },
+    {
+        'surface': '侯',
+        'canonical': '侯友宜（新北市長）',
+        'require_any': ['新北', '市長', '國民黨', '候選人', '警察'],
+    },
+    {
+        'surface': '柯',
+        'canonical': '柯文哲（民眾黨）',
+        'require_any': ['民眾黨', '台北', '北市', '市長', '司法', '京華城'],
+    },
+]
+_AMBIGUOUS_SURFACES: set[str] = {r['surface'] for r in _ENTITY_RULES}
+
+
+def _disambiguate_title(title: str, context: str = '') -> str:
+    """層二：根據 context 替換標題中的歧義短詞。
+    context = RSS description 文字 + 層三 og 內容。
+    命中 → 替換成 canonical；無法判斷 → 加【?】標記讓 Claude 不猜測。
+    """
+    full = title + ' ' + context
+    result = title
+    for surface in _AMBIGUOUS_SURFACES:
+        if surface not in result:
+            continue
+        candidates = [r for r in _ENTITY_RULES if r['surface'] == surface]
+        best, best_score = None, 0
+        for c in candidates:
+            score = sum(1 for kw in c['require_any'] if kw in full)
+            if score > best_score:
+                best_score, best = score, c
+        if best and best_score >= 1:
+            result = result.replace(surface, best['canonical'])
+            print(f"[disambig] '{surface}' → '{best['canonical']}' (score={best_score})")
+        else:
+            result = result.replace(surface, f'{surface}【?含義不明，請勿推測】')
+            print(f"[disambig] '{surface}' 無上下文 → 標記歧義")
+    return result
+
+
+def _fetch_og_context(url: str) -> str:
+    """層三：抓原始文章的 og:title + og:description。
+    只讀前 32KB、失敗回 ''、不 raise。
+    """
+    try:
+        req = urllib.request.Request(
+            url, headers={'User-Agent': 'Mozilla/5.0 (TDT-WWT/1.0)'}
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            html = resp.read(32768).decode('utf-8', errors='ignore')
+        parts: list[str] = []
+        for prop in ('og:title', 'og:description'):
+            # 支援兩種屬性順序
+            m = re.search(
+                rf'<meta[^>]+property=["\']{{prop}}["\'][^>]+content=["\']([^"\']+)',
+                html,
+            ) or re.search(
+                rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']{{prop}}["\']',
+                html,
+            )
+            if m:
+                parts.append(m.group(1))
+        return ' '.join(parts)
+    except Exception as e:
+        print(f"[disambig] og fetch failed: {e}")
+        return ''
+
+
+def _fetch_one_section(label: str, section: str, per_limit: int) -> list[tuple[str, str, str]]:
+    """抓一個 Google News section 的 RSS。
+    回傳 list[(title, link_url, rss_snippet)]。
     失敗回 []、不 raise。
     """
     url = _build_news_url(section)
@@ -489,7 +586,7 @@ def _fetch_one_section(label: str, section: str, per_limit: int) -> list[str]:
             xml_bytes = resp.read()
         root = ET.fromstring(xml_bytes)
         items = root.findall(".//item")
-        headlines: list[str] = []
+        results: list[tuple[str, str, str]] = []
         for item in items[: per_limit * 2]:
             title_el = item.find("title")
             if title_el is None or not title_el.text:
@@ -498,10 +595,15 @@ def _fetch_one_section(label: str, section: str, per_limit: int) -> list[str]:
             cleaned = raw.rsplit(" - ", 1)[0].strip()
             if len(cleaned) < 6:
                 continue
-            headlines.append(cleaned)
-            if len(headlines) >= per_limit:
+            link_el  = item.find("link")
+            desc_el  = item.find("description")
+            link_url = (link_el.text or '').strip() if link_el is not None else ''
+            desc_raw = (desc_el.text or '') if desc_el is not None else ''
+            snippet  = re.sub(r'<[^>]+>', ' ', desc_raw)[:300]  # 去 HTML tag、截 300 字
+            results.append((cleaned, link_url, snippet))
+            if len(results) >= per_limit:
                 break
-        return headlines
+        return results
     except Exception as e:
         print(f"[news] fetch '{label}/{section or 'top'}' failed: {e}")
         return []
@@ -515,30 +617,41 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     一個 label 底下可能對應多個 section（例如 科學與科技）、會合併。
     全部失敗回 []、不 raise、不影響服務啟動。
     """
-    all_headlines: list[str] = []
+    all_tuples: list[tuple[str, str, str]] = []  # (title, url, snippet)
     seen: set[str] = set()
     breakdown: list[str] = []
-    # 每 section 抓 2 倍候選、留 dedup buffer（例如 當地 ≈ 台灣、需多一些 candidates）
     raw_per_section = max(_PER_CATEGORY_LIMIT * 2, 6)
     for label, sections in _NEWS_CATEGORIES:
-        cat_pool: list[str] = []
+        cat_pool: list[tuple[str, str, str]] = []
         for section in sections:
             cat_pool.extend(_fetch_one_section(label, section, raw_per_section))
-        random.shuffle(cat_pool)  # 同類內順序打散、避免每次都拿相同前 N
+        random.shuffle(cat_pool)
         new_in_cat = 0
-        for h in cat_pool:
-            if h in seen:
+        for tup in cat_pool:
+            title = tup[0]
+            if title in seen:
                 continue
-            seen.add(h)
-            all_headlines.append(h)
+            seen.add(title)
+            all_tuples.append(tup)
             new_in_cat += 1
-            if new_in_cat >= _PER_CATEGORY_LIMIT or len(all_headlines) >= limit:
+            if new_in_cat >= _PER_CATEGORY_LIMIT or len(all_tuples) >= limit:
                 break
         breakdown.append(f"{label}={new_in_cat}")
-        if len(all_headlines) >= limit:
+        if len(all_tuples) >= limit:
             break
     if breakdown:
-        print(f"[news] fetched by category → {', '.join(breakdown)} | total={len(all_headlines)}")
+        print(f"[news] fetched by category → {', '.join(breakdown)} | total={len(all_tuples)}")
+
+    # 層二：用 RSS snippet 做歧義詞消解
+    all_headlines: list[str] = []
+    for title, url, snippet in all_tuples:
+        disambig = _disambiguate_title(title, context=snippet)
+        all_headlines.append(disambig)
+
+    # 把帶 url 的資料暫存、供 _news_refresh_loop 層三使用
+    global _pending_og_enrichment
+    _pending_og_enrichment = [(h, t[1]) for h, t in zip(all_headlines, all_tuples)]
+
     return all_headlines
 
 
@@ -751,19 +864,57 @@ def _apply_news_topic(chosen: str, *, unlock: bool = False) -> dict:
     return st
 
 
+async def _og_enrich_ambiguous(topics: list[str]) -> list[str]:
+    """層三：只對仍有【?】標記的 title 抓原始 og context 再做一次消解。
+    最多並行 5 個請求、每條 timeout 8 秒、不影響其他 title。
+    """
+    global _pending_og_enrichment
+    pending = _pending_og_enrichment[:]
+    _pending_og_enrichment = []
+
+    if not pending:
+        return topics
+
+    result = list(topics)
+    sem = asyncio.Semaphore(5)  # 最多 5 個並行
+
+    async def enrich_one(idx: int, title: str, url: str):
+        if '【?' not in title or not url:
+            return
+        async with sem:
+            og_ctx = await asyncio.to_thread(_fetch_og_context, url)
+        if not og_ctx:
+            return
+        enriched = _disambiguate_title(title, context=og_ctx)
+        if enriched != title:
+            result[idx] = enriched
+            print(f"[disambig] 層三補強: {title!r} → {enriched!r}")
+
+    ambiguous_idxs = [i for i, (h, _) in enumerate(pending) if '【?' in h]
+    if ambiguous_idxs:
+        print(f"[disambig] 層三：{len(ambiguous_idxs)} 條歧義標題發 og 請求")
+        tasks = [
+            enrich_one(i, pending[i][0], pending[i][1])
+            for i in ambiguous_idxs
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    return result
+
+
 async def _news_refresh_loop():
     """背景任務：每 N 分鐘刷新新聞快取。
-    replace 策略：新一輪 fetch 整批覆蓋舊快取（記憶體 + 磁碟）。
-    Phase 4 Step 5.10: 刷完立即補滿 _topic_queue。
+    層二消解在 fetch_news_topics() 同步完成；層三 og 補強在這裡 async 執行。
     """
     global _news_topics_cache
     while True:
         try:
-            topics = await asyncio.to_thread(fetch_news_topics)
+            topics = await asyncio.to_thread(fetch_news_topics)  # 層二在此完成
             if topics:
+                topics = await _og_enrich_ambiguous(topics)       # 層三補強
                 prev_set = set(_news_topics_cache)
                 _news_topics_cache = topics
-                _save_news_cache(topics)  # 覆寫磁碟、舊話題自動被新一輪取代
+                _save_news_cache(topics)
                 added = _refill_topic_queue()
                 new_count = sum(1 for h in topics if h not in prev_set)
                 print(f"[news] cache refreshed: {len(topics)} headlines（queue +{added}、剩 {len(_topic_queue)}）")
@@ -991,6 +1142,15 @@ def _build_static_prompt() -> str:
 - ✅ 同情受害者、批評制度漏洞
 - ❌ 不開玩笑、不諷刺受害者、不檢討受害者行為
 
+### 🔤 專有名詞 / 縮寫處理（RSS 標題截斷防呆）
+
+Google News RSS 標題常被截斷、2 字縮寫可能有多重含義：
+
+- ❌ **不要**看到「高市」就當成高雄市、看到「荷」就當成荷蘭
+- ✅ 若 topic 已標注「高市早苗（日本政治人物）」→ 直接用全名討論
+- ✅ 若 topic 標注【?含義不明，請勿推測】→ 改說「新聞裡提到的這件事」、不猜身分
+- ✅ 只引用 topic 文字裡**明確出現**的事實、不補充標題沒寫的背景
+
 ### 內容限制
 - 政治人身攻擊、宗教歧視、種族歧視、死亡案件、未成年、性侵、個資、誹謗、未證實指控、犯罪定罪判斷一律禁止
 
@@ -1026,9 +1186,11 @@ def _build_static_prompt() -> str:
 - 句尾自然口語結束（不用句號接論述）
 - 整輪有「鋪墊 → 收線」起伏、不全平調
 
-## 表情 / 情緒（emotion 欄位、給王于安用、阿明可寫但暫不用）
+## 表情 / 情緒（emotion 欄位、兩位主持人都要填）
 
-每句 JSON 必須帶 `emotion` 欄位、值從以下 12 種挑一個（其他值會被忽略）：
+每句 JSON 必須帶 `emotion` 欄位、值從各自的清單挑一個。
+
+### 王于安 emotion（12 種）
 
 | emotion | 王乃伃式使用時機 |
 |---|---|
@@ -1043,13 +1205,33 @@ def _build_static_prompt() -> str:
 | `sad` | 失望、「真的不行了」、對社會 / 來賓無奈 |
 | `relieved` | 「還好還好」、危機過、新聞反轉變好 |
 | `cheering` | 「加油」「大家撐住」、鼓勵觀眾 / 來賓 |
-| `idle` | 不說話時用、但你不會輸出 idle（不說話就沒有 line）|
+| `idle` | 不說話時用（不會輸出）|
 
-挑選原則：
-- 一輪對話內、王于安 emotion 要**有起伏**、不要每句都 talk
+王于安挑選原則：
+- 一輪對話內 emotion 要**有起伏**、不要每句都 talk
 - 「網感反應 → 整理 → 收線」三段式：surprised → thinking → smile/skeptical
 - 角度激烈時用 angry / sad、化解時用 relieved / laughing / cheering
-- 阿明 emotion 隨便寫 talk 或 thinking 即可（目前前端不用、未來保留）
+
+### 3Q 陳柏惟 emotion（9 種）
+
+| emotion | 3Q 式使用時機 |
+|---|---|
+| `idle` | 待機、等對方說完、還沒進入狀態 |
+| `passionate` | 熱血說話、帶動氣氛、說到自己最在乎的議題、情緒上升中 |
+| `combat` | 正面交鋒、反駁對方、進入辯論模式、「你嘛幫幫忙」 |
+| `excited` | 聽到好消息、完全認同、忍不住鼓掌、高興過頭 |
+| `humor` | 自嘲、幽默化解、說了個梗、「靠夭喔」帶笑意 |
+| `sincere` | 感謝支持者、說到真心話、認真拜託大家、低頭致謝 |
+| `resilient` | 被攻擊後堅守立場、「沒關係我繼續」、逆風仍站穩 |
+| `angry` | 義憤填膺、看不下去、大聲批評不公義、情緒直接外顯 |
+| `speech` | 對觀眾總結發言、呼籲行動、演說收尾、「3Q 大家」 |
+
+3Q 挑選原則：
+- 核心比例：passionate 最常用（40%）、combat 次之（25%）
+- 「熱情開場 → 衝突交鋒 → 幽默或誠懇收線」三段式：passionate → combat → humor/sincere
+- 遇到不公義直接 angry、勝利時刻用 excited、逆境用 resilient
+- 結尾常用 speech 或 sincere 帶 CTA 感
+- **不要每句都 passionate**、要有情緒起伏
 
 ## 輸出格式
 
@@ -1070,11 +1252,11 @@ def _build_static_prompt() -> str:
 **建議優先用 B**、給字幕跟表情一起切的戲劇感：
 - 句子用「，。！？、；：」分段
 - emotions 陣列長度 = 標點分段後的句數（前端會 idx % length 容錯）
-- 阿明這層不影響（emotion 暫不用、但寫了也沒關係）
+- 3Q 和王于安都要用 emotions 陣列、讓前端能逐句切換表情
 
 完整範例：
 [
-  {{"speaker": "aming", "text": "我跟你講喔、油價一漲、物價就跟著漲", "emotion": "talk"}},
+  {{"speaker": "aming", "text": "這個結構年年炸、靠夭喔。說真的啦、問題就在這裡！", "emotions": ["humor", "angry"]}},
   {{"speaker": "xiaomei", "text": "不會吧！這也太誇張。所以呢、政府要做什麼？", "emotions": ["surprised", "skeptical", "thinking"]}}
 ]"""
 
