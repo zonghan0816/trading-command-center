@@ -16,7 +16,7 @@ const DATA_FLOWS = CONFIG.layout.dataFlows;
 const DEFAULT_KEYWORDS = [
   '按讚 + 訂閱 + 開啟鈴鐺',
   '   來賓        主播',
-  '陳柏偉      王予安',
+  '陳柏偉      王于安',
 ];
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
 const KEYWORD_MAX      = 5;
