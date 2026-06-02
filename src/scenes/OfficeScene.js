@@ -13,10 +13,14 @@ const DATA_FLOWS = CONFIG.layout.dataFlows;
 
 // Phase 3 Step 6.7: TOP 5 改成觀眾互動 CTA（62 notes item 6 + 10 決議）
 // 24H MVP 過渡、之後可能改成跑馬燈或其他形式
+//
+// 格式說明：
+// - 'string'           = 單行單欄（占整行寬）
+// - ['left', 'right']  = 雙欄並排（左欄 / 右欄）
 const DEFAULT_KEYWORDS = [
   '按讚 + 訂閱 + 開啟鈴鐺',
-  '   來賓        主播',
-  '陳柏偉      王于安',
+  ['來賓', '主播'],
+  ['陳柏偉', '王于安'],
 ];
 const KEYWORD_COLORS   = ['#FF6B35', '#00E5FF', '#00E676', '#FFB300', '#BB86FC'];
 const KEYWORD_MAX      = 5;
@@ -379,8 +383,8 @@ export class OfficeScene extends Phaser.Scene {
     let kws = (Array.isArray(keywords) && keywords.length > 0)
       ? keywords.slice(0, KEYWORD_MAX)
       : DEFAULT_KEYWORDS;
-    // 全部轉字串、防止 server 推非字串值
-    kws = kws.map(k => String(k));
+    // 保留 array（雙欄）、其他轉字串、防止 server 推非字串值
+    kws = kws.map(k => (Array.isArray(k) ? k.map(s => String(s)) : String(k)));
 
     // 防抖簽章：內容相同就不重畫、避免每 5 秒 destroy + recreate text
     const sig = JSON.stringify(kws);
@@ -392,16 +396,33 @@ export class OfficeScene extends Phaser.Scene {
     this._kwTexts = [];
 
     const boardLeft = this._kwBaseX - 178;
+    // Phase 4 Step 5.23: 雙欄 layout 用固定 X 位置、避免中文非等寬字體跑掉
+    const COL_LEFT_X  = boardLeft + 4;
+    const COL_RIGHT_X = boardLeft + 150;
+    const TEXT_STYLE_BASE = {
+      fontSize: '25px',
+      fontFamily: 'Consolas, "Microsoft JhengHei", "PingFang TC", sans-serif',
+    };
     // 顏色規則：第 0 行 CTA = 橘、第 1 行標籤 = 青、第 2 行名字 = 金
     const LINE_COLORS = ['#FF6B35', '#00E5FF', '#FFD700'];
+
     kws.forEach((kw, i) => {
       const y     = this._kwBaseY + 50 + i * 52;
       const color = LINE_COLORS[i] ?? '#E8F4FF';
-      const kt = this.add.text(boardLeft, y, kw, {
-        fontSize: '25px', color,
-        fontFamily: 'Consolas, monospace',
-      }).setOrigin(0, 0).setDepth(28.5);
-      this._kwTexts.push(kt);
+      if (Array.isArray(kw)) {
+        // 雙欄並排：兩個獨立 text、左右各一個 X
+        const [left, right] = [kw[0] ?? '', kw[1] ?? ''];
+        const tL = this.add.text(COL_LEFT_X, y, left, { ...TEXT_STYLE_BASE, color })
+          .setOrigin(0, 0).setDepth(28.5);
+        const tR = this.add.text(COL_RIGHT_X, y, right, { ...TEXT_STYLE_BASE, color })
+          .setOrigin(0, 0).setDepth(28.5);
+        this._kwTexts.push(tL, tR);
+      } else {
+        // 單欄整行
+        const kt = this.add.text(COL_LEFT_X, y, kw, { ...TEXT_STYLE_BASE, color })
+          .setOrigin(0, 0).setDepth(28.5);
+        this._kwTexts.push(kt);
+      }
     });
   }
 
