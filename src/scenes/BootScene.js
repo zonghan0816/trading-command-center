@@ -48,7 +48,8 @@ export class BootScene extends Phaser.Scene {
     if (ca.char_3q_individual) {
       const dir3q = '/assets/char_3q';
       this.load.image('char_aming', `${dir3q}/emo_idle.png`);  // base texture
-      ['idle','passionate','combat','excited','humor','sincere','resilient','angry','speech'].forEach(e => {
+      ['idle','passionate','combat','excited','humor','sincere','resilient','angry','speech',
+       'thinking','mocking','sympathy','surprised','explain','mocking_laugh','greeting','disgusted'].forEach(e => {
         this.load.image(`aming_emo_${e}_tex`, `${dir3q}/emo_${e}.png`);
       });
     } else if (ca.char_aming_v3_actions) {
@@ -83,6 +84,18 @@ export class BootScene extends Phaser.Scene {
     if (ca.char_A_man_sitting)    this.load.spritesheet('char_a_man_sitting', '/assets/char_A_man_sitting_actions.png',    { frameWidth: 1024, frameHeight: 1536 });
     if (ca.char_A_woman_standing) this.load.spritesheet('char_a_woman',       '/assets/char_A_woman_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
     if (ca.char_A_woman_sitting)  this.load.spritesheet('char_a_woman_sitting', '/assets/char_A_woman_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
+
+    // Phase 4 Step 5.25: BGM 載入（GPT 82 B' 方案）
+    // 缺音檔不報錯、OfficeScene 會 cache.audio.exists() 檢查
+    this.load.audio('bgm_main', [
+      '/assets/audio/bgm_main.mp3',
+      '/assets/audio/bgm_main.ogg',
+    ]);
+    this.load.on('loaderror', (file) => {
+      if (file.key === 'bgm_main') {
+        console.warn('[audio] BGM 音檔未找到、繼續無聲播放');
+      }
+    });
   }
 
   create() {
@@ -573,6 +586,14 @@ export class BootScene extends Phaser.Scene {
           aming_emo_resilient:  'aming_emo_resilient_tex',
           aming_emo_angry:      'aming_emo_angry_tex',
           aming_emo_speech:     'aming_emo_speech_tex',
+          aming_emo_thinking:      'aming_emo_thinking_tex',
+          aming_emo_mocking:       'aming_emo_mocking_tex',
+          aming_emo_sympathy:      'aming_emo_sympathy_tex',
+          aming_emo_surprised:     'aming_emo_surprised_tex',
+          aming_emo_explain:       'aming_emo_explain_tex',
+          aming_emo_mocking_laugh: 'aming_emo_mocking_laugh_tex',
+          aming_emo_greeting:      'aming_emo_greeting_tex',
+          aming_emo_disgusted:     'aming_emo_disgusted_tex',
         };
         Object.entries(AMING_3Q_MAP).forEach(([animKey, tex]) => {
           this.anims.create({

@@ -11,3 +11,8 @@ wwt_state.json.tmp
 wwt_news_cache.json
 wwt_dialogue_memory.json
 wwt_observe_log.jsonl
+
+# BGM 音檔（版權檔、不進 git）
+assets/audio/*.mp3
+assets/audio/*.ogg
+assets/audio/*.wav

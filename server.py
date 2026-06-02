@@ -1212,7 +1212,7 @@ Google News RSS 標題常被截斷、2 字縮寫可能有多重含義：
 - 「網感反應 → 整理 → 收線」三段式：surprised → thinking → smile/skeptical
 - 角度激烈時用 angry / sad、化解時用 relieved / laughing / cheering
 
-### 3Q 陳柏惟 emotion（9 種）
+### 3Q 陳柏惟 emotion（17 種）
 
 | emotion | 3Q 式使用時機 |
 |---|---|
@@ -1225,12 +1225,22 @@ Google News RSS 標題常被截斷、2 字縮寫可能有多重含義：
 | `resilient` | 被攻擊後堅守立場、「沒關係我繼續」、逆風仍站穩 |
 | `angry` | 義憤填膺、看不下去、大聲批評不公義、情緒直接外顯 |
 | `speech` | 對觀眾總結發言、呼籲行動、演說收尾、「3Q 大家」 |
+| `thinking` | 分析制度成因、討論模式、「我來想一下喔」、托下巴沉思 |
+| `mocking` | 諷刺現象、嘲諷政策荒謬、單邊冷笑、「你嘛幫幫忙」帶酸 |
+| `sympathy` | **涉及真實傷害題必備**、承認傷亡嚴重、不嘲弄當事人、凝重 |
+| `surprised` | 反應頭條、意外消息、「真的假的」、瞪大眼睛 |
+| `explain` | monologue 解釋政策邏輯、攤手比劃、「事情是這樣啦」 |
+| `mocking_laugh` | 嘲諷式爆笑收尾、punchline 完仰頭大笑 |
+| `greeting` | 開場 / 整點換場、揮手或抱拳、「3Q 大家好」 |
+| `disgusted` | 對荒謬政策、行為的不屑反應、揮手推遠 |
 
 3Q 挑選原則：
-- 核心比例：passionate 最常用（40%）、combat 次之（25%）
-- 「熱情開場 → 衝突交鋒 → 幽默或誠懇收線」三段式：passionate → combat → humor/sincere
-- 遇到不公義直接 angry、勝利時刻用 excited、逆境用 resilient
-- 結尾常用 speech 或 sincere 帶 CTA 感
+- 核心比例：passionate 最常用（30%）、combat 次之（20%）、mocking + explain + thinking 加總 30%
+- 「熱情開場 → 衝突交鋒 → 幽默或誠懇收線」三段式：passionate/greeting → combat/mocking → humor/sincere/mocking_laugh
+- 遇到不公義直接 angry / disgusted、勝利時刻用 excited、逆境用 resilient
+- 結尾常用 speech 或 sincere 或 mocking_laugh 帶 CTA 感
+- 分析題用 thinking → explain 組合、討論制度
+- **涉及真實傷害（傷亡、受害者、家屬）必須先用 sympathy** 承認嚴重再進制度討論
 - **不要每句都 passionate**、要有情緒起伏
 
 ## 輸出格式

@@ -73,6 +73,7 @@ export class OfficeScene extends Phaser.Scene {
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
       this._buildWorkstations();
+      this._startBgm();            // Phase 4 Step 5.25: BGM（GPT 82 B' 方案、單首 loop）
 
       // Part 2: 每 60 秒更新 crossfade alpha（長時間直播不中斷時背景慢慢變）
       this.time.addEvent({ delay: 60000, callback: this._updateBackgroundMix, callbackScope: this, loop: true });
@@ -950,6 +951,7 @@ export class OfficeScene extends Phaser.Scene {
     if (id === 'aming' && CONFIG.customAssets.char_3q_individual && emotion) {
       const ALLOWED_3Q = new Set([
         'idle','passionate','combat','excited','humor','sincere','resilient','angry','speech',
+        'thinking','mocking','sympathy','surprised','explain','mocking_laugh','greeting','disgusted',
       ]);
       return ALLOWED_3Q.has(emotion) ? `aming_emo_${emotion}` : 'aming_emo_passionate';
     }
@@ -1148,6 +1150,66 @@ export class OfficeScene extends Phaser.Scene {
       hosts,
       data_flows: [],
     };
+  }
+
+  // ── BGM（Phase 4 Step 5.25、GPT 82 B' 方案）────────────────────
+  _startBgm() {
+    if (!this.cache.audio.exists('bgm_main')) {
+      console.warn('[audio] BGM 未載入、無聲帶過');
+      this._createBgmToggle(false);
+      return;
+    }
+
+    this.bgm = this.sound.add('bgm_main', { loop: true, volume: 0.28 });
+    const muted = localStorage.getItem('bgm_muted') === '1';
+
+    if (!muted) {
+      // 瀏覽器 autoplay 政策：直接 play 可能失敗、用 unlock 機制
+      const tryPlay = () => {
+        try { this.bgm.play(); } catch (e) {
+          console.warn('[audio] BGM autoplay blocked、等首次點擊');
+        }
+      };
+      tryPlay();
+      if (!this.bgm.isPlaying) {
+        this.input.once('pointerdown', tryPlay);
+      }
+    }
+
+    this._createBgmToggle(true);
+  }
+
+  _createBgmToggle(hasBgm) {
+    const muted = localStorage.getItem('bgm_muted') === '1';
+    const label = !hasBgm ? 'NO BGM' : (muted ? 'BGM OFF' : 'BGM ON');
+
+    const btn = this.add.text(this.W - 20, 20, label, {
+      fontSize: '16px',
+      color: '#ffffff',
+      backgroundColor: '#000000aa',
+      fontFamily: '"Microsoft JhengHei", Consolas, sans-serif',
+      padding: { x: 10, y: 6 },
+    }).setOrigin(1, 0).setDepth(1000);
+
+    if (!hasBgm) {
+      btn.setAlpha(0.5);
+      return;
+    }
+
+    btn.setInteractive({ useHandCursor: true });
+    btn.on('pointerdown', () => {
+      const isMuted = localStorage.getItem('bgm_muted') === '1';
+      const next = !isMuted;
+      localStorage.setItem('bgm_muted', next ? '1' : '0');
+
+      if (next) {
+        if (this.bgm && this.bgm.isPlaying) this.bgm.stop();
+        btn.setText('BGM OFF');
+      } else {
+        if (this.bgm) this.bgm.play();
+        btn.setText('BGM ON');
+      }
+    });
   }
 
   update() {}

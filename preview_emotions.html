@@ -2,12 +2,12 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<title>王于安 emotion 色彩比對</title>
+<title>角色 emotion 色彩比對</title>
 <style>
   body {
     margin: 0;
     padding: 24px;
-    background: #1a1830;  /* 接近棚景深色背景 */
+    background: #1a1830;
     font-family: "Microsoft JhengHei", "Noto Sans TC", sans-serif;
     color: #fff;
   }
@@ -17,13 +17,17 @@
   }
   .info {
     color: #aaa;
-    margin-bottom: 24px;
+    margin-bottom: 16px;
     font-size: 14px;
   }
-  .bg-toggle {
-    margin-bottom: 24px;
+  .toggle-row {
+    margin-bottom: 16px;
   }
-  .bg-toggle button {
+  .toggle-row .label-prefix {
+    color: #aaa;
+    margin-right: 8px;
+  }
+  .toggle-row button {
     background: #444;
     color: #fff;
     border: 1px solid #666;
@@ -32,9 +36,13 @@
     cursor: pointer;
     font-family: inherit;
   }
-  .bg-toggle button.active {
+  .toggle-row button.active {
     background: #FF8C55;
     border-color: #FF8C55;
+  }
+  .char-toggle button.active {
+    background: #55B5FF;
+    border-color: #55B5FF;
   }
   .grid {
     display: grid;
@@ -77,17 +85,28 @@
   .ref-cell .label {
     background: rgba(255,140,85,0.2);
   }
+  .new-cell {
+    border-color: #55B5FF;
+    border-width: 2px;
+    box-shadow: 0 0 10px rgba(85,181,255,0.3);
+  }
+  .new-cell .label {
+    background: rgba(85,181,255,0.2);
+  }
 </style>
 </head>
 <body>
-  <h1>王于安 15 張 PNG 色彩比對</h1>
-  <div class="info">
-    所有 PNG 已對齊 emo_idle 平均色 RGB ~(201, 163, 160)。
-    切換不同背景看是否還有深淺感差異。
+  <h1 id="title">角色 emotion 色彩比對</h1>
+  <div class="info" id="info"></div>
+
+  <div class="toggle-row char-toggle">
+    <span class="label-prefix">角色：</span>
+    <button class="active" data-char="aming">陳柏偉（17 張）</button>
+    <button data-char="xiaomei">王于安（15 張）</button>
   </div>
 
-  <div class="bg-toggle">
-    切換背景：
+  <div class="toggle-row">
+    <span class="label-prefix">背景：</span>
     <button class="active" data-bg="#1a1830">深棚景</button>
     <button data-bg="#0e1e30">深藍</button>
     <button data-bg="#000000">純黑</button>
@@ -99,46 +118,101 @@
   <div class="grid" id="grid"></div>
 
   <script>
-    const EMOTIONS = [
-      { type: 'emo', name: 'idle',      ref: true },
-      { type: 'emo', name: 'talk' },
-      { type: 'emo', name: 'smile' },
-      { type: 'emo', name: 'thinking' },
-      { type: 'emo', name: 'surprised' },
-      { type: 'emo', name: 'skeptical' },
-      { type: 'emo', name: 'wave' },
-      { type: 'emo', name: 'angry' },
-      { type: 'emo', name: 'laughing' },
-      { type: 'emo', name: 'sad' },
-      { type: 'emo', name: 'relieved' },
-      { type: 'emo', name: 'cheering' },
-      { type: 'act', name: 'tired' },
-      { type: 'act', name: 'pointing' },
-      { type: 'act', name: 'walking' },
-    ];
+    const CHARS = {
+      aming: {
+        title: '陳柏偉 17 張 emotion',
+        info: '橙框 = 參考圖（emo_idle、RGB 51/49/60）。藍框 = 2026-06-02 新增 8 張（已套 histogram matching）。',
+        dir: '/assets/char_3q',
+        items: [
+          { type: 'emo', name: 'idle',          ref: true },
+          { type: 'emo', name: 'passionate' },
+          { type: 'emo', name: 'combat' },
+          { type: 'emo', name: 'excited' },
+          { type: 'emo', name: 'humor' },
+          { type: 'emo', name: 'sincere' },
+          { type: 'emo', name: 'resilient' },
+          { type: 'emo', name: 'angry' },
+          { type: 'emo', name: 'speech' },
+          { type: 'emo', name: 'thinking',      isNew: true },
+          { type: 'emo', name: 'mocking',       isNew: true },
+          { type: 'emo', name: 'sympathy',      isNew: true },
+          { type: 'emo', name: 'surprised',     isNew: true },
+          { type: 'emo', name: 'explain',       isNew: true },
+          { type: 'emo', name: 'mocking_laugh', isNew: true },
+          { type: 'emo', name: 'greeting',      isNew: true },
+          { type: 'emo', name: 'disgusted',     isNew: true },
+        ],
+      },
+      xiaomei: {
+        title: '王于安 15 張 emotion / action',
+        info: '橙框 = 參考圖（emo_idle、RGB ~201/163/160）。所有 PNG 已對齊到此色彩分布。',
+        dir: '/assets/char_xiaomei',
+        items: [
+          { type: 'emo', name: 'idle', ref: true },
+          { type: 'emo', name: 'talk' },
+          { type: 'emo', name: 'smile' },
+          { type: 'emo', name: 'thinking' },
+          { type: 'emo', name: 'surprised' },
+          { type: 'emo', name: 'skeptical' },
+          { type: 'emo', name: 'wave' },
+          { type: 'emo', name: 'angry' },
+          { type: 'emo', name: 'laughing' },
+          { type: 'emo', name: 'sad' },
+          { type: 'emo', name: 'relieved' },
+          { type: 'emo', name: 'cheering' },
+          { type: 'act', name: 'tired' },
+          { type: 'act', name: 'pointing' },
+          { type: 'act', name: 'walking' },
+        ],
+      },
+    };
 
     const grid = document.getElementById('grid');
-    EMOTIONS.forEach(e => {
-      const cell = document.createElement('div');
-      cell.className = 'cell' + (e.ref ? ' ref-cell' : '');
-      cell.innerHTML = `
-        <img src="/assets/char_xiaomei/${e.type}_${e.name}.png?v=${Date.now()}" alt="${e.name}">
-        <div class="label">
-          <div class="type">${e.type}${e.ref ? ' · 參考' : ''}</div>
-          <div class="name">${e.name}</div>
-        </div>
-      `;
-      grid.appendChild(cell);
+    const titleEl = document.getElementById('title');
+    const infoEl = document.getElementById('info');
+
+    function render(charKey) {
+      const c = CHARS[charKey];
+      titleEl.textContent = c.title;
+      infoEl.textContent = c.info;
+      grid.innerHTML = '';
+
+      const v = Date.now();
+      c.items.forEach(e => {
+        const cell = document.createElement('div');
+        let cls = 'cell';
+        if (e.ref) cls += ' ref-cell';
+        else if (e.isNew) cls += ' new-cell';
+        cell.className = cls;
+        const tag = e.ref ? ' · 參考' : (e.isNew ? ' · 新增' : '');
+        cell.innerHTML = `
+          <img src="${c.dir}/${e.type}_${e.name}.png?v=${v}" alt="${e.name}">
+          <div class="label">
+            <div class="type">${e.type}${tag}</div>
+            <div class="name">${e.name}</div>
+          </div>
+        `;
+        grid.appendChild(cell);
+      });
+    }
+
+    document.querySelectorAll('.char-toggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.char-toggle button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        render(btn.dataset.char);
+      });
     });
 
-    // 背景切換
-    document.querySelectorAll('.bg-toggle button').forEach(btn => {
+    document.querySelectorAll('.toggle-row:not(.char-toggle) button').forEach(btn => {
       btn.addEventListener('click', () => {
-        document.querySelectorAll('.bg-toggle button').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.toggle-row:not(.char-toggle) button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.body.style.background = btn.dataset.bg;
       });
     });
+
+    render('aming');
   </script>
 </body>
 </html>
