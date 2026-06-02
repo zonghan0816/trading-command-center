@@ -20,7 +20,7 @@
 
 ## 一句話介紹
 
-**TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「阿明哥」「王于安」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
+**TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「陳柏偉」「王于安」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
 
 ---
 
@@ -77,7 +77,7 @@
 | 一般 AI 產品 | TDT 反向操作 |
 |---|---|
 | 隱藏 AI 痕跡、假裝是人 | **大方承認是 AI、AI bug 變梗** |
-| Hallucination = 災難 | **「阿明哥：哎呀我是 GPT」= 笑點** |
+| Hallucination = 災難 | **「陳柏偉：哎呀我是 GPT」= 笑點** |
 | API 半垮 = 故障 | **「啊」「喔」「呵」三段 = 卡關喜劇橋段** |
 
 → 使用者明確說：**「我標題都打 AI 了、還會怕被發現是 AI?」**
@@ -128,7 +128,7 @@
 
 | 主持人 | 站位 | 個性 | 動作 |
 |---|---|---|---|
-| **阿明哥** | 左半場 (35%) | 50 歲台灣大叔、議論派、碎念、退休風 | v2 draft 單張 PNG（暫無 multi-frame actions）|
+| **陳柏偉** | 左半場 (35%) | 3Q 陳柏惟風 + 議論派、草根直率、敢嗆但不指控個人 | individual PNG 9 emotion（assets/char_3q/） |
 | **王于安** | 右半場 (65%) | 30 歲女主播底子轉政論主持（王乃伃風）、反差萌、網感重、Podcast 控場 | emotion sheet 7 emotions（idle/talk/smile/thinking/surprised/skeptical/wave） |
 
 主持人**固定站位、不走動**（Phase 2F Step 3 以後 movement frozen）。對話用泡泡 + sprite frame 切換表現。

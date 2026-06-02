@@ -5,7 +5,7 @@ const WALL_H_RATIO = CONFIG.layout.wallHeightRatio;
 
 // WWT 主持人座位
 const STATIONS = {
-  aming:   { desk: 'desk', mon: 'monitor', label: '🎙 阿明哥' },
+  aming:   { desk: 'desk', mon: 'monitor', label: '🎙 陳柏偉' },
   xiaomei: { desk: 'desk', mon: 'monitor', label: '🎙 王于安' },
 };
 
