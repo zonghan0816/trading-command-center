@@ -309,8 +309,8 @@ export class OfficeScene extends Phaser.Scene {
       const charHeight = isV2
         ? Math.round(1536 * (S.characterV2 ?? 0.28))
         : Math.round(64 * S.character);
-      // Phase 3 Step 6.7: bubble 放大、字更醒目（最終 480×135、不再蓋到角色身體）
-      const bW = 480, bH = 135;
+      // bubble 尺寸（字級 30px）
+      const bW = (id === 'aming') ? 500 : 480, bH = 160;
       const accentColor = (id === 'aming') ? 0xFF8C00 : 0x00E5FF;
 
       // 角色顯示寬度（v2 = 1024 * 0.28 ≈ 287px）
@@ -319,10 +319,10 @@ export class OfficeScene extends Phaser.Scene {
         : Math.round(48 * S.character);
 
       const headTopY = charY - charHeight;
-      // 泡泡從角色邊緣外側開始、Step 6.7: 改用 charWidth/2 + 10 間距、確實不覆蓋身體
+      // 安安泡泡右邊界放寬到 1910 避免被推回覆蓋角色
       let bCX = (id === 'aming')
         ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10)
-        : Math.min(1880 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
+        : Math.min(1910 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
       let bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
 
       // Graphics 用相對座標建立（定位在 bCX, bCY），setPosition 才能正確移動
@@ -334,8 +334,7 @@ export class OfficeScene extends Phaser.Scene {
       bubbleBg.setDepth(depth + 3).setAlpha(0);
 
       const bubbleText = this.add.text(bCX, bCY, '', {
-        // Phase 3 Step 6.7: 字級 24 → 26、配合更大 bubble
-        fontSize: '26px', color: '#E8F4FF',
+        fontSize: '30px', color: '#E8F4FF',
         fontFamily: '"Microsoft JhengHei", "PingFang TC", Arial, sans-serif',
         lineSpacing: 8,
         padding: { x: 0, y: 6 },
