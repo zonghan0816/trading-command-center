@@ -73,7 +73,7 @@ export class OfficeScene extends Phaser.Scene {
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
       this._buildWorkstations();
-      this._startBgm();            // Phase 4 Step 5.25: BGM（GPT 82 B' 方案、單首 loop）
+      this._startBgm();            // BGM 兩首輪流播（bgm_1 / bgm_2）
 
       // Part 2: 每 60 秒更新 crossfade alpha（長時間直播不中斷時背景慢慢變）
       this.time.addEvent({ delay: 60000, callback: this._updateBackgroundMix, callbackScope: this, loop: true });
@@ -1152,31 +1152,44 @@ export class OfficeScene extends Phaser.Scene {
     };
   }
 
-  // ── BGM（Phase 4 Step 5.25、GPT 82 B' 方案）────────────────────
+  // ── BGM（兩首輪流播）────────────────────────────────────────────
   _startBgm() {
-    if (!this.cache.audio.exists('bgm_main')) {
-      console.warn('[audio] BGM 未載入、無聲帶過');
+    this._bgmKeys   = ['bgm_1', 'bgm_2'].filter(k => this.cache.audio.exists(k));
+    this._bgmIndex  = 0;
+    this._bgmTrack  = null;
+
+    const hasBgm = this._bgmKeys.length > 0;
+    if (!hasBgm) {
+      console.warn('[audio] BGM 音檔未找到、無聲帶過');
       this._createBgmToggle(false);
       return;
     }
 
-    this.bgm = this.sound.add('bgm_main', { loop: true, volume: 0.28 });
     const muted = localStorage.getItem('bgm_muted') === '1';
-
     if (!muted) {
-      // 瀏覽器 autoplay 政策：直接 play 可能失敗、用 unlock 機制
-      const tryPlay = () => {
-        try { this.bgm.play(); } catch (e) {
-          console.warn('[audio] BGM autoplay blocked、等首次點擊');
-        }
-      };
+      const tryPlay = () => { try { this._playNextBgm(); } catch (e) {
+        console.warn('[audio] BGM autoplay blocked、等首次點擊');
+      }};
       tryPlay();
-      if (!this.bgm.isPlaying) {
+      if (!this._bgmTrack || !this._bgmTrack.isPlaying) {
         this.input.once('pointerdown', tryPlay);
       }
     }
 
     this._createBgmToggle(true);
+  }
+
+  _playNextBgm() {
+    if (this._bgmTrack) { this._bgmTrack.destroy(); this._bgmTrack = null; }
+    if (!this._bgmKeys || this._bgmKeys.length === 0) return;
+
+    const key = this._bgmKeys[this._bgmIndex % this._bgmKeys.length];
+    this._bgmIndex++;
+
+    const track = this.sound.add(key, { volume: 0.28 });
+    track.once('complete', () => this._playNextBgm());
+    track.play();
+    this._bgmTrack = track;
   }
 
   _createBgmToggle(hasBgm) {
@@ -1191,10 +1204,7 @@ export class OfficeScene extends Phaser.Scene {
       padding: { x: 10, y: 6 },
     }).setOrigin(1, 0).setDepth(1000);
 
-    if (!hasBgm) {
-      btn.setAlpha(0.5);
-      return;
-    }
+    if (!hasBgm) { btn.setAlpha(0.5); return; }
 
     btn.setInteractive({ useHandCursor: true });
     btn.on('pointerdown', () => {
@@ -1203,10 +1213,10 @@ export class OfficeScene extends Phaser.Scene {
       localStorage.setItem('bgm_muted', next ? '1' : '0');
 
       if (next) {
-        if (this.bgm && this.bgm.isPlaying) this.bgm.stop();
+        if (this._bgmTrack && this._bgmTrack.isPlaying) this._bgmTrack.stop();
         btn.setText('BGM OFF');
       } else {
-        if (this.bgm) this.bgm.play();
+        this._playNextBgm();
         btn.setText('BGM ON');
       }
     });

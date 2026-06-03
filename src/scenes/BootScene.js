@@ -85,15 +85,12 @@ export class BootScene extends Phaser.Scene {
     if (ca.char_A_woman_standing) this.load.spritesheet('char_a_woman',       '/assets/char_A_woman_standing_actions.png', { frameWidth: 1024, frameHeight: 1536 });
     if (ca.char_A_woman_sitting)  this.load.spritesheet('char_a_woman_sitting', '/assets/char_A_woman_sitting_actions.png', { frameWidth: 1024, frameHeight: 1536 });
 
-    // Phase 4 Step 5.25: BGM 載入（GPT 82 B' 方案）
-    // 缺音檔不報錯、OfficeScene 會 cache.audio.exists() 檢查
-    this.load.audio('bgm_main', [
-      '/assets/audio/bgm_main.mp3',
-      '/assets/audio/bgm_main.ogg',
-    ]);
+    // BGM 兩首輪流播（bgm_1 / bgm_2）、缺音檔 OfficeScene 會 exists() 檢查
+    this.load.audio('bgm_1', ['/assets/audio/bgm_1.mp3']);
+    this.load.audio('bgm_2', ['/assets/audio/bgm_2.mp3']);
     this.load.on('loaderror', (file) => {
-      if (file.key === 'bgm_main') {
-        console.warn('[audio] BGM 音檔未找到、繼續無聲播放');
+      if (file.key === 'bgm_1' || file.key === 'bgm_2') {
+        console.warn(`[audio] ${file.key} 未找到、繼續無聲播放`);
       }
     });
   }
