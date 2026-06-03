@@ -181,9 +181,9 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 
 ## 📍 目前進度（每次工作結束更新）
 
-**最後更新**：2026-05-30
-**目前階段**：Phase 3 Step 6.5 — Dialogue Gap Reduction（prefetch + 縮 delay）
-**下一階段候選**：阿明 actions spritesheet 接線 / PNG 視覺問題修復 / 環境音
+**最後更新**：2026-06-03
+**目前階段**：Phase 4 Step 5.29 — Shorts 短影音自動化 pipeline 全套完成（剪片 + metadata + thumbnail + YT 上傳）
+**下一階段候選**：Shorts pipeline 實戰測試上線 / 24H MVP batch 預生成架構 / 陳柏偉剩餘 emotion 接線
 
 ### 重點里程碑（依 commit 由舊到新）
 
@@ -211,14 +211,27 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 重大澄清** | **2026-05-31 產品定位澄清**：不是新聞台、是「假 24H AI 角色聊天表演」。月成本估算從 NT$57k 降到 ~NT$700-1000（校正後、非最初的 NT$100-150）。**改變整個 24H MVP 架構方向** |
 | **★ GPT 65 號** | **2026-06-01 GPT 對 D/E 技術回覆**：Pool/Memory 雙層、Batch 12-16 段、metadata+selector anti-repeat、模式命名去新聞化（live_chat/chat_replay/topic_tease/chill_chat）|
 | **24H MVP** | 規劃中（討論於 62 筆記、共識見 63 決策文件、Phase 4 開始實作）|
+| **4 Step 5.12~5.14** | 接小美 emotion sheet（7 表情）+ idle 呼吸浮動 + V3 修怪手嘴位 |
+| **4 Step 5.15~5.16** | 小美套王乃伃《狠狠抖內幕》風格 + emotion 欄位映射 + **改名「王于安」** + 15 張角色圖去綠幕 + 舊素材歸檔瘦身 |
+| **4 Step 5.17~5.18** | 王于安 individual PNG 接線（load.image / `__BASE` frame 修正）+ emotion 多段陣列 + 分布 log |
+| **4 Step 5.19~5.20** | 預算上調（月 $50→$80、日 $6→$12）+ **Anthropic prompt caching**（降 ~30% input cost）|
+| **4 色彩修正** | 王于安 14~15 張 PNG 色彩對齊 emo_idle、chromakey 保留 100% alpha、histogram matching 修暗化 bug、`/preview` 比對頁 |
+| **4 Step 5.22** | prompt 加「同情當事人 / 不貶低真實傷害」引導 |
+| **4 陳柏偉系統** | **阿明哥 → 陳柏偉** 整套改名（3Q 陳柏惟風）+ 9 emotion individual PNG + 新聞歧義消解三層架構 |
+| **4 Step 5.23~5.25** | 右下 CTA 雙欄並排（來賓/陳柏偉、主播/王于安）+ 陳柏偉 +8 emotion |
+| **4 BGM 雙首** | 兩首輪流播放（PCH / Let's go back — Patrick Patrikios）、YT Audio Library 零 ContentID 風險、開關藏在「24H AI LIVE」badge 隱藏點擊、畫面不顯示按鈕 |
+| **4 UI 微調** | 對話泡泡字級 26→30px、框避免遮到王于安 |
+| **4 Step 5.27** | 加 **Yahoo News TW RSS** 第二來源、補 Google 夜間新聞稀疏 |
+| **★ 4 Step 5.28~5.29** | **Shorts 短影音自動化 pipeline**：Phase 1 punchline 笑點評分 + 報告 → Phase 2+3 剪片 + metadata + thumbnail + **YouTube 上傳**全套 |
 
 ### 已知待辦 / 限制
 
-- [ ] **產品定位轉向後的架構重做**：Step 6.5 prefetch 將被砍掉、改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md`
-- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 加「諷刺現象不指控人」規則、24H 開放前必做（法律風險）
-- [ ] **小美 PNG 視覺問題**：白色西裝在深背景變透明（AI 生圖去白底副作用）+ 邊緣白光暈。**程式端無法修、要 Codex 重生 `char_xiaomei_actions.png`**。詳見 51~55 BRIEF。
-- [ ] **阿明 actions spritesheet 未接**：目前阿明仍是 v2 draft 單張、所有 status 都同 frame
-- [ ] BGM / 環境音（OBS 端可加、不需動程式）
+- [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
+- [ ] **Shorts pipeline 實戰測試**：5.28~5.29 全套已完成、但需實際跑一輪驗證剪片品質 + YT 上傳授權流程
+- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 已有「同情當事人」引導、24H 公開前再 review 一次法律風險
+- [x] ~~小美 PNG 視覺問題~~ → 已改名王于安、15 張去綠幕 + histogram matching 色彩對齊完成
+- [x] ~~阿明 actions spritesheet 未接~~ → 已改名陳柏偉、9 emotion individual PNG 完成
+- [x] ~~BGM / 環境音~~ → 雙首輪流播放實作完成（badge 隱藏點擊開關）
 
 ---
 
