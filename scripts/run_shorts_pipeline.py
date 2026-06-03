@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shorts_lib import (
     load_archive, load_api_key, round_uid, load_processed, mark_processed,
     load_score_cache, save_score_cache,
+    find_recording_for, parse_archive_ts,
     OUTPUT_DIR, clip_path,
 )
 
@@ -166,8 +167,15 @@ def main():
         print("[pipeline] 沒有新輪可處理、收工")
         return
 
+    # 只保留「有錄影涵蓋」的輪、避免評了卻剪不出來（對白早於/晚於錄影、或落在空檔）
+    covered = [r for r in fresh if find_recording_for(parse_archive_ts(r["ts"]))]
+    print(f"[pipeline] 有錄影涵蓋 {len(covered)} / {len(fresh)} 輪")
+    if not covered:
+        print("[pipeline] 沒有對白落在錄影時段內、確認 OBS 錄影時間 vs 對白時間")
+        return
+
     print("[pipeline] 評分中…")
-    scored = score_archive(fresh)
+    scored = score_archive(covered)
     scored.sort(key=lambda x: x["score"], reverse=True)
     qualified = [s for s in scored if s["score"] >= args.min_score][: args.top]
     print(f"[pipeline] 符合分數 {len(qualified)} 輪、分數："
