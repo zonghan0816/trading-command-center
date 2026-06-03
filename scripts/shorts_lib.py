@@ -19,6 +19,7 @@ HERE             = Path(__file__).resolve().parent.parent
 RECORDINGS_DIR   = Path("D:/TDT_recordings")
 OUTPUT_DIR       = HERE / "output" / "shorts"
 PROCESSED_LOG    = OUTPUT_DIR / ".processed.jsonl"
+SCORE_CACHE      = OUTPUT_DIR / ".score_cache.json"
 ARCHIVE_FILE     = HERE / "wwt_dialogue_archive.jsonl"
 CREDENTIALS_FILE = HERE / "youtube_credentials.json"
 TOKEN_FILE       = HERE / "youtube_token.json"
@@ -133,6 +134,24 @@ def mark_processed(uid: str, **extra) -> None:
     }
     with open(PROCESSED_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def load_score_cache() -> dict:
+    """讀評分快取 {uid: {"score": int, "reason": str}}、評過的不重評省 API。"""
+    if not SCORE_CACHE.exists():
+        return {}
+    try:
+        return json.loads(SCORE_CACHE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_score_cache(cache: dict) -> None:
+    """寫回評分快取。"""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    SCORE_CACHE.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def load_archive(date_filter: str | None = None) -> list[dict]:
