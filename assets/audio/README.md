@@ -32,8 +32,12 @@
 
 ## 目前放入的曲目
 
-- `bgm_1.mp3` — PCH
-- `bgm_2.mp3` — Patrick Patrikios「Lets Go Back」
+| key | 曲名 | 來源 | YT 直播風險 |
+|---|---|---|---|
+| bgm_1 | PCH | YouTube Audio Library | ✅ 零風險 |
+| bgm_2 | Patrick Patrikios「Lets Go Back」 | YouTube Audio Library | ✅ 零風險 |
+
+兩首都是 YT Audio Library 取得、上自家頻道直播不會被 ContentID 標記。
 
 ## 沒放音檔的話
 

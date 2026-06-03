@@ -76,13 +76,13 @@ Step 5.25c（家裡 Claude）  修兩個漏的
 
 ## 目前 BGM 曲目
 
-| key | 檔名 | 來源 | 長度 |
-|---|---|---|---|
-| bgm_1 | `bgm_1.mp3` (7.2 MB) | PCH | 待補 |
-| bgm_2 | `bgm_2.mp3` (6.3 MB) | Patrick Patrikios「Lets Go Back」 | 待補 |
+| key | 檔名 | 曲目 | 來源 | YT 直播風險 |
+|---|---|---|---|---|
+| bgm_1 | `bgm_1.mp3` (7.2 MB) | PCH | YouTube Audio Library | ✅ 零風險 |
+| bgm_2 | `bgm_2.mp3` (6.3 MB) | Patrick Patrikios「Lets Go Back」 | YouTube Audio Library | ✅ 零風險 |
 
-**授權狀態**：待確認（公司端沒附來源網址、之後要追溯是否 YT Audio Library / Pixabay）。
-**ContentID 風險**：未驗證、上線前應在 OBS 測試環境直播 1 小時看 YouTube 後台有沒有 claim。
+**授權狀態**：✅ 已確認、兩首皆從 YouTube Audio Library 取得、自家頻道直播不會被 ContentID 標記。
+**ContentID 風險**：零（YT 官方音樂庫保證）。
 
 ---
 
