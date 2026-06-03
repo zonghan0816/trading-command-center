@@ -29,6 +29,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shorts_lib import (
     load_archive, load_api_key, round_uid, load_processed, mark_processed,
+    load_score_cache, save_score_cache,
+    find_recording_for, parse_archive_ts,
     OUTPUT_DIR, clip_path,
 )
 
@@ -90,23 +92,48 @@ def batch_score(rounds: list[dict], client) -> list[dict]:
 
 
 def score_archive(rounds: list[dict]) -> list[dict]:
-    """評全部 archive、回傳 [{score, reason, round_data}]"""
+    """評 archive、回傳 [{score, reason, round_data}]。評過的（依 uid）讀快取、不重評省 API。"""
+    cache = load_score_cache()
+    scored: list[dict] = []
+    to_score: list[dict] = []
+
+    # 先把快取裡有的撈出來、其餘排進待評
+    for r in rounds:
+        uid = round_uid(r)
+        if uid in cache:
+            scored.append({
+                "score": int(cache[uid].get("score", 0)),
+                "reason": cache[uid].get("reason", ""),
+                "round_data": r,
+            })
+        else:
+            to_score.append(r)
+
+    if scored:
+        print(f"  快取命中 {len(scored)} 輪、不重評")
+    if not to_score:
+        return scored
+
     from anthropic import Anthropic
     client = Anthropic(api_key=load_api_key())
-    scored: list[dict] = []
-    for start in range(0, len(rounds), SCORE_BATCH_SIZE):
-        batch = rounds[start: start + SCORE_BATCH_SIZE]
+    for start in range(0, len(to_score), SCORE_BATCH_SIZE):
+        batch = to_score[start: start + SCORE_BATCH_SIZE]
         print(f"  批次 {start // SCORE_BATCH_SIZE + 1}：{len(batch)} 輪", end=" ", flush=True)
         results = batch_score(batch, client)
         for r in results:
             idx = r.get("idx", -1)
             if 0 <= idx < len(batch):
+                score = int(r.get("score", 0))
+                reason = r.get("reason", "")
                 scored.append({
-                    "score": int(r.get("score", 0)),
-                    "reason": r.get("reason", ""),
+                    "score": score,
+                    "reason": reason,
                     "round_data": batch[idx],
                 })
+                cache[round_uid(batch[idx])] = {"score": score, "reason": reason}
         print(f"OK ({len(results)})")
+
+    save_score_cache(cache)
     return scored
 
 
@@ -140,8 +167,15 @@ def main():
         print("[pipeline] 沒有新輪可處理、收工")
         return
 
+    # 只保留「有錄影涵蓋」的輪、避免評了卻剪不出來（對白早於/晚於錄影、或落在空檔）
+    covered = [r for r in fresh if find_recording_for(parse_archive_ts(r["ts"]))]
+    print(f"[pipeline] 有錄影涵蓋 {len(covered)} / {len(fresh)} 輪")
+    if not covered:
+        print("[pipeline] 沒有對白落在錄影時段內、確認 OBS 錄影時間 vs 對白時間")
+        return
+
     print("[pipeline] 評分中…")
-    scored = score_archive(fresh)
+    scored = score_archive(covered)
     scored.sort(key=lambda x: x["score"], reverse=True)
     qualified = [s for s in scored if s["score"] >= args.min_score][: args.top]
     print(f"[pipeline] 符合分數 {len(qualified)} 輪、分數："

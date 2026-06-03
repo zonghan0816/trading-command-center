@@ -19,6 +19,7 @@ HERE             = Path(__file__).resolve().parent.parent
 RECORDINGS_DIR   = Path("D:/TDT_recordings")
 OUTPUT_DIR       = HERE / "output" / "shorts"
 PROCESSED_LOG    = OUTPUT_DIR / ".processed.jsonl"
+SCORE_CACHE      = OUTPUT_DIR / ".score_cache.json"
 ARCHIVE_FILE     = HERE / "wwt_dialogue_archive.jsonl"
 CREDENTIALS_FILE = HERE / "youtube_credentials.json"
 TOKEN_FILE       = HERE / "youtube_token.json"
@@ -76,28 +77,56 @@ def list_recordings() -> list[tuple[Path, datetime]]:
     return items
 
 
-def find_recording_for(dialogue_ts: datetime, padding_sec: int = 90) -> tuple[Path, float] | None:
-    """找出哪個 OBS 錄影檔覆蓋此時刻、回傳 (path, offset_seconds)。
+_INTERVALS_CACHE: list[tuple[Path, datetime, datetime]] | None = None
 
-    offset = dialogue_ts - file_start_ts (秒)、給 ffmpeg -ss 用。
-    錄影檔不存在 / dialogue_ts 早於所有錄影 → None。
+
+def _probe_duration(path: Path) -> float | None:
+    """ffprobe 取影片長度（秒）、失敗回 None。"""
+    try:
+        ff = find_ffprobe()
+        r = subprocess.run(
+            [ff, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(r.stdout.strip())
+    except Exception:
+        return None
+
+
+def list_recording_intervals() -> list[tuple[Path, datetime, datetime]]:
+    """回傳 [(path, start_ts, end_ts)]、end 用 ffprobe 長度算、失敗 fallback 檔案修改時間。
+
+    同一個 run 內快取、避免對每輪對白重複 ffprobe。
     """
-    recs = list_recordings()
-    if not recs:
-        return None
-    chosen = None
-    for path, file_ts in recs:
-        if file_ts <= dialogue_ts:
-            chosen = (path, file_ts)
+    global _INTERVALS_CACHE
+    if _INTERVALS_CACHE is not None:
+        return _INTERVALS_CACHE
+    intervals: list[tuple[Path, datetime, datetime]] = []
+    for path, start in list_recordings():
+        dur = _probe_duration(path)
+        if dur:
+            end = start + timedelta(seconds=dur)
         else:
-            break
-    if not chosen:
-        return None
-    path, file_ts = chosen
-    offset = (dialogue_ts - file_ts).total_seconds()
-    if offset < 0:
-        return None
-    return path, offset
+            # fallback：檔案修改時間 ≈ 錄影停止時間
+            end = datetime.fromtimestamp(path.stat().st_mtime)
+        intervals.append((path, start, end))
+    _INTERVALS_CACHE = intervals
+    return intervals
+
+
+def find_recording_for(dialogue_ts: datetime, padding_sec: int = 90) -> tuple[Path, float] | None:
+    """找出哪個 OBS 錄影檔「真正涵蓋」此時刻、回傳 (path, offset_seconds)。
+
+    涵蓋 = file_start - padding <= dialogue_ts <= file_end。
+    offset = dialogue_ts - file_start_ts (秒、最小 0)、給 ffmpeg -ss 用。
+    沒有任何錄影涵蓋（含落在錄影空檔）→ None。
+    """
+    for path, start, end in list_recording_intervals():
+        if start - timedelta(seconds=padding_sec) <= dialogue_ts <= end:
+            offset = max(0.0, (dialogue_ts - start).total_seconds())
+            return path, offset
+    return None
 
 
 def parse_archive_ts(ts: str) -> datetime:
@@ -133,6 +162,24 @@ def mark_processed(uid: str, **extra) -> None:
     }
     with open(PROCESSED_LOG, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def load_score_cache() -> dict:
+    """讀評分快取 {uid: {"score": int, "reason": str}}、評過的不重評省 API。"""
+    if not SCORE_CACHE.exists():
+        return {}
+    try:
+        return json.loads(SCORE_CACHE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_score_cache(cache: dict) -> None:
+    """寫回評分快取。"""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    SCORE_CACHE.write_text(
+        json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def load_archive(date_filter: str | None = None) -> list[dict]:

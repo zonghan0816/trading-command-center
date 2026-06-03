@@ -46,8 +46,8 @@ def build_ffmpeg_cmd(src: Path, start_sec: float, out: Path) -> list[str]:
     # 1) bg: 用同來源縮放 + 中央裁切到 9:16 + 高斯模糊 + 暗化
     # 2) fg: 16:9 內容 scale 到 1080 寬、置中疊上去
     filter_complex = (
-        # 背景：縮放到 9:16 蓋滿、模糊、暗化
-        f"[0:v]scale={SHORTS_W * 2}:-2,"
+        # 背景：cover 模式放大到「蓋滿」9:16（兩邊都 >= 目標）、中央裁切、模糊、暗化
+        f"[0:v]scale={SHORTS_W}:{SHORTS_H}:force_original_aspect_ratio=increase,"
         f"crop={SHORTS_W}:{SHORTS_H},"
         f"boxblur=20:1,"
         f"eq=brightness=-0.3[bg];"
