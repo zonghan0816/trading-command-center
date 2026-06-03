@@ -71,6 +71,20 @@ _NEWS_CATEGORIES: list[tuple[str, list[str]]] = [
 ]
 _PER_CATEGORY_LIMIT = 4              # 每類抓 4 條、合計 ~32 條、dedupe 後 ~28（Step 5.9）
 
+# Phase 4 Step 5.27: Yahoo News TW RSS 第二來源、補 Google News 夜間稀疏
+# 8 個 label → Yahoo 對應 section path（""=top stories）
+_YAHOO_NEWS_BASE = "https://tw.news.yahoo.com/rss"
+_YAHOO_NEWS_SECTIONS: dict[str, str] = {
+    "焦點":       "",
+    "台灣":       "/politics",
+    "國際":       "/world",
+    "商業":       "/finance",
+    "科學與科技": "/technology",
+    "娛樂":       "/entertainment",
+    "體育":       "/sports",
+    "健康":       "/health",
+}
+
 _NEWS_REFRESH_SEC = 300              # 5 分鐘刷新一次（Step 5.9: 對話追話題、刷快一點）
 _TOPIC_ROTATE_CHECK_SEC = 60         # 1 分鐘檢查一次是否該換 topic
 _MIN_ROUNDS_PER_TOPIC = 2            # 同 topic 跑 2 輪就換（節奏快、避免重複感）
@@ -571,6 +585,43 @@ def _fetch_og_context(url: str) -> str:
         return ''
 
 
+def _fetch_one_yahoo(label: str, section: str, per_limit: int) -> list[tuple[str, str, str]]:
+    """抓一個 Yahoo News TW section 的 RSS。
+    Yahoo title 不像 Google 帶 " - 媒體名"、保險仍 rsplit 處理。
+    失敗回 []、不 raise。
+    """
+    url = f"{_YAHOO_NEWS_BASE}{section}"
+    try:
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "Mozilla/5.0 (TDT-WWT/1.0)"},
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            xml_bytes = resp.read()
+        root = ET.fromstring(xml_bytes)
+        items = root.findall(".//item")
+        results: list[tuple[str, str, str]] = []
+        for item in items[: per_limit * 2]:
+            title_el = item.find("title")
+            if title_el is None or not title_el.text:
+                continue
+            raw = title_el.text.strip()
+            cleaned = raw.rsplit(" - ", 1)[0].strip()
+            if len(cleaned) < 6:
+                continue
+            link_el  = item.find("link")
+            desc_el  = item.find("description")
+            link_url = (link_el.text or '').strip() if link_el is not None else ''
+            desc_raw = (desc_el.text or '') if desc_el is not None else ''
+            snippet  = re.sub(r'<[^>]+>', ' ', desc_raw)[:300]
+            results.append((cleaned, link_url, snippet))
+            if len(results) >= per_limit:
+                break
+        return results
+    except Exception as e:
+        print(f"[news] yahoo '{label}' failed: {e}")
+        return []
+
+
 def _fetch_one_section(label: str, section: str, per_limit: int) -> list[tuple[str, str, str]]:
     """抓一個 Google News section 的 RSS。
     回傳 list[(title, link_url, rss_snippet)]。
@@ -623,8 +674,15 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     raw_per_section = max(_PER_CATEGORY_LIMIT * 2, 6)
     for label, sections in _NEWS_CATEGORIES:
         cat_pool: list[tuple[str, str, str]] = []
+        # Source 1: Google News（多 section 可合併）
         for section in sections:
             cat_pool.extend(_fetch_one_section(label, section, raw_per_section))
+        google_count = len(cat_pool)
+        # Source 2: Yahoo News TW（Step 5.27、補 Google 夜間稀疏）
+        yahoo_section = _YAHOO_NEWS_SECTIONS.get(label)
+        if yahoo_section is not None:
+            cat_pool.extend(_fetch_one_yahoo(label, yahoo_section, raw_per_section))
+        yahoo_count = len(cat_pool) - google_count
         random.shuffle(cat_pool)
         new_in_cat = 0
         for tup in cat_pool:
@@ -636,7 +694,7 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
             new_in_cat += 1
             if new_in_cat >= _PER_CATEGORY_LIMIT or len(all_tuples) >= limit:
                 break
-        breakdown.append(f"{label}={new_in_cat}")
+        breakdown.append(f"{label}={new_in_cat}(g{google_count}+y{yahoo_count})")
         if len(all_tuples) >= limit:
             break
     if breakdown:

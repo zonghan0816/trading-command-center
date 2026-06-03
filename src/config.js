@@ -75,8 +75,8 @@ export const CONFIG = {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
-    characterIndividual:      0.395, // 王于安 individual PNG 1254×1254 用
-    characterIndividualAming: 0.41, // 3Q 陳柏惟 individual PNG 用、獨立調整
+    characterIndividual:      0.41, // 王于安 individual PNG 1254×1254 用
+    characterIndividualAming: 0.42, // 3Q 陳柏惟 individual PNG 用、獨立調整
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
