@@ -1,14 +1,21 @@
 # BGM 音檔目錄
 
-## 規格（Phase 4 Step 5.25、走 GPT 82 B' 方案）
+## 規格（Phase 4 Step 5.25、走 GPT 82 B' 方案、公司端改成雙首輪流）
 
-放一個檔案：**`bgm_main.mp3`** 或 **`bgm_main.ogg`**（兩個都放更穩、瀏覽器自動選）。
+放兩個檔案：**`bgm_1.mp3`** + **`bgm_2.mp3`**
 
+- 程式行為：bgm_1 → 播完 → bgm_2 → 播完 → bgm_1 →（無限循環）
 - 曲風：lofi / soft podcast background / chill beat
 - 節奏：中慢速
 - 情緒：中性、穩定、不搶對話
-- 長度：3-10 分鐘無縫 loop（程式會 loop）
-- 音量：歸一化即可、程式預設 0.28
+- 長度：3-10 分鐘無縫即可（程式會接歌）
+- 音量：歸一化、程式預設 0.28
+
+## 開關（隱藏式）
+
+**沒有畫面按鈕**。點左上角「24H AI LIVE」品牌 badge 切換 mute / unmute、觀眾看不出來是控制 BGM。
+
+狀態存在 localStorage `bgm_muted = "0" / "1"`、重整保留。
 
 ## 合法來源（GPT 推薦）
 
@@ -23,14 +30,15 @@
 
 **避免**：Spotify / YouTube Music / 一般流行歌 / 不明來源 BGM / AI 生成但版權不清楚的音樂
 
-## 找好後
+## 目前放入的曲目
 
-1. 改名 → `bgm_main.mp3`
-2. 拖到這個目錄
-3. **不要 commit 進 git**（已加入 `.gitignore`、避免版權檔大小爆）
-4. 啟動 server、瀏覽器 Ctrl+Shift+R、應該聽到聲音
-5. 右上角會有 BGM ON/OFF 按鈕
+- `bgm_1.mp3` — PCH
+- `bgm_2.mp3` — Patrick Patrikios「Lets Go Back」
 
 ## 沒放音檔的話
 
-程式會 console.warn 提示、整體無聲帶過、不會 crash。
+`_startBgm()` 會 `cache.audio.exists()` 過濾、缺哪首就跳過、兩首都缺則 console.warn 並無聲帶過、整體不 crash。
+
+## 不會進 git
+
+`.gitignore` 已排除 `*.{mp3,ogg,wav}`、版權檔不會被推上 GitHub。

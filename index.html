@@ -267,7 +267,8 @@
       text-shadow: 0 0 8px rgba(200,160,122,0.5);
       background: rgba(24, 18, 12, 0.85);
     }
-    /* Phase 4 Step 2.1: 24H AI LIVE 品牌字 badge (左上、縮小+往內挪、不搶舞台) */
+    /* Phase 4 Step 2.1: 24H AI LIVE 品牌字 badge (左上、縮小+往內挪、不搶舞台)
+       Step 5.25+: badge 同時當隱藏 BGM 開關（觀眾看不出來、自己知道點哪）*/
     #brand-badge {
       position: absolute;
       top: 24px;
@@ -277,7 +278,8 @@
       background: url('/assets/ui_brand_24h_ai_live.png') no-repeat;
       background-size: contain;
       z-index: 11;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: pointer;
       filter: drop-shadow(0 0 6px rgba(255,107,53,0.35));
       opacity: 0.92;
     }
