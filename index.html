@@ -460,5 +460,14 @@
       setInterval(poll, 3000);
     })();
   </script>
+
+  <script>
+    // 24H AI LIVE badge 隱藏 BGM 開關（只有自己知道）
+    document.getElementById('brand-badge').addEventListener('click', function() {
+      const muted = localStorage.getItem('bgm_muted') === '1';
+      localStorage.setItem('bgm_muted', muted ? '0' : '1');
+      window.dispatchEvent(new CustomEvent('bgm-toggle', { detail: { muted: !muted } }));
+    });
+  </script>
 </body>
 </html>

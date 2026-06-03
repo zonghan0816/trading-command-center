@@ -1176,6 +1176,15 @@ export class OfficeScene extends Phaser.Scene {
       }
     }
 
+    // 監聽 brand-badge 隱藏點擊事件
+    window.addEventListener('bgm-toggle', (e) => {
+      if (e.detail.muted) {
+        if (this._bgmTrack && this._bgmTrack.isPlaying) this._bgmTrack.stop();
+      } else {
+        this._playNextBgm();
+      }
+    });
+
     this._createBgmToggle(true);
   }
 
@@ -1192,34 +1201,8 @@ export class OfficeScene extends Phaser.Scene {
     this._bgmTrack = track;
   }
 
-  _createBgmToggle(hasBgm) {
-    const muted = localStorage.getItem('bgm_muted') === '1';
-    const label = !hasBgm ? 'NO BGM' : (muted ? 'BGM OFF' : 'BGM ON');
-
-    const btn = this.add.text(this.W - 20, 20, label, {
-      fontSize: '16px',
-      color: '#ffffff',
-      backgroundColor: '#000000aa',
-      fontFamily: '"Microsoft JhengHei", Consolas, sans-serif',
-      padding: { x: 10, y: 6 },
-    }).setOrigin(1, 0).setDepth(1000);
-
-    if (!hasBgm) { btn.setAlpha(0.5); return; }
-
-    btn.setInteractive({ useHandCursor: true });
-    btn.on('pointerdown', () => {
-      const isMuted = localStorage.getItem('bgm_muted') === '1';
-      const next = !isMuted;
-      localStorage.setItem('bgm_muted', next ? '1' : '0');
-
-      if (next) {
-        if (this._bgmTrack && this._bgmTrack.isPlaying) this._bgmTrack.stop();
-        btn.setText('BGM OFF');
-      } else {
-        this._playNextBgm();
-        btn.setText('BGM ON');
-      }
-    });
+  _createBgmToggle(_hasBgm) {
+    // 開關移到 brand-badge 隱藏點擊（index.html），畫面不顯示按鈕
   }
 
   update() {}
