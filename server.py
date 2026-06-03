@@ -160,6 +160,7 @@ STATE_FILE = _HERE / "wwt_state.json"
 NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
 DIALOGUE_MEMORY_FILE = _HERE / "wwt_dialogue_memory.json"
 OBSERVE_LOG_FILE = _HERE / "wwt_observe_log.jsonl"   # Phase 4 Step 5.11: 24H 觀察期 JSONL 記錄
+DIALOGUE_ARCHIVE_FILE = _HERE / "wwt_dialogue_archive.jsonl"  # Step 5.28: 全文持久化、給 Shorts pipeline
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
 
@@ -175,6 +176,33 @@ def _log_observe(event: str, **payload) -> None:
             **payload,
         }
         with open(OBSERVE_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
+
+
+def _append_dialogue_archive(topic: str, tone: str, angle: str,
+                              round_num: int, dialogue: list) -> None:
+    """Phase 4 Step 5.28: 每輪對話全文持久化、給 Shorts 自動挑片 pipeline 用。
+    跟 observe log 分開：observe log = 摘要統計、archive = 全文素材。
+    寫失敗一律吞掉。
+    """
+    try:
+        line = {
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "topic": topic,
+            "tone": tone,
+            "angle": angle,
+            "round_num": round_num,
+            "lines": [
+                {
+                    "speaker": l.get("speaker", ""),
+                    "text": str(l.get("text", ""))[:250],
+                }
+                for l in dialogue if isinstance(l, dict)
+            ],
+        }
+        with open(DIALOGUE_ARCHIVE_FILE, "a", encoding="utf-8") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
     except Exception:
         pass
@@ -1580,6 +1608,10 @@ async def generate_chat():
                 emotions_used.extend(str(e) for e in line["emotions"])
             elif isinstance(line.get("emotion"), str):
                 emotions_used.append(line["emotion"])
+        # Phase 4 Step 5.28: 全文持久化、給 Shorts pipeline 之後用
+        _append_dialogue_archive(topic, turn_type, angle,
+                                 _current_topic_rounds, dialogue)
+
         _log_observe(
             "dialogue",
             topic=topic, tone=turn_type, angle=angle,
