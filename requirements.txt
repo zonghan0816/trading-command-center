@@ -2,3 +2,9 @@ fastapi
 uvicorn
 anthropic
 python-dotenv
+
+# Phase 4 Step 5.29: Shorts pipeline
+Pillow
+google-auth
+google-auth-oauthlib
+google-api-python-client

@@ -13,6 +13,12 @@ wwt_dialogue_memory.json
 wwt_observe_log.jsonl
 wwt_dialogue_archive.jsonl
 
+# Phase 4 Step 5.29: Shorts pipeline
+youtube_credentials.json
+youtube_token.json
+output/
+
+
 # BGM 音檔（版權檔、不進 git）
 assets/audio/*.mp3
 assets/audio/*.ogg
