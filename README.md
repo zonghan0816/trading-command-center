@@ -4,7 +4,7 @@
 
 - 🗞️ 真實新聞（Google News 抓的）
 - 🤖 真實 AI（Claude Haiku 4.5 生成）
-- 🎭 真實角色設定（阿明 / 王于安一致）
+- 🎭 真實角色設定（陳柏偉 / 王于安一致）
 - 📺 看起來像 live 的 24H 直播感
 - 💬 內容風格：詼諧、批評、嘲諷、討論（不是新聞播報）
 
@@ -15,7 +15,7 @@
 
 > ⚠️ 目錄名仍叫 `trading-command-center`、state 檔仍叫 `wwt_*.json` — legacy（此專案原本是台股交易中心 dashboard、後來轉型成 TDT）。不影響運作。
 
-> ⚠️ **目前實作仍是「即時生成」架構**（Phase 3 Step 6.6 為止）、月成本約 NT$57k（24/7 計）。**24H MVP 目標架構是 batch 預生成 + pool 循環、月成本可降到 NT$100-150**。詳見 [CLAUDE.md](CLAUDE.md) 跟 `62_24H_MVP_DISCUSSION_NOTES.md`。
+> ⚠️ **目前實作仍是「即時生成」架構**、會在 24H MVP 改成 **batch 預生成 + pool 循環**。校正後月成本估算 **~NT$700-1000**（預算上限 NT$1,500/月）。詳見 [CLAUDE.md](CLAUDE.md) 跟 `62_24H_MVP_DISCUSSION_NOTES.md`。
 
 ---
 
@@ -40,7 +40,7 @@ OBS 直播設定：Browser Source → `http://localhost:8765` → 1920×1080。
 | 🎙 陳柏偉 | 左 (35%) | 3Q 陳柏惟風 + 議論派、草根直率、敢嗆但不指控個人 |
 | 🎙 王于安 | 右 (65%) | 30 歲女主播底子轉政論主持（王乃伃風）、反差萌、網感重、Podcast 控場 |
 
-固定站位、不走動。用泡泡 + emotion sheet 表情切換表現對話（王于安 7 emotions、阿明 1 frame）。
+固定站位、不走動。用泡泡 + emotion sheet 表情切換表現對話（王于安 7 emotions、陳柏偉 9 emotion）。
 
 ---
 
