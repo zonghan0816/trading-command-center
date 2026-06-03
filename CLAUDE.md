@@ -360,6 +360,7 @@ curl -X POST http://localhost:8765/api/news/refresh
 ## 💡 給 Claude 的工作守則
 
 - **使用者有記憶障礙** — 每次完成段落工作後，**主動更新「📍 目前進度」並提醒使用者 commit + push**
+- **重大改動寫 .md 步驟報告**（home Claude / office Claude 都適用）— commit message 只能說「做了什麼」、`NN_DESCRIPTION.md` 才能說「為什麼這樣做 + 決策路徑 + 跟之前方案的差異」。範例見 [`82_REPORT_TO_GPT_BGM_DECISION.md`](82_REPORT_TO_GPT_BGM_DECISION.md) + [`83_BGM_DUAL_TRACK_FINAL.md`](83_BGM_DUAL_TRACK_FINAL.md)。觸發條件：新增功能、改架構、跨檔案 refactor、改方向覆蓋前一個 Claude 的方案。不需要寫的：純 bugfix、單檔 typo、UI 微調。檔名約定：高位數遞增（80 → 81 → 82...）、複數 Claude 同號用 suffix 區分。
 - 改 `OfficeScene.js` 的 polling / state apply 邏輯時、確認 `_chatInProgress` 不會被狀態同步覆蓋（Step 5.1 已修過）
 - 改 `OfficeScene.js` 的 `_playLineSequence` / `_playDialogue` 時、注意 `_dialogueSeq` seq guard 不要漏（防 race condition）
 - 不要把 `ANTHROPIC_API_KEY` 寫進任何 commit 檔案
