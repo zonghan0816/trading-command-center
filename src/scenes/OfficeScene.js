@@ -353,11 +353,20 @@ export class OfficeScene extends Phaser.Scene {
         : Math.round(48 * S.character);
 
       const headTopY = charY - charHeight;
-      // 安安泡泡右邊界放寬到 1910 避免被推回覆蓋角色
-      let bCX = (id === 'aming')
-        ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10)
-        : Math.min(1910 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
-      let bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
+      // 泡泡位置：優先用 config.layout.bubbles 的絕對座標（不卡邊界、所見即所得）
+      // 沒設才走舊的「從角色位置推算 + 夾邊界」邏輯（fallback）
+      const bubCfg = CONFIG.layout.bubbles?.[id];
+      let bCX, bCY;
+      if (bubCfg && typeof bubCfg.x === 'number' && typeof bubCfg.y === 'number') {
+        bCX = bubCfg.x;
+        bCY = bubCfg.y;
+      } else {
+        // 安安泡泡右邊界放寬到 1910 避免被推回覆蓋角色
+        bCX = (id === 'aming')
+          ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10)
+          : Math.min(1910 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
+        bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
+      }
 
       // Graphics 用相對座標建立（定位在 bCX, bCY），setPosition 才能正確移動
       const bubbleBg = this.add.graphics({ x: bCX, y: bCY });
