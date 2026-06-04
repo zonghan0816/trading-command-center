@@ -171,7 +171,7 @@ _TTS_VOICES = {
     "xiaomei": "zh-TW-HsiaoChenNeural", # 女聲（王于安）
 }
 _TTS_RATE = {
-    "aming":   "+10%",  # 陳柏偉：稍快有活力
+    "aming":   "+0%",   # 陳柏偉：正常速（Step 5.32 使用者要求）
     "xiaomei": "+0%",   # 王于安：正常速
 }
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
@@ -1485,7 +1485,10 @@ def _build_dynamic_prompt(state: dict, turn_type: str,
 # ── TTS helpers ───────────────────────────────────────────────────
 def _tts_cache_path(speaker: str, text: str) -> Path:
     import hashlib
-    key = f"{speaker}:{text}"
+    # voice + rate 納入 key：聲線 / 語速一改、快取自動失效重生（不會放到舊聲音）
+    voice = _TTS_VOICES.get(speaker, "")
+    rate = _TTS_RATE.get(speaker, "+0%")
+    key = f"{speaker}:{voice}:{rate}:{text}"
     h = hashlib.md5(key.encode("utf-8")).hexdigest()
     return TTS_DIR / f"{h}.mp3"
 

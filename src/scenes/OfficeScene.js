@@ -890,6 +890,7 @@ export class OfficeScene extends Phaser.Scene {
     this._dialogueSeq = (this._dialogueSeq || 0) + 1;
     const seq = this._dialogueSeq;
     this._prefetchStartedForSeq = null;
+    if (this._stopCurrentAudio) this._stopCurrentAudio();  // Step 5.32: 新一輪開始、停掉殘留語音
 
     // Phase 4 Step 5.6: 告訴後端「現在正在講這個 topic」、LED 才不會跑前面
     const speakingTopic = data.topic || '';
@@ -1080,6 +1081,15 @@ export class OfficeScene extends Phaser.Scene {
     return chunks;
   }
 
+  /** 停掉目前正在播的語音（換句 / 換輪時呼叫、避免重疊或殘留）。 */
+  _stopCurrentAudio() {
+    if (this._currentLineAudio) {
+      try { this._currentLineAudio.pause(); this._currentLineAudio.currentTime = 0; } catch (_) {}
+      this._currentLineAudio = null;
+    }
+    if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch (_) {} }
+  }
+
   _playLineSequence(lines, walkerId, onComplete, seq) {
     if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
     if (lines.length === 0) { onComplete(); return; }
@@ -1092,58 +1102,94 @@ export class OfficeScene extends Phaser.Scene {
     }
 
     const chunks = this._chunkText(line.text);
-    // Phase 3 Step 5.1: 新 chunkMs 公式、節奏稍快但不要快到看不完
-    // Phase 3 Step 6.7: 字幕讀完前不換段、放慢為接近中文閱讀速度（10 字/秒 → 5 字/秒）
-    // base 1400→2000、字單價 45→100、min 1800→2500、max 4200→5500
+    const totalLen = chunks.reduce((n, c) => n + c.length, 0) || 1;
+
+    // Step 5.32: 語音主導、泡泡跟著語音走
+    // - audioDurationMs：mp3 metadata 載到後拿到真實長度、speechSynthesis 用字數估
+    // - audioDone：語音真的播完（ended/onend）才換下一句、長句不會被砍
+    // - 無語音時 fallback 回原本的閱讀節奏 chunkMs
+    let audioDurationMs = null;
+    let audioDone = false;
+    const markAudioDone = () => { audioDone = true; };
     const chunkMs = (chunk) => Math.min(5500, Math.max(2500, 2000 + chunk.length * 100));
 
+    const startAudio = () => {
+      this._stopCurrentAudio();  // 保險：停掉上一句殘留
+      if (line._audio) {
+        try {
+          const a = new Audio(line._audio);
+          this._currentLineAudio = a;
+          a.addEventListener('loadedmetadata', () => {
+            if (isFinite(a.duration) && a.duration > 0) audioDurationMs = a.duration * 1000;
+          });
+          a.addEventListener('ended', markAudioDone);
+          a.addEventListener('error', markAudioDone);
+          a.play().catch((e) => {
+            markAudioDone();
+            console.warn('[TDT] mp3 被擋（點一下畫面解鎖）：', e?.message ?? e);
+          });
+        } catch (_) { markAudioDone(); }
+      } else if (window.speechSynthesis) {
+        try {
+          speechSynthesis.cancel();
+          const utt = new SpeechSynthesisUtterance(line.text);
+          utt.lang = 'zh-TW';
+          utt.rate = 1.0;   // Step 5.32: 兩位都正常語速
+          utt.volume = 0.9;
+          const voice = this._ttsVoices?.[line.speaker];
+          if (voice) utt.voice = voice;
+          utt.onend = markAudioDone;
+          utt.onerror = markAudioDone;
+          // 中文語音長度估：~5.5 字/秒
+          audioDurationMs = Math.max(1500, line.text.length * 180);
+          speechSynthesis.speak(utt);
+        } catch (_) { markAudioDone(); }
+      } else {
+        console.warn('[TDT] 無 server mp3、瀏覽器也不支援 speechSynthesis、本句無語音');
+        markAudioDone();
+      }
+      // 安全閥：語音事件萬一沒回、最多等這麼久就強制視為播完、避免卡住
+      const cap = Math.max(audioDurationMs || 0, totalLen * 350, 3000) + 6000;
+      this.time.delayedCall(cap, markAudioDone);
+    };
+
+    const advanceLine = () => {
+      if (seq !== this._dialogueSeq) return;
+      this._hideBubble(line.speaker);
+      // Phase 3 Step 6.2: 完句一律回 idle（不再限定 walkerId）
+      this._returnHostToIdle(line.speaker);
+      this.time.delayedCall(180, () => this._playLineSequence(rest, walkerId, onComplete, seq));
+    };
+
     const showChunks = (idx) => {
-      if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
+      if (seq !== this._dialogueSeq) return;  // 舊 seq、不執行
       if (idx >= chunks.length) {
-        this._hideBubble(line.speaker);
-        // Phase 3 Step 6.2: 完句一律回 idle（不再限定 walkerId、修小美卡在最後動作 bug）
-        this._returnHostToIdle(line.speaker);
-        // Phase 3 Step 6.5: line gap 300 → 180
-        this.time.delayedCall(180, () => this._playLineSequence(rest, walkerId, onComplete, seq));
+        // 所有泡泡都顯示完了 → 等語音真的講完才換下一句（長句不被砍）
+        const waitAudio = () => {
+          if (seq !== this._dialogueSeq) return;
+          if (audioDone) { advanceLine(); return; }
+          this.time.delayedCall(150, waitAudio);
+        };
+        waitAudio();
         return;
       }
       const chunk = chunks[idx];
       ch.bubbleText.setText(chunk);
       // Phase 4 Step 5.18: 支援 line.emotions 陣列（每 chunk 一個 emotion）
-      // 沒陣列就 fallback line.emotion 單值（向下相容）
       const emo = (Array.isArray(line.emotions) && line.emotions.length > 0)
         ? line.emotions[idx % line.emotions.length]
         : line.emotion;
       ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking', emo));
       if (idx === 0) {
-        // Phase 3 Step 5: 小美生效；阿明維持 talking
         this._showBubble(line.speaker);
         if (line.speaker === walkerId) this._syncBubble(walkerId);
-        // TTS：播放語音（fire-and-forget、失敗不影響播放）
-        // 優先用 server 預生成音檔（edge-tts）、server 沒給則 fallback 到瀏覽器 Web Speech API
-        if (line._audio) {
-          try {
-            new Audio(line._audio).play().catch(e => {
-              console.warn('[TDT] mp3 被擋（點一下畫面解鎖）：', e?.message ?? e);
-            });
-          } catch (_) {}
-        } else if (window.speechSynthesis) {
-          // server 沒回 mp3（edge-tts 沒裝 / 失敗）→ 用瀏覽器內建語音
-          try {
-            speechSynthesis.cancel();
-            const utt = new SpeechSynthesisUtterance(line.text);
-            utt.lang = 'zh-TW';
-            utt.rate = line.speaker === 'aming' ? 1.15 : 1.0;
-            utt.volume = 0.9;
-            const voice = this._ttsVoices?.[line.speaker];
-            if (voice) utt.voice = voice;
-            speechSynthesis.speak(utt);
-          } catch (_) {}
-        } else {
-          console.warn('[TDT] 無 server mp3、瀏覽器也不支援 speechSynthesis、本句無語音');
-        }
+        startAudio();
       }
-      this.time.delayedCall(chunkMs(chunk), () => showChunks(idx + 1));
+      // 泡泡停留時間：有語音長度就按字數比例分配、否則回原本閱讀節奏
+      const dwell = audioDurationMs
+        ? Math.max(1200, audioDurationMs * (chunk.length / totalLen))
+        : chunkMs(chunk);
+      this.time.delayedCall(dwell, () => showChunks(idx + 1));
     };
 
     showChunks(0);
@@ -1257,7 +1303,7 @@ export class OfficeScene extends Phaser.Scene {
     const key = this._bgmKeys[this._bgmIndex % this._bgmKeys.length];
     this._bgmIndex++;
 
-    const track = this.sound.add(key, { volume: 0.28 });
+    const track = this.sound.add(key, { volume: 0.14 });  // Step 5.32: 調小、不蓋過語音
     track.once('complete', () => this._playNextBgm());
     track.play();
     this._bgmTrack = track;
