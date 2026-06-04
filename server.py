@@ -161,6 +161,19 @@ NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
 DIALOGUE_MEMORY_FILE = _HERE / "wwt_dialogue_memory.json"
 OBSERVE_LOG_FILE = _HERE / "wwt_observe_log.jsonl"   # Phase 4 Step 5.11: 24H 觀察期 JSONL 記錄
 DIALOGUE_ARCHIVE_FILE = _HERE / "wwt_dialogue_archive.jsonl"  # Step 5.28: 全文持久化、給 Shorts pipeline
+
+# ── TTS (Edge-TTS) ────────────────────────────────────────────────
+TTS_DIR = _HERE / "output" / "tts"
+TTS_DIR.mkdir(parents=True, exist_ok=True)
+
+_TTS_VOICES = {
+    "aming":   "zh-TW-YunJheNeural",    # 男聲（陳柏偉）
+    "xiaomei": "zh-TW-HsiaoChenNeural", # 女聲（王于安）
+}
+_TTS_RATE = {
+    "aming":   "+10%",  # 陳柏偉：稍快有活力
+    "xiaomei": "+0%",   # 王于安：正常速
+}
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
 
@@ -1469,6 +1482,70 @@ def _build_dynamic_prompt(state: dict, turn_type: str,
 {anti_repeat_block}"""
 
 
+# ── TTS helpers ───────────────────────────────────────────────────
+def _tts_cache_path(speaker: str, text: str) -> Path:
+    import hashlib
+    key = f"{speaker}:{text}"
+    h = hashlib.md5(key.encode("utf-8")).hexdigest()
+    return TTS_DIR / f"{h}.mp3"
+
+
+def _patch_tts_ssl() -> None:
+    """雲端環境有 self-signed proxy、patch edge_tts 的 SSL context 跳過驗證。只執行一次。"""
+    try:
+        import ssl
+        import edge_tts.communicate as et_comm
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        et_comm._SSL_CTX = ctx
+    except Exception:
+        pass
+
+
+_tts_ssl_patched = False
+
+
+async def _gen_tts_line(speaker: str, text: str) -> str | None:
+    """生成單句 TTS mp3、命中快取直接回 url。
+    失敗回 None、不 raise。
+    """
+    global _tts_ssl_patched
+    try:
+        import edge_tts
+    except ImportError:
+        return None
+    if not _tts_ssl_patched:
+        _patch_tts_ssl()
+        _tts_ssl_patched = True
+    voice = _TTS_VOICES.get(speaker)
+    if not voice or not text:
+        return None
+    cache = _tts_cache_path(speaker, text)
+    if not cache.exists():
+        try:
+            rate = _TTS_RATE.get(speaker, "+0%")
+            communicate = edge_tts.Communicate(text, voice, rate=rate)
+            await communicate.save(str(cache))
+        except Exception as e:
+            print(f"[tts] gen failed ({speaker}): {e}")
+            return None
+    return f"/tts/{cache.name}"
+
+
+async def _gen_tts_dialogue(dialogue: list) -> list:
+    """平行生成整輪對話的 TTS、回傳 audio_urls（與 dialogue 等長、失敗位置為 null）。"""
+    tasks = [
+        _gen_tts_line(
+            line.get("speaker", "") if isinstance(line, dict) else "",
+            line.get("text", "")    if isinstance(line, dict) else "",
+        )
+        for line in dialogue
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [None if isinstance(r, Exception) else r for r in results]
+
+
 @app.post("/api/chat")
 async def generate_chat():
     """讓陳柏偉與王于安用 Claude 生成鄉民對話"""
@@ -1557,6 +1634,11 @@ async def generate_chat():
         if blocked_count > 0:
             print(f"[quality] 替換掉 {blocked_count} 句 (本輪共 {len(dialogue)} 句)")
 
+        # TTS：平行生成本輪所有台詞的語音（失敗不影響對話）
+        audio_urls = await _gen_tts_dialogue(dialogue)
+        tts_ok = sum(1 for u in audio_urls if u)
+        print(f"[tts] 生成 {tts_ok}/{len(dialogue)} 句語音")
+
         # 更新 state：把最後對白存入 hosts + Step 5 累積 cost
         st = _load_state()
         for line in dialogue:
@@ -1630,7 +1712,8 @@ async def generate_chat():
             (l["speaker"] for l in dialogue[1:] if l["speaker"] != speaker_a),
             None,
         )
-        return {"dialogue": dialogue, "speaker_a": speaker_a, "speaker_b": speaker_b,
+        return {"dialogue": dialogue, "audio_urls": audio_urls,
+                "speaker_a": speaker_a, "speaker_b": speaker_b,
                 "tone": turn_type, "angle": angle,
                 "topic": topic,  # Phase 4: 回傳 topic、給前端 prefetch 比對用
                 "topic_round": _current_topic_rounds}
@@ -1976,6 +2059,7 @@ def rotate_topic_now():
 
 
 # ── 靜態檔案 ──────────────────────────────────────────────────────
+app.mount("/tts", StaticFiles(directory=str(TTS_DIR)), name="tts")
 app.mount("/src", StaticFiles(directory=str(_HERE / "src")), name="src")
 
 _ASSETS = _HERE / "assets"
