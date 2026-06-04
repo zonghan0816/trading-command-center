@@ -84,6 +84,25 @@ export class OfficeScene extends Phaser.Scene {
         else speechSynthesis.onvoiceschanged = _loadTtsVoices;
       }
 
+      // TTS：音訊自動播放解鎖（瀏覽器分頁在使用者首次互動前會擋 audio / speechSynthesis）
+      // 首次 pointerdown/keydown 後解鎖、之後 new Audio().play() 跟 speechSynthesis 才會出聲
+      // OBS Browser Source 多半允許 autoplay、不受此限制
+      this._audioUnlocked = false;
+      const _unlockAudio = () => {
+        if (this._audioUnlocked) return;
+        this._audioUnlocked = true;
+        try { const a = new Audio(); a.play().catch(() => {}); } catch (_) {}
+        try {
+          if (window.speechSynthesis) {
+            speechSynthesis.resume();
+            speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+          }
+        } catch (_) {}
+        console.info('[TDT] 🔊 audio unlocked（已可播語音）');
+      };
+      window.addEventListener('pointerdown', _unlockAudio, { once: true });
+      window.addEventListener('keydown', _unlockAudio, { once: true });
+
       this._buildBackground();
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
@@ -1103,8 +1122,13 @@ export class OfficeScene extends Phaser.Scene {
         // TTS：播放語音（fire-and-forget、失敗不影響播放）
         // 優先用 server 預生成音檔（edge-tts）、server 沒給則 fallback 到瀏覽器 Web Speech API
         if (line._audio) {
-          try { new Audio(line._audio).play().catch(() => {}); } catch (_) {}
+          try {
+            new Audio(line._audio).play().catch(e => {
+              console.warn('[TDT] mp3 被擋（點一下畫面解鎖）：', e?.message ?? e);
+            });
+          } catch (_) {}
         } else if (window.speechSynthesis) {
+          // server 沒回 mp3（edge-tts 沒裝 / 失敗）→ 用瀏覽器內建語音
           try {
             speechSynthesis.cancel();
             const utt = new SpeechSynthesisUtterance(line.text);
@@ -1115,6 +1139,8 @@ export class OfficeScene extends Phaser.Scene {
             if (voice) utt.voice = voice;
             speechSynthesis.speak(utt);
           } catch (_) {}
+        } else {
+          console.warn('[TDT] 無 server mp3、瀏覽器也不支援 speechSynthesis、本句無語音');
         }
       }
       this.time.delayedCall(chunkMs(chunk), () => showChunks(idx + 1));
