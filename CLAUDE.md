@@ -182,9 +182,9 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-04
-**目前階段**：Phase 4 Step 5.32 — TTS 音訊主導泡泡同步（長句子不再被截斷）
-**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / TTS 聲線微調（測試後）
-**⚠️ 下一個 Claude 注意**：Step 5.32 已 merge，需要 `git pull` + 重啟 `啟動.bat` + 點畫面解鎖音訊才能聽到效果。TTS 雙層保險：① server-side Edge-TTS mp3（本機正常）② Web Speech API fallback（雲端/proxy 環境）。`_playLineSequence` 改為音訊主導，等 `ended`/`onend` 才換句。
+**目前階段**：Phase 4 Step 5.33 — 對話改「丟球接話」邏輯、去腳本感
+**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / TTS 聲線微調 / 跨輪對話記憶（讓下一輪接上一輪）
+**⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
 
 ### 重點里程碑（依 commit 由舊到新）
 
@@ -228,6 +228,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 87 下一代架構** | **真人半身 × 看螢幕循環 × 語音** 設計筆記（使用者口述）：轉頭看螢幕遮生成延遲、TTS 補語音（最大痛點）、順帶解直式 Shorts 空洞。決定 **Edge-TTS 免費試、橫式版先加語音**。詳見 `87_REALISTIC_SCREEN_WATCH_LOOP.md` |
 | **★ 4 Step 5.31** | **TTS 語音實作**：後端 `_gen_tts_dialogue` 平行生成 edge-tts mp3（陳柏偉 YunJheNeural / 王于安 HsiaoChenNeural）+ 快取；前端優先播 server mp3、失敗 fallback 到 `speechSynthesis`（Web Speech API）；SSL patch 處理企業/雲端 proxy 環境 |
 | **★ 4 Step 5.32** | **TTS 音訊主導泡泡同步**：重寫 `_playLineSequence`，用 `ended`/`onend` 事件驅動（非固定計時器），長句子不再被截斷；`_stopCurrentAudio()` 防音訊重疊；陳柏偉語速 `+10%`→`+0%`；BGM 音量 `0.28`→`0.14` |
+| **4 Step 5.33** | **對話「丟球接話」邏輯**：8 種 tone 改寫成互動動態（丟球/接球/反嗆）、強調每句接住上一句；句子有長有短（開球長、接球短）不再每句完整論述；接話短句不用硬塞 topic。去除腳本感、像 AI 真的在互相對話 |
 
 ### 已知待辦 / 限制
 
