@@ -15,6 +15,16 @@ export const CONFIG = {
       xiaomei: { xRatio: 0.68, yOffsetFromWall: 440, seat: 'right' },
     },
 
+    // ── 對話泡泡位置（螢幕絕對座標、畫面固定 1920×1080）──────────
+    //  x：數字越大越往右（0 = 最左、960 = 正中央、1920 = 最右）
+    //  y：數字越大越往下（0 = 最上、540 = 正中央、1080 = 最下）
+    //  這是「絕對定位」、泡泡不跟角色綁、也不會被邊界推來推去、所見即所得。
+    //  下面這組預設值 = 維持目前畫面位置，要移動直接改數字、存檔、F5。
+    bubbles: {
+      aming:   { x: 290,  y: 533 },   // 陳柏偉（左）泡泡
+      xiaomei: { x: 1670, y: 543 },   // 王于安（右）泡泡
+    },
+
     // 舊版排列數值（OfficeScene.js 更新前保留，避免 undefined 報錯）
     backRowOffsetY:  190,
     frontRowOffsetY: 360,
