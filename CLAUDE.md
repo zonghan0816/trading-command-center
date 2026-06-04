@@ -181,9 +181,10 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 
 ## 📍 目前進度（每次工作結束更新）
 
-**最後更新**：2026-06-04
-**目前階段**：Phase 4 Step 5.33 — 對話改「丟球接話」邏輯、去腳本感
-**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / TTS 聲線微調 / 跨輪對話記憶（讓下一輪接上一輪）
+**最後更新**：2026-06-05
+**目前階段**：Phase 4 Step 5.33 — 對話改「丟球接話」邏輯、去腳本感（TTS 已測試結案）
+**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶（讓下一輪接上一輪）
+（TTS 聲線已本機測試確認、免費 Edge-TTS 效果可接受、不再列為候選）
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
 
 ### 重點里程碑（依 commit 由舊到新）
@@ -233,7 +234,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ### 已知待辦 / 限制
 
 - [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
-- [x] ~~**★ TTS 語音（最優先）**~~ → **已實作（Step 5.31）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。合 PR 後本機測試聲線效果。
+- [x] ~~**★ TTS 語音（最優先）**~~ → **已實作 + 已測試確認（Step 5.31~5.32）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。**2026-06-05 本機聽過、免費 Edge-TTS 效果可接受、不再微調**。
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
 - [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 已有「同情當事人」引導、24H 公開前再 review 一次法律風險
