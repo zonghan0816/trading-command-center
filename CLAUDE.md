@@ -181,10 +181,15 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 
 ## 📍 目前進度（每次工作結束更新）
 
-**最後更新**：2026-06-04
-**目前階段**：Phase 4 Step 5.33 — 對話改「丟球接話」邏輯、去腳本感
-**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / TTS 聲線微調 / 跨輪對話記憶（讓下一輪接上一輪）
-**⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
+**最後更新**：2026-06-05
+**目前階段**：Phase 4 Step 5.34 — 對話泡泡改絕對座標、與角色位置分離
+**下一階段候選**：① 中間「目前話題」字太長壓到角色（待修，使用者要先調左右）② 真人半身×看螢幕循環（87）③ 24H MVP batch 預生成 ④ 跨輪對話記憶
+**⚠️ 下一個 Claude（本機 VSC）注意**：
+- **使用者卡在 git**：在雲端 Claude 改的東西都已 merge 進 `master`（PR #4 TTS同步 / #5 對話丟球 / #6 泡泡座標）。但使用者本機 `git pull` 後說「config.js 沒看到 bubbles 區塊」，代表本機沒拉到 master 最新。**請先幫他確認本機在哪個 branch、有沒有拉到 `origin/master`**（`git branch --show-current` / `git log --oneline -3` / `git status`）。可能在舊 branch 或 pull 錯來源。
+- **泡泡/角色位置旋鈕**（Step 5.34 新增，都在 `src/config.js`、改完存檔 F5）：
+  - 泡泡：`layout.bubbles.aming/xiaomei` 的 `x,y`（螢幕絕對座標、x 越大越右、y 越大越下、不卡邊界）
+  - 角色：`layout.hosts.*.xRatio`（越大越右）/ `yOffsetFromWall`（越大越下）/ `scale.characterIndividual(Aming)`（大小）
+- **未做**：中間 LED「目前話題」文字（`index.html` `#led-topic-text`，HTML overlay z-index:10）太長時會橫向溢出壓到陳柏偉（他在 35%、手伸向中間），王于安在 68% 沒被碰到。修法選項：限字數加…／縮框縮字／拿掉顯示／改 Phaser 畫在角色後面。使用者說「先等等、先調左右」。
 
 ### 重點里程碑（依 commit 由舊到新）
 
@@ -229,6 +234,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 4 Step 5.31** | **TTS 語音實作**：後端 `_gen_tts_dialogue` 平行生成 edge-tts mp3（陳柏偉 YunJheNeural / 王于安 HsiaoChenNeural）+ 快取；前端優先播 server mp3、失敗 fallback 到 `speechSynthesis`（Web Speech API）；SSL patch 處理企業/雲端 proxy 環境 |
 | **★ 4 Step 5.32** | **TTS 音訊主導泡泡同步**：重寫 `_playLineSequence`，用 `ended`/`onend` 事件驅動（非固定計時器），長句子不再被截斷；`_stopCurrentAudio()` 防音訊重疊；陳柏偉語速 `+10%`→`+0%`；BGM 音量 `0.28`→`0.14` |
 | **4 Step 5.33** | **對話「丟球接話」邏輯**：8 種 tone 改寫成互動動態（丟球/接球/反嗆）、強調每句接住上一句；句子有長有短（開球長、接球短）不再每句完整論述；接話短句不用硬塞 topic。去除腳本感、像 AI 真的在互相對話 |
+| **4 Step 5.34** | **對話泡泡絕對座標 + 角色/泡泡位置分離**：`config.js` 新增 `layout.bubbles`（x,y 螢幕絕對座標、不卡邊界、不綁角色）；`OfficeScene` 優先用絕對座標、沒設才 fallback 舊衍生邏輯。解決泡泡被邊界夾住又跟角色綁在一起導致方向錯亂。讓使用者能在本機 F5 即時調整人物/泡泡位置 |
 
 ### 已知待辦 / 限制
 
