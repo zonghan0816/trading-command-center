@@ -69,6 +69,40 @@ export class OfficeScene extends Phaser.Scene {
       this._currentSlot = this._getCurrentTimeSlot();
       console.info('[TDT] slot:', this._currentSlot);
 
+      // TTS：初始化 Web Speech API 聲線（server edge-tts 失敗時的瀏覽器端 fallback）
+      this._ttsVoices = { aming: null, xiaomei: null };
+      if (window.speechSynthesis) {
+        const _loadTtsVoices = () => {
+          const all = speechSynthesis.getVoices();
+          const tw = all.filter(v => /zh[-_]TW|zh[-_]Hant/i.test(v.lang));
+          this._ttsVoices.aming   = tw.find(v => /Yun|YunJhe|Male|男/i.test(v.name)) || tw[1] || tw[0] || null;
+          this._ttsVoices.xiaomei = tw.find(v => /Hsiao|Chen|HsiaoChen|Female|女/i.test(v.name)) || tw[0] || null;
+          if (tw.length > 0) console.info('[TDT] TTS voices:', tw.map(v => v.name).join(', '));
+          else console.info('[TDT] TTS: no zh-TW voices found');
+        };
+        if (speechSynthesis.getVoices().length > 0) _loadTtsVoices();
+        else speechSynthesis.onvoiceschanged = _loadTtsVoices;
+      }
+
+      // TTS：音訊自動播放解鎖（瀏覽器分頁在使用者首次互動前會擋 audio / speechSynthesis）
+      // 首次 pointerdown/keydown 後解鎖、之後 new Audio().play() 跟 speechSynthesis 才會出聲
+      // OBS Browser Source 多半允許 autoplay、不受此限制
+      this._audioUnlocked = false;
+      const _unlockAudio = () => {
+        if (this._audioUnlocked) return;
+        this._audioUnlocked = true;
+        try { const a = new Audio(); a.play().catch(() => {}); } catch (_) {}
+        try {
+          if (window.speechSynthesis) {
+            speechSynthesis.resume();
+            speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+          }
+        } catch (_) {}
+        console.info('[TDT] 🔊 audio unlocked（已可播語音）');
+      };
+      window.addEventListener('pointerdown', _unlockAudio, { once: true });
+      window.addEventListener('keydown', _unlockAudio, { once: true });
+
       this._buildBackground();
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
@@ -867,7 +901,13 @@ export class OfficeScene extends Phaser.Scene {
       }).catch(() => {});  // fire-and-forget、失敗不影響播放
     }
 
-    this._playDialogue(data.dialogue, seq);
+    // 把 audio_urls 附加到每行、讓 _playLineSequence 可直接取用
+    const audioUrls = Array.isArray(data.audio_urls) ? data.audio_urls : [];
+    const lines = data.dialogue.map((line, i) => ({
+      ...line,
+      _audio: audioUrls[i] || null,
+    }));
+    this._playDialogue(lines, seq);
     return true;
   }
 
@@ -1079,6 +1119,29 @@ export class OfficeScene extends Phaser.Scene {
         // Phase 3 Step 5: 小美生效；阿明維持 talking
         this._showBubble(line.speaker);
         if (line.speaker === walkerId) this._syncBubble(walkerId);
+        // TTS：播放語音（fire-and-forget、失敗不影響播放）
+        // 優先用 server 預生成音檔（edge-tts）、server 沒給則 fallback 到瀏覽器 Web Speech API
+        if (line._audio) {
+          try {
+            new Audio(line._audio).play().catch(e => {
+              console.warn('[TDT] mp3 被擋（點一下畫面解鎖）：', e?.message ?? e);
+            });
+          } catch (_) {}
+        } else if (window.speechSynthesis) {
+          // server 沒回 mp3（edge-tts 沒裝 / 失敗）→ 用瀏覽器內建語音
+          try {
+            speechSynthesis.cancel();
+            const utt = new SpeechSynthesisUtterance(line.text);
+            utt.lang = 'zh-TW';
+            utt.rate = line.speaker === 'aming' ? 1.15 : 1.0;
+            utt.volume = 0.9;
+            const voice = this._ttsVoices?.[line.speaker];
+            if (voice) utt.voice = voice;
+            speechSynthesis.speak(utt);
+          } catch (_) {}
+        } else {
+          console.warn('[TDT] 無 server mp3、瀏覽器也不支援 speechSynthesis、本句無語音');
+        }
       }
       this.time.delayedCall(chunkMs(chunk), () => showChunks(idx + 1));
     };
