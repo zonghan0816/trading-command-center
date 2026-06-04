@@ -182,9 +182,9 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-04
-**目前階段**：Phase 4 Step 5.30 — Shorts pipeline 實戰跑通（第一支成功上傳 YT）+ 多項修復 + 下一代架構設計（87 筆記）
-**下一階段候選**：**TTS 語音（Edge-TTS、橫式版先加、使用者最在意）** / 真人半身×看螢幕循環（87）/ 24H MVP batch 預生成
-**⚠️ 下一個 Claude 注意**：使用者最大痛點 = **直播沒語音覺得沒效果**。已決定先做 **Edge-TTS 加到現有橫式版**。完整設計見 `87_REALISTIC_SCREEN_WATCH_LOOP.md`
+**目前階段**：Phase 4 Step 5.31 — TTS 語音實作完成（Edge-TTS server + Web Speech API browser fallback）
+**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / TTS 聲線微調（測試後）
+**⚠️ 下一個 Claude 注意**：TTS 雙層保險已實作：① server-side Edge-TTS（本機 Windows 正常運作、生成 mp3 快取）② browser-side Web Speech API fallback（雲端/proxy 環境或 edge-tts 失敗時使用）。等合 PR 後在本機測試實際聲音效果。
 
 ### 重點里程碑（依 commit 由舊到新）
 
@@ -226,11 +226,12 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 4 Step 5.28~5.29** | **Shorts 短影音自動化 pipeline**：Phase 1 punchline 笑點評分 + 報告 → Phase 2+3 剪片 + metadata + thumbnail + **YouTube 上傳**全套 |
 | **★ 4 Step 5.30** | **Shorts pipeline 實戰跑通**（2026-06-04）：第一支成功上傳 YT（private）。過程修 4 問題：①YT 授權工具 `authorize_yt.py` + Google 測試人員 ②評分快取 `.score_cache.json`（不重評省 API）③錄影涵蓋過濾 + `find_recording_for` 沒檢查錄影結束時間 bug ④cut_clip 模糊背景濾鏡改 cover 模式（修 ffmpeg Invalid argument）。+ README 對齊現況 |
 | **★ 87 下一代架構** | **真人半身 × 看螢幕循環 × 語音** 設計筆記（使用者口述）：轉頭看螢幕遮生成延遲、TTS 補語音（最大痛點）、順帶解直式 Shorts 空洞。決定 **Edge-TTS 免費試、橫式版先加語音**。詳見 `87_REALISTIC_SCREEN_WATCH_LOOP.md` |
+| **★ 4 Step 5.31** | **TTS 語音實作**：後端 `_gen_tts_dialogue` 平行生成 edge-tts mp3（陳柏偉 YunJheNeural / 王于安 HsiaoChenNeural）+ 快取；前端優先播 server mp3、失敗 fallback 到 `speechSynthesis`（Web Speech API）；SSL patch 處理企業/雲端 proxy 環境 |
 
 ### 已知待辦 / 限制
 
 - [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
-- [ ] **★ TTS 語音（最優先、使用者最大痛點）**：直播沒聲音覺得沒效果。已決定 **Edge-TTS（免費）加到現有橫式版**。後端生語音 + 前端同步播放。設計見 `87`
+- [x] ~~**★ TTS 語音（最優先）**~~ → **已實作（Step 5.31）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。合 PR 後本機測試聲線效果。
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
 - [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 已有「同情當事人」引導、24H 公開前再 review 一次法律風險
