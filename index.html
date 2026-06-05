@@ -314,6 +314,17 @@
       0%   { transform: translateX(0); }
       100% { transform: translateX(-100%); }
     }
+    /* Step 5.34: 搞笑梗快訊模式（聲音掛掉時、紅字 + 跑快一點） */
+    #marquee-bar.alert {
+      background-image: none;
+      background-color: rgba(40, 6, 6, 0.92);
+      border-top: 2px solid rgba(255,82,82,0.7);
+    }
+    #marquee-bar.alert .marquee-text {
+      color: #FF6B6B;
+      text-shadow: 0 0 12px rgba(255,82,82,0.85);
+      animation-duration: 26s;
+    }
   </style>
 </head>
 <body>
@@ -363,6 +374,25 @@
       const text    = document.getElementById('led-topic-text');
       const badge   = document.getElementById('led-mode-badge');
 
+      // Step 5.34: 跑馬燈快訊（搞笑梗）—— state.ticker 有值時覆蓋預設促銷文字
+      const marqueeBar  = document.getElementById('marquee-bar');
+      const marqueeText = marqueeBar.querySelector('.marquee-text');
+      const MARQUEE_DEFAULT = marqueeText.textContent;
+      let lastTicker = '';
+      function updateMarquee(ticker) {
+        ticker = (ticker || '').trim();
+        if (ticker === lastTicker) return;       // 沒變不動（避免每 3 秒重設動畫）
+        lastTicker = ticker;
+        if (ticker) {
+          const seg = '📢 ' + ticker + '　　　';
+          marqueeText.textContent = seg + seg + seg;   // 重複填滿跑馬燈
+          marqueeBar.classList.add('alert');
+        } else {
+          marqueeText.textContent = MARQUEE_DEFAULT;
+          marqueeBar.classList.remove('alert');
+        }
+      }
+
       // mode → LED 顯示模板（依 GPT Phase 2C Step 4 指令）
       const MODE_VIEWS = {
         idle:       { label: '◆ TDT  Taiwan Daily Talk', text: '天天嘴台灣',  badge: 'STANDBY',      badgeClass: '' },
@@ -387,6 +417,7 @@
         try {
           const r = await fetch('/api/state');
           const d = await r.json();
+          updateMarquee(d.ticker);   // Step 5.34: 跑馬燈快訊（每次都檢查、不受下面 early-return 影響）
           const mode  = d.mode  || 'idle';
           // Phase 4 Step 5.6: 優先顯示角色「正在講的話題」、不是排隊中的下一話題
           // 才不會出現「螢幕話題已換、角色還在講上一個」的錯位

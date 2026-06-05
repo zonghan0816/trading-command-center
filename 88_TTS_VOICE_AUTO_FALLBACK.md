@@ -146,3 +146,38 @@ console banner（使用者本來就是看 cmd console 發現問題的）：
 **部署後就再也不用為了換聲音重開**：以後 YunJhe 壞了會自動切備胎、你也能手機手動切，都免重開。
 
 > 測試：本機起 server（port 8799）實打 —— status 正確、POST 即時生效、換回、亂打聲音/角色被擋 400、只改語速 OK、/voice 頁面回 200 且中文 UTF-8 正確。
+
+---
+
+## 9. 方向修正（2026-06-05 下午、使用者拍板）：台灣 only + 把壞掉演成梗
+
+第 7~8 節原本是「台灣正選 / 大陸備胎」。使用者後來改決策：
+
+| 項目 | 改成 |
+|---|---|
+| 備胎 | **取消大陸備胎**、兩位都只用台灣聲音（陳柏偉雲哲、王于安曉臻）|
+| 語速 | 陳柏偉 **+3%**、王于安 **+2%**（取代原本 -5%）|
+| 聲音掛掉時 | **不換聲音、那位主持人暫時靜音**、改用搞笑梗撐場（見第 10 節）|
+| 保留 | 10 分鐘自動探測、微軟修好自動恢復 |
+
+熔斷器邏輯配合調整：
+- `_candidate_voices`：冷卻中回 `[]`（無備胎 = 該主持人靜音）、不每句重試壞掉的聲音。
+- `_gen_tts_line`：所有候選失敗（無備胎成功）時也會 `_mark_voice_down(..., used=None)`、才能進冷卻 + 觸發梗。
+- 實測發現 **YunJhe 是「間歇性」壞**（平行生成一句失敗一句成功）、不是全掛。熔斷器可承受、最多偶爾多觸發一次 meta 梗、無害。
+
+---
+
+## 10. 搞笑梗：聲音掛掉 → 跑馬燈 + 王于安 AI 吐槽（符合「AI bug 變梗」DNA）
+
+聲音掛掉那一刻（`_mark_voice_down` 的 first_time），設 `_pending_voice_meta`、下一輪 `/api/chat` 改演特殊橋段。
+
+| 元件 | 實作 |
+|---|---|
+| 觸發 | `_pending_voice_meta`（down/recover 事件）；`/api/chat` 開頭偵測、跑 `_run_voice_meta_round` 後 return、與正常輪隔離（不寫對話記憶/archive/observe）|
+| 內容生成 | `_build_voice_meta_prompt` → Claude 回 JSON 物件 `{"ticker", "dialogue"}`；王于安主導吐槽、陳柏偉變默劇（他的 TTS 失敗→靜音、剛好是梗）|
+| 跑馬燈 | state 加 `ticker` 欄位；前端 `index.html` 既有 `#marquee-bar` 接 `state.ticker`、有值就紅字快訊模式、空則回預設促銷文字 |
+| 恢復 | 微軟修好 → `_mark_voice_recovered` 設 recover 事件 → 下一輪演「聲音回來了」梗；之後正常輪偵測 `_tts_voice_state` 空 → 清 ticker |
+
+**實測**（real Claude call）：陳柏偉聲音掛掉 → meta round 生成跑馬燈「📢 緊急通知：陳柏偉麥克風故障中…暫由王于安一打一」+ 對話（王于安吐槽、陳柏偉默劇比手畫腳、王于安幫他「翻譯」），陳柏偉台詞 audio_url=None（真靜音）。ticker 持久化到 state、背景 loop 不會清掉、前端 marquee 正確接收。
+
+> 後續可加強：meta round 之後若想讓陳柏偉的台詞「完全不顯示泡泡」而非「靜音泡泡」、可在前端依 audio_url=null + voice_meta 判斷。目前靜音泡泡已是足夠好的默劇梗。

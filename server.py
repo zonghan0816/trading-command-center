@@ -167,24 +167,24 @@ TTS_DIR = _HERE / "output" / "tts"
 TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 _TTS_VOICES = {
-    "aming":   "zh-TW-YunJheNeural",      # 男聲（陳柏偉）正選：台灣男聲（雲哲）
-    "xiaomei": "zh-TW-HsiaoChenNeural",   # 女聲（王于安）正選：台灣女聲（曉臻）
+    "aming":   "zh-TW-YunJheNeural",      # 男聲（陳柏偉）：台灣男聲（雲哲）
+    "xiaomei": "zh-TW-HsiaoChenNeural",   # 女聲（王于安）：台灣女聲（曉臻）
 }
-# 正選聲音掛掉（微軟回「No audio was received」空音訊）時的備選、依序嘗試。
-# 設計：台灣聲音當正選、大陸聲音當備胎；台灣的掛掉自動退大陸、避免 24H 直播沒聲音。
-# 微軟修好正選後會自動切回（見 _candidate_voices 冷卻機制）。
+# 設計（使用者 2026-06-05 拍板）：只用台灣聲音、不要大陸備胎。
+# 台灣聲音掛掉（微軟回空音訊）時 → 不換聲音，那位主持人「暫時靜音」、
+# 改用搞笑梗撐場（跑馬燈 + 王于安吐槽），並每 10 分鐘自動探測、微軟修好自動恢復。
 _TTS_FALLBACK_VOICES = {
-    "aming":   ["zh-CN-YunjianNeural"],    # 雲健（大陸男，台灣男聲掛掉時備胎）
-    "xiaomei": ["zh-CN-XiaoxiaoNeural"],   # 曉曉（大陸女，台灣女聲掛掉時備胎）
+    "aming":   [],
+    "xiaomei": [],
 }
 _TTS_RATE = {
-    "aming":   "-5%",   # 陳柏偉：放慢 5%（使用者要求）
-    "xiaomei": "+0%",   # 王于安：正常速
+    "aming":   "+3%",   # 陳柏偉：略快 3%（使用者要求）
+    "xiaomei": "+2%",   # 王于安：略快 2%（使用者要求）
 }
-# 正選聲音失敗後的冷卻秒數：這段時間直接用備選、不再每句重試正選；
-# 冷卻過了會再探一次正選（微軟修好就自動切回正選）。
+# 聲音失敗後的冷卻秒數：這段時間該主持人靜音、不再每句重試壞掉的聲音；
+# 冷卻過了再探一次（微軟修好就自動恢復）。
 _TTS_VOICE_COOLDOWN_SEC = 600
-# speaker -> {"down_until": float, "active": str}；正選掛掉時的健康狀態（in-memory）
+# speaker -> {"down_until": float, "active": str|None}；聲音掛掉時的健康狀態（in-memory）
 _tts_voice_state: dict = {}
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
@@ -245,6 +245,7 @@ def _default_state() -> dict:
         "mood": "neutral",
         "activity": "idle",
         "keywords": [],
+        "ticker": "",               # 跑馬燈快訊（搞笑梗用、空=顯示預設促銷文字）
         "hosts": {
             "aming": {
                 "status": "idle",
@@ -269,6 +270,7 @@ _STR_FIELD_DEFAULTS = {
     "scene":          "studio",
     "mood":           "neutral",
     "activity":       "idle",
+    "ticker":         "",
 }
 
 
@@ -1503,6 +1505,36 @@ def _build_dynamic_prompt(state: dict, turn_type: str,
 {anti_repeat_block}"""
 
 
+def _build_voice_meta_prompt(meta: dict) -> str:
+    """Step 5.34 搞笑梗：某主持人聲音掛掉/修好時、生成「吐槽 + 跑馬燈」的特殊一輪。
+    回傳 JSON 物件 {"ticker", "dialogue"}（不是平常的陣列）。"""
+    name = meta.get("name", "陳柏偉")
+    if meta.get("event") == "recover":
+        scenario = f"""## ✅ 狀況解除（本輪特殊：把它演成節目笑點）
+「{name}」剛剛壞掉的麥克風/聲音修好了、又能正常講話。
+請生成這一輪：
+1. 由「王于安」主導、開心又帶吐槽地宣布「{name}」聲音回來了（例如：喔你聲音回來啦！剛剛到底發生什麼事、害我一個人尬聊欸）。
+2. 「{name}」回應一兩句、可自嘲剛剛當啞巴。
+3. 幽默、AI 感、輕鬆收尾、不要悲情、不要扯新聞時事。
+同時生成一句「跑馬燈快訊」(ticker)：短、幽默宣布「{name}」聲音已修復、恢復雙人開講。"""
+    else:
+        scenario = f"""## 🚨 突發狀況（本輪特殊：把它演成節目笑點）
+剛剛「{name}」的麥克風/聲音系統突然故障、現在他講話「完全沒有聲音」（觀眾看得到嘴在動、聽不到）。
+這是真實技術狀況（AI 語音服務暫時掛掉）。本節目大方承認自己是 AI、所以這種 bug 要拿來當梗、不要遮掩。
+請生成這一輪：
+1. 由「王于安」主導、發現並吐槽「{name}」沒聲音（例如：欸你麥是不是壞了？我完全聽不到欸…觀眾應該也聽不到吼哈哈）。
+2. 「{name}」可以有 1 句台詞（反正觀眾聽不到、當默劇/啞巴梗、王于安可以幫他「翻譯」或亂猜他在講啥）。
+3. 幽默、自嘲、AI 感、不要悲情。可調侃「AI 主持人的麥克風也會壞」「工程師快來修」「省下他的麥克風費」。
+4. 不要扯新聞時事、就聊這個突發狀況。
+同時生成一句「跑馬燈快訊」(ticker)：短、像電視台底部快訊、幽默宣布「{name}」聲音出狀況/搶修中、暫由王于安一打一。"""
+    return f"""{scenario}
+
+## 輸出格式（本輪特殊：JSON 物件、不是陣列）
+只輸出一個 JSON 物件、不要任何其他文字、不要 markdown code fence：
+{{"ticker": "一句跑馬燈文字（20~40字、可加 📢 開頭）", "dialogue": [ {{"speaker": "xiaomei", "text": "...", "emotions": ["surprised","mocking"]}}, {{"speaker": "aming", "text": "...", "emotion": "talk"}}, {{"speaker": "xiaomei", "text": "...", "emotions": ["humor"]}} ]}}
+dialogue 用跟平常一樣的格式：speaker = "aming"（陳柏偉）或 "xiaomei"（王于安）、每行 emotion（單一）或 emotions（陣列）。共 3~4 句、王于安為主。"""
+
+
 # ── TTS helpers ───────────────────────────────────────────────────
 def _tts_cache_path(voice: str, rate: str, text: str) -> Path:
     import hashlib
@@ -1513,10 +1545,15 @@ def _tts_cache_path(voice: str, rate: str, text: str) -> Path:
     return TTS_DIR / f"{h}.mp3"
 
 
+# 搞笑梗觸發：聲音掛掉/恢復的轉折事件、給 /api/chat 下一輪生成跑馬燈 + 王于安吐槽。
+# None = 無待處理事件；否則 {"speaker","name","event": "down"|"recover"}
+_pending_voice_meta: dict | None = None
+
+
 def _candidate_voices(speaker: str) -> tuple[list[str], bool]:
-    """回傳 (要嘗試的聲音清單, 正選是否在冷卻中)。
-    正常：正選優先、備選墊底。
-    正選冷卻中：只回備選（不每句重試正選、避免浪費失敗呼叫 + 增加延遲）。
+    """回傳 (要嘗試的聲音清單, 是否在冷卻中)。
+    正常：聲音優先 + 備胎墊底（目前設定無備胎）。
+    冷卻中：回備胎（無備胎 = [] = 該主持人靜音）、不每句重試壞掉的聲音。
     """
     import time
     primary = _TTS_VOICES.get(speaker)
@@ -1524,32 +1561,44 @@ def _candidate_voices(speaker: str) -> tuple[list[str], bool]:
     st = _tts_voice_state.get(speaker, {})
     in_cooldown = st.get("down_until", 0) > time.time()
     if in_cooldown:
-        return (fallbacks or ([primary] if primary else [])), True
+        return fallbacks, True   # 無備胎就回 []（靜音）、不重試壞掉的聲音
     return (([primary] if primary else []) + fallbacks), False
 
 
-def _mark_voice_down(speaker: str, primary: str, used: str) -> None:
-    """正選失敗、已切到備選：設冷卻 + 只在「剛掉下去」時喊一次（避免洗版）。"""
+def _mark_voice_down(speaker: str, primary: str, used: str | None) -> None:
+    """聲音失敗：設冷卻 + 只在「剛掉下去」時喊一次通知 + 觸發搞笑梗。
+    used=None 表示沒備胎、該主持人暫時靜音。
+    """
     import time
+    global _pending_voice_meta
     st = _tts_voice_state.setdefault(speaker, {})
     first_time = st.get("down_until", 0) <= time.time()
     st["down_until"] = time.time() + _TTS_VOICE_COOLDOWN_SEC
     st["active"] = used
     if first_time:
+        name = "陳柏偉" if speaker == "aming" else "王于安"
         print("=" * 64)
-        print(f"[tts] ⚠ 正選聲音失效：{speaker} 的 {primary} 回空音訊")
-        print(f"[tts]    → 已自動切換備選：{used}")
-        print(f"[tts]    → {_TTS_VOICE_COOLDOWN_SEC // 60} 分鐘後自動再試正選（微軟修好會切回）")
+        print(f"[tts] ⚠ 聲音失效：{name}（{speaker}）的 {primary} 回空音訊")
+        if used:
+            print(f"[tts]    → 已自動切換備胎：{used}")
+        else:
+            print(f"[tts]    → 沒備胎、{name}暫時靜音、改用搞笑梗撐場（跑馬燈 + 王于安吐槽）")
+        print(f"[tts]    → {_TTS_VOICE_COOLDOWN_SEC // 60} 分鐘後自動再試（微軟修好會自動恢復）")
         print("=" * 64)
+        # 觸發搞笑梗：下一輪 /api/chat 生成跑馬燈 + 王于安吐槽
+        _pending_voice_meta = {"speaker": speaker, "name": name, "event": "down"}
 
 
 def _mark_voice_recovered(speaker: str, primary: str) -> None:
-    """正選成功：若原本標記掛掉、喊一次恢復並清狀態。"""
+    """聲音恢復：若原本標記掛掉、喊一次恢復 + 觸發「修好了」梗 + 清狀態。"""
+    global _pending_voice_meta
     st = _tts_voice_state.get(speaker)
     if st and st.get("down_until"):
+        name = "陳柏偉" if speaker == "aming" else "王于安"
         print("=" * 64)
-        print(f"[tts] ✓ 正選聲音恢復：{speaker} 的 {primary} 又能用了、切回正選")
+        print(f"[tts] ✓ 聲音恢復：{name}（{speaker}）的 {primary} 又能用了")
         print("=" * 64)
+        _pending_voice_meta = {"speaker": speaker, "name": name, "event": "recover"}
     _tts_voice_state.pop(speaker, None)
 
 
@@ -1571,8 +1620,8 @@ _tts_ssl_patched = False
 
 async def _gen_tts_line(speaker: str, text: str) -> str | None:
     """生成單句 TTS mp3、命中快取直接回 url。
-    正選聲音掛掉（微軟回空音訊）→ 自動切備選 + 通知；正選修好 → 自動切回。
-    失敗回 None、不 raise。
+    聲音掛掉（微軟回空音訊）→ 標記掛掉 + 冷卻 + 觸發搞笑梗（無備胎時靜音回 None）；
+    聲音修好 → 自動恢復 + 觸發「修好了」梗。失敗回 None、不 raise。
     """
     global _tts_ssl_patched
     try:
@@ -1615,6 +1664,9 @@ async def _gen_tts_line(speaker: str, text: str) -> str | None:
         elif primary_failed_now:
             _mark_voice_down(speaker, primary, voice)
         return f"/tts/{cache.name}"
+    # 所有候選都失敗：若是正選掛了（無備胎成功）→ 標記掛掉 + 觸發搞笑梗
+    if primary_failed_now:
+        _mark_voice_down(speaker, primary, None)
     return None
 
 
@@ -1629,6 +1681,70 @@ async def _gen_tts_dialogue(dialogue: list) -> list:
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     return [None if isinstance(r, Exception) else r for r in results]
+
+
+async def _run_voice_meta_round(meta: dict, api_key: str):
+    """Step 5.34 搞笑梗：生成一輪「聲音掛掉/修好」的吐槽 + 跑馬燈，回傳與 /api/chat 同格式。
+    與正常輪隔離：不寫對話記憶 / archive / observe、不動 topic 輪數，只更新 hosts + ticker + cost。"""
+    static_prompt = _build_static_prompt()
+    meta_prompt   = _build_voice_meta_prompt(meta)
+
+    client = anthropic.AsyncAnthropic(api_key=api_key)
+    msg = await client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": static_prompt, "cache_control": {"type": "ephemeral"}},
+            {"type": "text", "text": meta_prompt},
+        ]}],
+    )
+    raw = msg.content[0].text.strip()
+    if "```" in raw:
+        raw = raw.split("```")[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+    # 解析 JSON 物件 {"ticker","dialogue"}、容錯擷取第一個 { 到最後一個 }
+    try:
+        obj = json.loads(raw.strip())
+    except json.JSONDecodeError:
+        s, e = raw.find("{"), raw.rfind("}")
+        obj = json.loads(raw[s:e + 1]) if (s >= 0 and e > s) else {}
+    ticker   = str(obj.get("ticker", "")).strip()
+    dialogue = obj.get("dialogue", [])
+    if not isinstance(dialogue, list) or not dialogue:
+        raise ValueError("meta round: empty dialogue")
+
+    dialogue, blocked = _quality_check_dialogue(dialogue)
+    audio_urls = await _gen_tts_dialogue(dialogue)
+    tts_ok = sum(1 for u in audio_urls if u)
+    print(f"[meta] {meta.get('event')} 梗：生成 {len(dialogue)} 句、TTS {tts_ok}/{len(dialogue)}、ticker={ticker[:24]!r}")
+
+    st = _load_state()
+    for line in dialogue:
+        spk = line.get("speaker") if isinstance(line, dict) else None
+        if spk in st.get("hosts", {}):
+            st["hosts"][spk]["status"]      = "talking"
+            st["hosts"][spk]["last_output"] = line.get("text", "")
+    st["ticker"]     = ticker
+    st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+
+    usage_obj = getattr(msg, "usage", None)
+    cost_usd = _estimate_cost_usd(
+        int(getattr(usage_obj, "input_tokens", 0) or 0),
+        int(getattr(usage_obj, "output_tokens", 0) or 0),
+        int(getattr(usage_obj, "cache_creation_input_tokens", 0) or 0),
+        int(getattr(usage_obj, "cache_read_input_tokens", 0) or 0),
+    )
+    _add_cost_to_state(st, cost_usd)
+    _save_state(st)
+
+    speaker_a = dialogue[0].get("speaker", "xiaomei")
+    speaker_b = next((l.get("speaker") for l in dialogue[1:]
+                      if isinstance(l, dict) and l.get("speaker") != speaker_a), None)
+    return {"dialogue": dialogue, "audio_urls": audio_urls,
+            "speaker_a": speaker_a, "speaker_b": speaker_b,
+            "tone": "voice_meta", "angle": meta.get("event", ""),
+            "topic": "", "topic_round": 0, "ticker": ticker}
 
 
 @app.post("/api/chat")
@@ -1655,6 +1771,17 @@ async def generate_chat():
                 "monthly_usd": _MONTHLY_BUDGET_USD,
             },
         }, status_code=503)
+
+    # Step 5.34 搞笑梗：聲音剛掛掉/剛修好 → 這一輪改演「吐槽 + 跑馬燈」特殊橋段
+    global _pending_voice_meta
+    if _pending_voice_meta:
+        meta = _pending_voice_meta
+        _pending_voice_meta = None
+        try:
+            return await _run_voice_meta_round(meta, api_key)
+        except Exception as e:
+            # 梗壞掉不能卡住正常對話、印錯誤後照常走下去
+            print(f"[meta] voice meta round failed, fallback to normal: {e}")
 
     topic     = state.get("topic", "")
     # Phase 3 Step 6.3: tone / angle 都改用 per-topic shuffled queue（同 topic 8 輪內不重複）
@@ -1732,6 +1859,9 @@ async def generate_chat():
                 st["hosts"][spk]["status"]      = "talking"
                 st["hosts"][spk]["last_output"] = line["text"]
         st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+        # Step 5.34: 沒人聲音掛掉 → 清掉搞笑梗跑馬燈（恢復預設促銷文字）
+        if not _tts_voice_state:
+            st["ticker"] = ""
 
         # Phase 4 Step 5: 累積本次 API call 成本
         # Step 5.20: 加 cache tokens（cache_creation = write、cache_read = read）
@@ -1831,7 +1961,7 @@ _TTS_VOICE_OPTIONS = [
     {"id": "zh-CN-XiaoxiaoNeural",  "label": "曉曉（大陸女）", "tag": "王于安現用"},
 ]
 _TTS_ALLOWED_VOICES = {v["id"] for v in _TTS_VOICE_OPTIONS}
-_TTS_RATE_OPTIONS = ["-10%", "-5%", "+0%", "+5%", "+10%"]
+_TTS_RATE_OPTIONS = ["+0%", "+2%", "+3%", "+5%", "+10%"]
 
 
 def _tts_status_payload() -> dict:
@@ -2301,12 +2431,12 @@ function render() {
   for (const [spk, s] of Object.entries(DATA.speakers)) {
     const down = s.primary_down;
     const badge = down
-      ? `<span class="badge down">正選掛了·改用 ${s.active_voice}</span>`
+      ? `<span class="badge down">聲音掛了·靜音中</span>`
       : `<span class="badge ok">正常</span>`;
-    const cd = down ? `（${s.cooldown_remaining_sec}s 後自動再試正選）` : '';
+    const cd = down ? `（${s.cooldown_remaining_sec}s 後自動再試、修好自動恢復）` : '';
     html += `<div class="host"><h2>${s.name} <small style="color:#7e8da0">(${spk})</small>${badge}</h2>`;
-    html += `<p class="status">正選：${s.primary}<br>目前實際：${s.active_voice} ${cd}<br>備胎：${(s.fallbacks||[]).join(', ')||'無'}</p>`;
-    html += `<div class="lbl">切換聲音（設為正選）</div><div class="grid">`;
+    html += `<p class="status">目前聲音：${s.primary}${cd ? '<br>'+cd : ''}<br><span style="color:#75839a">壞掉時：暫時靜音 + 跑馬燈/王于安吐槽（不換聲音）</span></p>`;
+    html += `<div class="lbl">切換聲音</div><div class="grid">`;
     for (const o of opts) {
       const sel = (o.id === s.primary) ? ' sel' : '';
       html += `<button class="v${sel}" onclick="setVoice('${spk}','${o.id}')">${o.label}<span class="tag">${o.tag}</span></button>`;
