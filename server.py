@@ -168,10 +168,10 @@ TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 _TTS_VOICES = {
     "aming":   "zh-TW-YunJheNeural",    # 男聲（陳柏偉）
-    "xiaomei": "zh-TW-HsiaoChenNeural", # 女聲（王于安）
+    "xiaomei": "zh-CN-XiaoxiaoNeural",  # 女聲（王于安）- 曉曉（zh-CN 大陸口音）
 }
 _TTS_RATE = {
-    "aming":   "+0%",   # 陳柏偉：正常速（Step 5.32 使用者要求）
+    "aming":   "-5%",   # 陳柏偉：放慢 5%（使用者要求）
     "xiaomei": "+0%",   # 王于安：正常速
 }
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶

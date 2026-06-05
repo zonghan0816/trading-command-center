@@ -1199,6 +1199,9 @@ export class OfficeScene extends Phaser.Scene {
         : line.emotion;
       ch.sprite.play(this._chooseLineAction(line.speaker, chunk, 'talking', emo));
       if (idx === 0) {
+        // 防兩泡泡並存：顯示這位前、先立即收掉另一位的泡泡（一次只有一人講話）
+        const other = line.speaker === 'aming' ? 'xiaomei' : 'aming';
+        this._hideBubble(other);
         this._showBubble(line.speaker);
         if (line.speaker === walkerId) this._syncBubble(walkerId);
         startAudio();
