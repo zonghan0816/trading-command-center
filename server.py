@@ -181,11 +181,20 @@ _TTS_RATE = {
     "aming":   "+3%",   # 陳柏偉：略快 3%（使用者要求）
     "xiaomei": "+2%",   # 王于安：略快 2%（使用者要求）
 }
-# 聲音失敗後的冷卻秒數：這段時間該主持人靜音、不再每句重試壞掉的聲音；
+# edge-tts 間歇性回空音訊 → 每句最多重試這麼多次（退避遞增、跨過 edge-tts 爛掉的幾秒）。
+# 大多數隨機失敗重試後就成功、那句就有聲音。
+_TTS_RETRY = 4
+_TTS_RETRY_DELAY = 0.5   # 重試基礎間隔秒、會遞增（0.5、1.0、1.5…）
+# 「連續這麼多句」都重試全失敗才算這個聲音「真的掛了」（才靜音 + 觸發搞笑梗）。
+# 單句隨機失敗只讓那一句靜音、不連坐整個聲音、下一句照試（streak 遇到成功歸零）。
+_TTS_DOWN_THRESHOLD = 4
+# 聲音「真的掛了」後的冷卻秒數：這段時間該主持人靜音、不再重試壞掉的聲音；
 # 冷卻過了再探一次（微軟修好就自動恢復）。
 _TTS_VOICE_COOLDOWN_SEC = 600
 # speaker -> {"down_until": float, "active": str|None}；聲音掛掉時的健康狀態（in-memory）
 _tts_voice_state: dict = {}
+# speaker -> int；連續重試失敗的句數（遇到成功歸零、達門檻才算真的掛）
+_tts_fail_streak: dict = {}
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
 
@@ -1642,31 +1651,47 @@ async def _gen_tts_line(speaker: str, text: str) -> str | None:
         cache = _tts_cache_path(voice, rate, text)
         if cache.exists():
             if is_primary:
+                _tts_fail_streak[speaker] = 0
                 _mark_voice_recovered(speaker, primary)
             return f"/tts/{cache.name}"
-        try:
-            communicate = edge_tts.Communicate(text, voice, rate=rate)
-            await communicate.save(str(cache))
-        except Exception as e:
-            # 失敗可能留下 0 byte 殘檔、清掉避免下次誤命中
-            if cache.exists():
-                try:
-                    cache.unlink()
-                except Exception:
-                    pass
-            print(f"[tts] gen failed ({speaker}/{voice}): {e}")
+        # edge-tts 會「間歇性」回空音訊 → 重試 _TTS_RETRY 次、退避遞增、多半就成功。
+        ok = False
+        last_err = ""
+        for attempt in range(_TTS_RETRY):
+            try:
+                communicate = edge_tts.Communicate(text, voice, rate=rate)
+                await communicate.save(str(cache))
+                ok = True
+                break
+            except Exception as e:
+                last_err = str(e)
+                # 失敗可能留下 0 byte 殘檔、清掉避免下次誤命中
+                if cache.exists():
+                    try:
+                        cache.unlink()
+                    except Exception:
+                        pass
+                if attempt < _TTS_RETRY - 1:
+                    await asyncio.sleep(_TTS_RETRY_DELAY * (attempt + 1))   # 退避遞增
+        if not ok:
+            print(f"[tts] gen failed ({speaker}/{voice}) 重試 {_TTS_RETRY} 次仍失敗：{last_err}")
             if is_primary:
                 primary_failed_now = True
             continue
-        # 成功
+        # 成功 → fail streak 歸零
         if is_primary:
+            _tts_fail_streak[speaker] = 0
             _mark_voice_recovered(speaker, primary)
         elif primary_failed_now:
             _mark_voice_down(speaker, primary, voice)
         return f"/tts/{cache.name}"
-    # 所有候選都失敗：若是正選掛了（無備胎成功）→ 標記掛掉 + 觸發搞笑梗
+    # 這一句所有候選都重試失敗 → 累加連續失敗數
     if primary_failed_now:
-        _mark_voice_down(speaker, primary, None)
+        streak = _tts_fail_streak.get(speaker, 0) + 1
+        _tts_fail_streak[speaker] = streak
+        # 只有「連續多句」都失敗才算真的掛（單句隨機失敗不連坐、下一句照試）
+        if streak >= _TTS_DOWN_THRESHOLD:
+            _mark_voice_down(speaker, primary, None)
     return None
 
 
@@ -2011,8 +2036,9 @@ async def set_tts_voice(request: Request):
         _TTS_VOICES[speaker] = voice
     if isinstance(rate, str) and rate:
         _TTS_RATE[speaker] = rate
-    # 手動指定 → 清掉熔斷狀態、用新正選（不繼續走備選）
+    # 手動指定 → 清掉熔斷狀態 + 連續失敗計數、用新聲音重新開始
     _tts_voice_state.pop(speaker, None)
+    _tts_fail_streak[speaker] = 0
     print(f"[tts] 手動切換 {speaker} → voice={_TTS_VOICES[speaker]} rate={_TTS_RATE[speaker]}")
     return JSONResponse({"ok": True, "speaker": speaker,
                          "voice": _TTS_VOICES[speaker], "rate": _TTS_RATE[speaker]})
