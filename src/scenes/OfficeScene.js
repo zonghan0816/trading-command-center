@@ -37,7 +37,7 @@ const SLOT_VISUAL_MAP = {
 // 任務 4.5: 主持人碰撞避免
 // HOST_MIN_DISTANCE 是兩主持人之間至少要保持的水平距離（px）
 const HOST_MIN_DISTANCE = 180;
-// discussion mode 下強制站位（畫面寬度比例、不動 config.js）
+// discussion mode 下強制站位的 fallback（實際以 config.js hosts.xRatio 為準、見 _enforceDiscussionPositions）
 const DISCUSSION_HOST_X_RATIOS = { aming: 0.35, xiaomei: 0.65 };
 // Phase 2F Step 3: 主持人 Lane 邊界（aming 永遠左半場、xiaomei 永遠右半場）
 const HOST_LANES = { aming: 0.35, xiaomei: 0.65 };
@@ -362,10 +362,14 @@ export class OfficeScene extends Phaser.Scene {
         bCY = bubCfg.y;
       } else {
         // 安安泡泡右邊界放寬到 1910 避免被推回覆蓋角色
+        // 左右：角色旁邊 + config 微調（bubbleXOffset），再夾畫面邊界
+        const xOff = CONFIG.layout.bubbleXOffset?.[id] ?? 0;
         bCX = (id === 'aming')
-          ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10)
-          : Math.min(1910 - bW / 2, charX + charWidth / 2 + bW / 2 + 10);
-        bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70)); // Fix 5: +110 → +70
+          ? Math.max(40 + bW / 2, charX - charWidth / 2 - bW / 2 - 10 + xOff)
+          : Math.min(1910 - bW / 2, charX + charWidth / 2 + bW / 2 + 10 + xOff);
+        // 上下：頭頂下方 70px + config 微調（bubbleYOffset），再夾畫面邊界
+        const yOff = CONFIG.layout.bubbleYOffset?.[id] ?? 0;
+        bCY = Math.max(190 + bH / 2, Math.min(900 - bH / 2, headTopY + 70 + yOff));
       }
 
       // Graphics 用相對座標建立（定位在 bCX, bCY），setPosition 才能正確移動
@@ -580,17 +584,14 @@ export class OfficeScene extends Phaser.Scene {
     return Math.abs(ch.sprite.x - other.sprite.x);
   }
 
-  /** discussion mode 進入時、強制兩主持人 X 移到 35% / 65%、kill 既有 tween */
+  /** discussion mode 進入時、強制兩主持人 X 移回各自 home 站位（= config hosts.xRatio）、kill 既有 tween */
   _enforceDiscussionPositions() {
     if (!this.W) return;
-    const targets = {
-      aming:   this.W * DISCUSSION_HOST_X_RATIOS.aming,
-      xiaomei: this.W * DISCUSSION_HOST_X_RATIOS.xiaomei,
-    };
     for (const id of ['aming', 'xiaomei']) {
       const ch = this.characters[id];
       if (!ch) continue;
-      const targetX = targets[id];
+      // ch.x = 建立時用 config hosts.xRatio 算出的初始站位，改 config 就會生效
+      const targetX = ch.x;
       // 已在目標 ±5px 內、不動
       if (Math.abs(ch.sprite.x - targetX) <= 5) continue;
 
@@ -721,10 +722,18 @@ export class OfficeScene extends Phaser.Scene {
   _syncBubble(id) {
     const ch = this.characters[id];
     if (!ch) return;
-    const sx = ch.sprite.x;
-    // 使用建立時算好的偏移量（bubbleXOff / bubbleYOff），讓泡泡跟著角色 X 移動
-    const bX = sx + (ch.bubbleXOff ?? 0);
-    const bY = ch.homeY + (ch.bubbleYOff ?? -140);
+    const bubCfg = CONFIG.layout.bubbles?.[id];
+    let bX, bY;
+    if (bubCfg && typeof bubCfg.x === 'number' && typeof bubCfg.y === 'number') {
+      // 絕對座標模式：泡泡固定在 config 設定的位置，不跟著角色走
+      bX = bubCfg.x;
+      bY = bubCfg.y;
+    } else {
+      // 相對座標模式（fallback）：泡泡跟著角色 X 移動
+      const sx = ch.sprite.x;
+      bX = sx + (ch.bubbleXOff ?? 0);
+      bY = ch.homeY + (ch.bubbleYOff ?? -140);
+    }
     ch.bubbleBg.setPosition(bX, bY);
     ch.bubbleText.setPosition(bX, bY);
   }

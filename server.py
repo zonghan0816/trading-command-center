@@ -2071,8 +2071,19 @@ def rotate_topic_now():
 
 
 # ── 靜態檔案 ──────────────────────────────────────────────────────
+class NoCacheStaticFiles(StaticFiles):
+    """強制瀏覽器每次都 revalidate（仍走 304 省流量）。
+    解法：config.js / OfficeScene.js 等 ES module 沒有 ?v= busting，
+    Starlette 預設不帶 Cache-Control，瀏覽器會 heuristic 快取剛改的檔，
+    導致改完馬上 F5 吃到舊 JS。加 no-cache 後改檔 F5 一定生效。"""
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+        return resp
+
+
 app.mount("/tts", StaticFiles(directory=str(TTS_DIR)), name="tts")
-app.mount("/src", StaticFiles(directory=str(_HERE / "src")), name="src")
+app.mount("/src", NoCacheStaticFiles(directory=str(_HERE / "src")), name="src")
 
 _ASSETS = _HERE / "assets"
 _ASSETS.mkdir(exist_ok=True)

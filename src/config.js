@@ -10,19 +10,26 @@ export const CONFIG = {
     wallHeightRatio: 0.44,
 
     // WWT 主持人座位（OfficeScene.js 更新後使用）
+    //  xRatio：角色左右位置（0=最左、0.5=正中、1=最右）。角色與泡泡會一起移動。
     hosts: {
-      aming:   { xRatio: 0.35, yOffsetFromWall: 430, seat: 'left'  },
-      xiaomei: { xRatio: 0.68, yOffsetFromWall: 440, seat: 'right' },
+      aming:   { xRatio: 0.33, yOffsetFromWall: 460, seat: 'left'  },
+      xiaomei: { xRatio: 0.68, yOffsetFromWall: 460, seat: 'right' },
     },
 
-    // ── 對話泡泡位置（螢幕絕對座標、畫面固定 1920×1080）──────────
-    //  x：數字越大越往右（0 = 最左、960 = 正中央、1920 = 最右）
-    //  y：數字越大越往下（0 = 最上、540 = 正中央、1080 = 最下）
-    //  這是「絕對定位」、泡泡不跟角色綁、也不會被邊界推來推去、所見即所得。
-    //  下面這組預設值 = 維持目前畫面位置，要移動直接改數字、存檔、F5。
-    bubbles: {
-      aming:   { x: 290,  y: 533 },   // 陳柏偉（左）泡泡
-      xiaomei: { x: 1670, y: 543 },   // 王于安（右）泡泡
+    // ── 對話泡泡上下微調（px）──────────────────────────────────────
+    //  左右會自動跟著角色，這裡只調上下高低、每個角色獨立。
+    //  負值 = 往上、正值 = 往下、0 = 維持預設（頭頂下方 70px）。
+    bubbleYOffset: {
+      aming:   -250,
+      xiaomei: -250,
+    },
+
+    // ── 對話泡泡左右微調（px）──────────────────────────────────────
+    //  正值 = 往右、負值 = 往左、0 = 維持預設（角色旁邊）。
+    //  安安（右側）想靠近角色 → 設負值往左；阿明（左側）想靠近 → 設正值往右。
+    bubbleXOffset: {
+      aming:   0,
+      xiaomei: -80,
     },
 
     // 舊版排列數值（OfficeScene.js 更新前保留，避免 undefined 報錯）
@@ -85,8 +92,8 @@ export const CONFIG = {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
-    characterIndividual:      0.41, // 王于安 individual PNG 1254×1254 用
-    characterIndividualAming: 0.42, // 3Q 陳柏惟 individual PNG 用、獨立調整
+    characterIndividual:      0.49, // 王于安 individual PNG 1254×1254 用
+    characterIndividualAming: 0.51, // 3Q 陳柏惟 individual PNG 用、獨立調整
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
