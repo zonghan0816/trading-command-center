@@ -1986,7 +1986,7 @@ _TTS_VOICE_OPTIONS = [
     {"id": "zh-CN-XiaoxiaoNeural",  "label": "曉曉（大陸女）", "tag": "王于安現用"},
 ]
 _TTS_ALLOWED_VOICES = {v["id"] for v in _TTS_VOICE_OPTIONS}
-_TTS_RATE_OPTIONS = ["+0%", "+2%", "+3%", "+5%", "+10%"]
+_TTS_RATE_OPTIONS = ["-6%", "-4%", "-2%", "+0%", "+2%", "+3%", "+5%", "+10%"]
 
 
 def _tts_status_payload() -> dict:
