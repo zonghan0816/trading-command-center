@@ -1324,7 +1324,9 @@ export class OfficeScene extends Phaser.Scene {
     const key = this._bgmKeys[this._bgmIndex % this._bgmKeys.length];
     this._bgmIndex++;
 
-    const track = this.sound.add(key, { volume: 0.14 });  // Step 5.32: 調小、不蓋過語音
+    // BGM 音量從 config.js 讀（CONFIG.audio.bgmVolume）、好調、改完 F5 即可
+    const vol = (typeof CONFIG.audio?.bgmVolume === 'number') ? CONFIG.audio.bgmVolume : 0.14;
+    const track = this.sound.add(key, { volume: vol });
     track.once('complete', () => this._playNextBgm());
     track.play();
     this._bgmTrack = track;
