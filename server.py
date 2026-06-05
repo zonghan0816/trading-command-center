@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 load_dotenv()
 
@@ -167,13 +167,25 @@ TTS_DIR = _HERE / "output" / "tts"
 TTS_DIR.mkdir(parents=True, exist_ok=True)
 
 _TTS_VOICES = {
-    "aming":   "zh-TW-YunJheNeural",    # 男聲（陳柏偉）
-    "xiaomei": "zh-CN-XiaoxiaoNeural",  # 女聲（王于安）- 曉曉（zh-CN 大陸口音）
+    "aming":   "zh-TW-YunJheNeural",      # 男聲（陳柏偉）正選：台灣男聲（雲哲）
+    "xiaomei": "zh-TW-HsiaoChenNeural",   # 女聲（王于安）正選：台灣女聲（曉臻）
+}
+# 正選聲音掛掉（微軟回「No audio was received」空音訊）時的備選、依序嘗試。
+# 設計：台灣聲音當正選、大陸聲音當備胎；台灣的掛掉自動退大陸、避免 24H 直播沒聲音。
+# 微軟修好正選後會自動切回（見 _candidate_voices 冷卻機制）。
+_TTS_FALLBACK_VOICES = {
+    "aming":   ["zh-CN-YunjianNeural"],    # 雲健（大陸男，台灣男聲掛掉時備胎）
+    "xiaomei": ["zh-CN-XiaoxiaoNeural"],   # 曉曉（大陸女，台灣女聲掛掉時備胎）
 }
 _TTS_RATE = {
     "aming":   "-5%",   # 陳柏偉：放慢 5%（使用者要求）
     "xiaomei": "+0%",   # 王于安：正常速
 }
+# 正選聲音失敗後的冷卻秒數：這段時間直接用備選、不再每句重試正選；
+# 冷卻過了會再探一次正選（微軟修好就自動切回正選）。
+_TTS_VOICE_COOLDOWN_SEC = 600
+# speaker -> {"down_until": float, "active": str}；正選掛掉時的健康狀態（in-memory）
+_tts_voice_state: dict = {}
 _DIALOGUE_MEMORY_MAX_ROUNDS = 8           # 同 topic 最多保留最近 8 輪記憶
 _DIALOGUE_MEMORY_LINE_MAX_LEN = 40        # 寫入 memory 時、每行截斷字數
 
@@ -1492,14 +1504,53 @@ def _build_dynamic_prompt(state: dict, turn_type: str,
 
 
 # ── TTS helpers ───────────────────────────────────────────────────
-def _tts_cache_path(speaker: str, text: str) -> Path:
+def _tts_cache_path(voice: str, rate: str, text: str) -> Path:
     import hashlib
-    # voice + rate 納入 key：聲線 / 語速一改、快取自動失效重生（不會放到舊聲音）
-    voice = _TTS_VOICES.get(speaker, "")
-    rate = _TTS_RATE.get(speaker, "+0%")
-    key = f"{speaker}:{voice}:{rate}:{text}"
+    # key 由「實際聲音 + 語速 + 文字」決定：聲線/語速一改快取自動失效重生；
+    # 備選聲音的音訊也存在自己的 key 下、不會蓋到正選（正選修好就播回正選音訊）。
+    key = f"{voice}:{rate}:{text}"
     h = hashlib.md5(key.encode("utf-8")).hexdigest()
     return TTS_DIR / f"{h}.mp3"
+
+
+def _candidate_voices(speaker: str) -> tuple[list[str], bool]:
+    """回傳 (要嘗試的聲音清單, 正選是否在冷卻中)。
+    正常：正選優先、備選墊底。
+    正選冷卻中：只回備選（不每句重試正選、避免浪費失敗呼叫 + 增加延遲）。
+    """
+    import time
+    primary = _TTS_VOICES.get(speaker)
+    fallbacks = [v for v in _TTS_FALLBACK_VOICES.get(speaker, []) if v]
+    st = _tts_voice_state.get(speaker, {})
+    in_cooldown = st.get("down_until", 0) > time.time()
+    if in_cooldown:
+        return (fallbacks or ([primary] if primary else [])), True
+    return (([primary] if primary else []) + fallbacks), False
+
+
+def _mark_voice_down(speaker: str, primary: str, used: str) -> None:
+    """正選失敗、已切到備選：設冷卻 + 只在「剛掉下去」時喊一次（避免洗版）。"""
+    import time
+    st = _tts_voice_state.setdefault(speaker, {})
+    first_time = st.get("down_until", 0) <= time.time()
+    st["down_until"] = time.time() + _TTS_VOICE_COOLDOWN_SEC
+    st["active"] = used
+    if first_time:
+        print("=" * 64)
+        print(f"[tts] ⚠ 正選聲音失效：{speaker} 的 {primary} 回空音訊")
+        print(f"[tts]    → 已自動切換備選：{used}")
+        print(f"[tts]    → {_TTS_VOICE_COOLDOWN_SEC // 60} 分鐘後自動再試正選（微軟修好會切回）")
+        print("=" * 64)
+
+
+def _mark_voice_recovered(speaker: str, primary: str) -> None:
+    """正選成功：若原本標記掛掉、喊一次恢復並清狀態。"""
+    st = _tts_voice_state.get(speaker)
+    if st and st.get("down_until"):
+        print("=" * 64)
+        print(f"[tts] ✓ 正選聲音恢復：{speaker} 的 {primary} 又能用了、切回正選")
+        print("=" * 64)
+    _tts_voice_state.pop(speaker, None)
 
 
 def _patch_tts_ssl() -> None:
@@ -1520,6 +1571,7 @@ _tts_ssl_patched = False
 
 async def _gen_tts_line(speaker: str, text: str) -> str | None:
     """生成單句 TTS mp3、命中快取直接回 url。
+    正選聲音掛掉（微軟回空音訊）→ 自動切備選 + 通知；正選修好 → 自動切回。
     失敗回 None、不 raise。
     """
     global _tts_ssl_patched
@@ -1530,19 +1582,40 @@ async def _gen_tts_line(speaker: str, text: str) -> str | None:
     if not _tts_ssl_patched:
         _patch_tts_ssl()
         _tts_ssl_patched = True
-    voice = _TTS_VOICES.get(speaker)
-    if not voice or not text:
+    primary = _TTS_VOICES.get(speaker)
+    if not primary or not text:
         return None
-    cache = _tts_cache_path(speaker, text)
-    if not cache.exists():
+    rate = _TTS_RATE.get(speaker, "+0%")
+    candidates, _in_cooldown = _candidate_voices(speaker)
+    primary_failed_now = False
+    for voice in candidates:
+        is_primary = (voice == primary)
+        cache = _tts_cache_path(voice, rate, text)
+        if cache.exists():
+            if is_primary:
+                _mark_voice_recovered(speaker, primary)
+            return f"/tts/{cache.name}"
         try:
-            rate = _TTS_RATE.get(speaker, "+0%")
             communicate = edge_tts.Communicate(text, voice, rate=rate)
             await communicate.save(str(cache))
         except Exception as e:
-            print(f"[tts] gen failed ({speaker}): {e}")
-            return None
-    return f"/tts/{cache.name}"
+            # 失敗可能留下 0 byte 殘檔、清掉避免下次誤命中
+            if cache.exists():
+                try:
+                    cache.unlink()
+                except Exception:
+                    pass
+            print(f"[tts] gen failed ({speaker}/{voice}): {e}")
+            if is_primary:
+                primary_failed_now = True
+            continue
+        # 成功
+        if is_primary:
+            _mark_voice_recovered(speaker, primary)
+        elif primary_failed_now:
+            _mark_voice_down(speaker, primary, voice)
+        return f"/tts/{cache.name}"
+    return None
 
 
 async def _gen_tts_dialogue(dialogue: list) -> list:
@@ -1745,6 +1818,74 @@ async def update_state(request: Request):
     data = await request.json()
     STATE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"ok": True}
+
+
+# ── Step 5.34: 線上切聲音（不用重開伺服器、手機開 /voice 就能換）──────────
+# 白名單：只允許實測能用的 zh 聲音、避免亂打無效聲音導致沒聲音。
+_TTS_VOICE_OPTIONS = [
+    {"id": "zh-TW-YunJheNeural",    "label": "雲哲（台灣男）", "tag": "台灣男聲，正選；目前可能被微軟搞壞"},
+    {"id": "zh-CN-YunjianNeural",   "label": "雲健（大陸男）", "tag": "激情大聲，陳柏偉備胎"},
+    {"id": "zh-CN-YunxiNeural",     "label": "雲希（大陸男）", "tag": "活潑陽光"},
+    {"id": "zh-CN-YunyangNeural",   "label": "雲揚（大陸男）", "tag": "新聞穩重"},
+    {"id": "zh-TW-HsiaoChenNeural", "label": "曉臻（台灣女）", "tag": "台灣女聲"},
+    {"id": "zh-CN-XiaoxiaoNeural",  "label": "曉曉（大陸女）", "tag": "王于安現用"},
+]
+_TTS_ALLOWED_VOICES = {v["id"] for v in _TTS_VOICE_OPTIONS}
+_TTS_RATE_OPTIONS = ["-10%", "-5%", "+0%", "+5%", "+10%"]
+
+
+def _tts_status_payload() -> dict:
+    import time
+    now = time.time()
+    speakers = {}
+    for spk in _TTS_VOICES:
+        st = _tts_voice_state.get(spk, {})
+        down = st.get("down_until", 0) > now
+        speakers[spk] = {
+            "name": "陳柏偉" if spk == "aming" else "王于安",
+            "primary": _TTS_VOICES.get(spk),
+            "rate": _TTS_RATE.get(spk, "+0%"),
+            "fallbacks": _TTS_FALLBACK_VOICES.get(spk, []),
+            "primary_down": down,
+            "active_voice": (st.get("active") if down else _TTS_VOICES.get(spk)),
+            "cooldown_remaining_sec": max(0, int(st.get("down_until", 0) - now)),
+        }
+    return {"speakers": speakers,
+            "voice_options": _TTS_VOICE_OPTIONS,
+            "rate_options": _TTS_RATE_OPTIONS}
+
+
+@app.get("/api/tts/status")
+def tts_status():
+    """目前每位主持人的聲音 / 語速 / 正選健康狀態。"""
+    return JSONResponse(_tts_status_payload())
+
+
+@app.post("/api/tts/voice")
+async def set_tts_voice(request: Request):
+    """即時切換某位主持人的聲音 / 語速、不用重開伺服器。
+    手動切會清掉該角色的『正選掛掉』狀態（讓它直接用你指定的聲音）。
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    speaker = str(body.get("speaker", ""))
+    voice = body.get("voice")
+    rate = body.get("rate")
+    if speaker not in _TTS_VOICES:
+        return JSONResponse({"error": f"unknown speaker: {speaker}"}, status_code=400)
+    if voice is not None:
+        if voice not in _TTS_ALLOWED_VOICES:
+            return JSONResponse({"error": f"voice not allowed: {voice}"}, status_code=400)
+        _TTS_VOICES[speaker] = voice
+    if isinstance(rate, str) and rate:
+        _TTS_RATE[speaker] = rate
+    # 手動指定 → 清掉熔斷狀態、用新正選（不繼續走備選）
+    _tts_voice_state.pop(speaker, None)
+    print(f"[tts] 手動切換 {speaker} → voice={_TTS_VOICES[speaker]} rate={_TTS_RATE[speaker]}")
+    return JSONResponse({"ok": True, "speaker": speaker,
+                         "voice": _TTS_VOICES[speaker], "rate": _TTS_RATE[speaker]})
 
 
 # ── Phase 3 Step 6.7: 暫停 / 恢復對話生成 ───────────────────────────
@@ -2099,6 +2240,102 @@ def index():
 def preview_emotions():
     """Phase 4 Step 5.21: 王于安 15 張 PNG 色彩比對頁、可切換背景。"""
     return FileResponse(str(_HERE / "preview_emotions.html"))
+
+
+@app.get("/voice", response_class=HTMLResponse)
+def voice_control_page():
+    """Step 5.34: 手機可開的『線上切聲音』控制頁、不用重開伺服器。
+    手機瀏覽器開 http://<這台IP>:8765/voice 就能點按鈕即時換聲音。"""
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>TDT 線上切聲音</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin:0; font-family:-apple-system,"Noto Sans TC",sans-serif;
+         background:#11151c; color:#e9eef5; padding:16px 14px 40px; }
+  h1 { font-size:20px; margin:4px 0 14px; }
+  .host { background:#1b212b; border:1px solid #2a3340; border-radius:14px;
+          padding:14px; margin-bottom:18px; }
+  .host h2 { font-size:17px; margin:0 0 6px; }
+  .status { font-size:13px; line-height:1.6; margin:0 0 12px; color:#a9b6c6; }
+  .badge { display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px;
+           margin-left:6px; vertical-align:middle; }
+  .ok   { background:#15351f; color:#6ee79a; }
+  .down { background:#3a1b1b; color:#ff8a8a; }
+  .lbl  { font-size:12px; color:#8294a8; margin:10px 0 6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  button { font-size:14px; padding:11px 8px; border-radius:10px; border:1px solid #33404f;
+           background:#222b37; color:#e9eef5; cursor:pointer; }
+  button.sel { background:#2563eb; border-color:#2563eb; color:#fff; font-weight:700; }
+  button:active { transform:scale(0.97); }
+  .rate { display:flex; gap:6px; flex-wrap:wrap; }
+  .rate button { flex:1; min-width:54px; }
+  .tag { font-size:11px; color:#75839a; display:block; margin-top:2px; }
+  .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
+           background:#2563eb; color:#fff; padding:10px 18px; border-radius:999px;
+           font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  .refresh { font-size:12px; color:#5a6b80; text-align:center; margin-top:6px; }
+</style>
+</head>
+<body>
+<h1>🎙️ TDT 線上切聲音</h1>
+<div id="hosts">載入中…</div>
+<div class="refresh">每 5 秒自動更新狀態</div>
+<div class="toast" id="toast"></div>
+<script>
+let DATA = null;
+const toast = (m) => { const t=document.getElementById('toast'); t.textContent=m;
+  t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),1400); };
+
+async function load() {
+  const r = await fetch('/api/tts/status'); DATA = await r.json(); render();
+}
+function render() {
+  const opts = DATA.voice_options, rates = DATA.rate_options;
+  let html = '';
+  for (const [spk, s] of Object.entries(DATA.speakers)) {
+    const down = s.primary_down;
+    const badge = down
+      ? `<span class="badge down">正選掛了·改用 ${s.active_voice}</span>`
+      : `<span class="badge ok">正常</span>`;
+    const cd = down ? `（${s.cooldown_remaining_sec}s 後自動再試正選）` : '';
+    html += `<div class="host"><h2>${s.name} <small style="color:#7e8da0">(${spk})</small>${badge}</h2>`;
+    html += `<p class="status">正選：${s.primary}<br>目前實際：${s.active_voice} ${cd}<br>備胎：${(s.fallbacks||[]).join(', ')||'無'}</p>`;
+    html += `<div class="lbl">切換聲音（設為正選）</div><div class="grid">`;
+    for (const o of opts) {
+      const sel = (o.id === s.primary) ? ' sel' : '';
+      html += `<button class="v${sel}" onclick="setVoice('${spk}','${o.id}')">${o.label}<span class="tag">${o.tag}</span></button>`;
+    }
+    html += `</div>`;
+    html += `<div class="lbl">語速（目前 ${s.rate}）</div><div class="rate">`;
+    for (const rt of rates) {
+      const sel = (rt === s.rate) ? ' sel' : '';
+      html += `<button class="${sel}" onclick="setRate('${spk}','${rt}')">${rt}</button>`;
+    }
+    html += `</div></div>`;
+  }
+  document.getElementById('hosts').innerHTML = html;
+}
+async function setVoice(speaker, voice) {
+  await post({speaker, voice}); toast('已切換聲音'); load();
+}
+async function setRate(speaker, rate) {
+  await post({speaker, rate}); toast('已調語速'); load();
+}
+async function post(body) {
+  const r = await fetch('/api/tts/voice', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+  if (!r.ok) { const e = await r.json().catch(()=>({})); toast('失敗：'+(e.error||r.status)); }
+}
+load(); setInterval(load, 5000);
+</script>
+</body>
+</html>""")
 
 
 if __name__ == "__main__":

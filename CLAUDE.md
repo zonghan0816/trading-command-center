@@ -182,9 +182,9 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-05
-**目前階段**：Phase 4 Step 5.33 — 對話改「丟球接話」邏輯、去腳本感（TTS 已測試結案）
-**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶（讓下一輪接上一輪）
-（TTS 聲線已本機測試確認、免費 Edge-TTS 效果可接受、不再列為候選）
+**目前階段**：Phase 4 Step 5.34 — TTS 語音容錯（自動切備選）+ 線上切聲音（免重開）
+**下一階段候選**：搞笑梗（換聲音變梗：跑馬燈 + 王于安 AI 吐槽，設計已定、未實作）/ 真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶
+**⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉正選）目前被微軟搞壞、回空音訊。Step 5.34 已加：① 正選掛掉自動切備胎（陳柏偉→雲健、王于安→曉曉）、微軟修好自動切回 + console 通知；② 兩位主持人改「台灣正選 / 大陸備胎」對稱設定（王于安正選改回台灣曉臻）；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開伺服器）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
 
 ### 重點里程碑（依 commit 由舊到新）
@@ -230,11 +230,13 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 4 Step 5.31** | **TTS 語音實作**：後端 `_gen_tts_dialogue` 平行生成 edge-tts mp3（陳柏偉 YunJheNeural / 王于安 HsiaoChenNeural）+ 快取；前端優先播 server mp3、失敗 fallback 到 `speechSynthesis`（Web Speech API）；SSL patch 處理企業/雲端 proxy 環境 |
 | **★ 4 Step 5.32** | **TTS 音訊主導泡泡同步**：重寫 `_playLineSequence`，用 `ended`/`onend` 事件驅動（非固定計時器），長句子不再被截斷；`_stopCurrentAudio()` 防音訊重疊；陳柏偉語速 `+10%`→`+0%`；BGM 音量 `0.28`→`0.14` |
 | **4 Step 5.33** | **對話「丟球接話」邏輯**：8 種 tone 改寫成互動動態（丟球/接球/反嗆）、強調每句接住上一句；句子有長有短（開球長、接球短）不再每句完整論述；接話短句不用硬塞 topic。去除腳本感、像 AI 真的在互相對話 |
+| **★ 4 Step 5.34** | **TTS 語音容錯 + 線上切聲音**：① 發現 `zh-TW-YunJheNeural`（台灣男聲、陳柏偉正選）被微軟搞壞回空音訊 → circuit-breaker：正選失敗自動切備胎 + console 通知一次、冷卻 10 分鐘、微軟修好自動切回；② 兩位主持人改「台灣正選/大陸備胎」對稱（陳柏偉 雲哲→雲健、王于安 曉臻→曉曉；王于安正選改回台灣）；③ 線上切聲音 API `POST /api/tts/voice` + `GET /api/tts/status` + 手機控制頁 `/voice`（免重開伺服器）；快取 key 改用實際聲音。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md` |
 
 ### 已知待辦 / 限制
 
 - [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
 - [x] ~~**★ TTS 語音（最優先）**~~ → **已實作 + 已測試確認（Step 5.31~5.32）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。**2026-06-05 本機聽過、免費 Edge-TTS 效果可接受、不再微調**。
+- [ ] **★ 搞笑梗「換聲音變梗」（設計已定、未實作）**：正選聲音掛掉自動切備胎時，聲音會變（如陳柏偉 雲哲→雲健）。把它變成節目笑點 —— 跑馬燈（AI 生成）宣布「麥克風出狀況/換備用麥」+ 下一輪王于安 AI 吐槽柏偉聲音怎麼變了。需求：① state 加 `ticker` 欄位 + 前端跑馬燈 UI ② 偵測 `_tts_voice_state` 切換轉折觸發一次性 meta-round（特殊 prompt 讓王于安吐槽）。內容來源＝AI 即時生成。符合「AI bug 變梗」DNA
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
 - [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 已有「同情當事人」引導、24H 公開前再 review 一次法律風險
