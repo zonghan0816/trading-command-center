@@ -182,7 +182,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-05
-**目前階段**：Phase 4 Step 5.36 — 修「沒聲音」根因（edge-tts 間歇失敗 → 每句重試 4 次 + 連續失敗才算掛）
+**目前階段**：Phase 4 Step 5.37 — 傷害題 prompt 放寬（先同情承認傷亡 → 再嘲諷制度/結構）
 **下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶
 **⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟「間歇性」搞壞、回空音訊。最終設計（Step 5.35）：① 兩位都只用台灣聲音、無大陸備胎（語速陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」、不換聲音、改演搞笑梗（state.ticker 跑馬燈 + 下一輪王于安 AI 吐槽 meta round）、10 分鐘自動探測、微軟修好自動恢復 + 演「修好了」梗；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
@@ -231,6 +231,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **★ 4 Step 5.32** | **TTS 音訊主導泡泡同步**：重寫 `_playLineSequence`，用 `ended`/`onend` 事件驅動（非固定計時器），長句子不再被截斷；`_stopCurrentAudio()` 防音訊重疊；陳柏偉語速 `+10%`→`+0%`；BGM 音量 `0.28`→`0.14` |
 | **4 Step 5.33** | **對話「丟球接話」邏輯**：8 種 tone 改寫成互動動態（丟球/接球/反嗆）、強調每句接住上一句；句子有長有短（開球長、接球短）不再每句完整論述；接話短句不用硬塞 topic。去除腳本感、像 AI 真的在互相對話 |
 | **★ 4 Step 5.34** | **TTS 語音容錯 + 線上切聲音**：① 發現 `zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟搞壞回空音訊 → circuit-breaker 熔斷器（冷卻 10 分鐘、自動探測恢復）；② 線上切聲音 API `POST /api/tts/voice` + `GET /api/tts/status` + 手機控制頁 `/voice`（免重開伺服器）；快取 key 改用實際聲音。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md` |
+| **4 Step 5.37** | **傷害題 prompt 放寬**（使用者拍板）：`_build_static_prompt` 傷害題從「過度保守、不嘲諷」改成「**先同情承認傷亡 → 再嘲諷制度/結構**」（火力對準制度、不貶低傷害、不嘲諷受害者、不拿死傷當笑點）。實測傷亡 topic 輸出正確（sympathy→mocking、船員框成受害者）。BGM 觀眾控 + prompt #2 荒謬開場 / #7 陳柏偉固定先開場 → 使用者決定不做 |
 | **★ 4 Step 5.36** | **修「沒聲音」根因 = edge-tts 間歇性回空音訊**（非 YunJhe 永久壞、循序 10/10 成功）：① 每句重試 `_TTS_RETRY=4`、退避遞增、單句失敗率 15%→~0.05%；② 熔斷器改「連續 `_TTS_DOWN_THRESHOLD=4` 句都失敗才算真的掛」（用 `_tts_fail_streak`、單句隨機失敗不連坐、各主持人獨立）。實測 5 輪 fresh 全 4/4、不誤觸 cooldown；真的掛時仍正常觸發梗。詳見 `88` 第 11 節 |
 | **★ 4 Step 5.35** | **聲音台灣 only + 壞掉演成搞笑梗**（符合「AI bug 變梗」DNA）：① 取消大陸備胎、兩位都只用台灣聲音（語速 陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」不換聲音、改演梗 —— `state.ticker` 跑馬燈快訊（前端 `#marquee-bar` 接、紅字快訊模式）+ 下一輪王于安 AI 吐槽 meta round（`_run_voice_meta_round`、Claude 回 `{ticker,dialogue}`、陳柏偉變默劇靜音泡泡）；③ 微軟修好自動恢復 + 演「修好了」梗。實測 real Claude call 通過。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md` 第 9~10 節 |
 
@@ -241,7 +242,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 - [x] ~~**★ 搞笑梗「壞掉變梗」**~~ → **已實作 + 實測（Step 5.35）**：聲音掛掉那位暫時靜音、跑馬燈（AI 生成）+ 下一輪王于安 AI 吐槽 meta round、陳柏偉變默劇靜音泡泡、微軟修好演「修好了」梗。`state.ticker` + 前端 `#marquee-bar` + `_run_voice_meta_round`
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
-- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_prompt()` 已有「同情當事人」引導、24H 公開前再 review 一次法律風險
+- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_static_prompt()` 已有完整「諷刺現象不指控個人 / 事實基底 / 傷害題先同情」規則。Step 5.37 把傷害題從「過度保守（不嘲諷）」放寬成「**先同情承認傷亡 → 再嘲諷制度/結構**（不貶低傷害、不嘲諷受害者、不拿死傷當笑點）」。24H 公開前再 review 一次法律風險
 - [x] ~~小美 PNG 視覺問題~~ → 已改名王于安、15 張去綠幕 + histogram matching 色彩對齊完成
 - [x] ~~阿明 actions spritesheet 未接~~ → 已改名陳柏偉、9 emotion individual PNG 完成
 - [x] ~~BGM / 環境音~~ → 雙首輪流播放實作完成（badge 隱藏點擊開關）
