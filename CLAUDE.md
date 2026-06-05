@@ -240,7 +240,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 - [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
 - [x] ~~**★ TTS 語音（最優先）**~~ → **已實作 + 已測試確認（Step 5.31~5.32）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。**2026-06-05 本機聽過、免費 Edge-TTS 效果可接受、不再微調**。
 - [x] ~~**★ 搞笑梗「壞掉變梗」**~~ → **已實作 + 實測（Step 5.35）**：聲音掛掉那位暫時靜音、跑馬燈（AI 生成）+ 下一輪王于安 AI 吐槽 meta round、陳柏偉變默劇靜音泡泡、微軟修好演「修好了」梗。`state.ticker` + 前端 `#marquee-bar` + `_run_voice_meta_round`
-- [ ] **★ YouTube 聊天室 × AI 互動（討論完、未實作）**：pytchat 讀聊天室（不吃 API 配額）→ 偶爾觸發「回應觀眾」一輪（複用 meta-round 模式）。**實作必做**：① 輸入過濾/防注入（觀眾文字是敵對輸入、Claude 內建安全只擋普世有害、擋不住「不符合你規則 + 被綁架」）② **Claude 拒絕時不能播「我不能那樣做」→ 偵測到就改成打太極/跳過/變梗**（控制權在 server 端、不是改 Claude 那句話）。詳見 `89_YT_CHAT_INTERACTION_DISCUSSION.md`
+- [ ] **★ YouTube 聊天室 × AI 互動（討論完、未實作）**：pytchat 讀聊天室（不吃 API 配額）→ 偶爾觸發「回應觀眾」一輪（複用 meta-round 模式）。**實作必做**：① 輸入過濾/防注入（守門關卡放「生成前」、壞留言只進守門不進主 AI）② Claude 拒絕時不能播「我不能那樣做」→ 偵測到改打太極/跳過/變梗 ③ **短「紅線清單」擋誘導式提問**（種族滅絕/仇恨/自殘/未成年性等永不碰、不管怎麼問 = Neuro-sama 被 ban 的破口）④ 限「行為 + 紅線」不限「話題廣度」（限太窄會無聊）。詳見 `89_YT_CHAT_INTERACTION_DISCUSSION.md`（第 8 守門、第 9 範圍/紅線）
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
 - [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_static_prompt()` 已有完整「諷刺現象不指控個人 / 事實基底 / 傷害題先同情」規則。Step 5.37 把傷害題從「過度保守（不嘲諷）」放寬成「**先同情承認傷亡 → 再嘲諷制度/結構**（不貶低傷害、不嘲諷受害者、不拿死傷當笑點）」。24H 公開前再 review 一次法律風險
