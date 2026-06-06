@@ -129,7 +129,26 @@ export class OfficeScene extends Phaser.Scene {
   }
 
   // ── 背景 ──────────────────────────────────────────────────────
+  // 天氣 → 背景 key：studio_bg_{時段}_{天氣}，缺圖 fallback 回晴天版（無後綴）。
+  _resolveBgKey(baseKey) {
+    const w = this._weather || 'clear';
+    if (!w || w === 'clear') return baseKey;
+    const variant = `${baseKey}_${w}`;
+    return this.textures.exists(variant) ? variant : baseKey;  // 缺天氣圖 → fallback
+  }
+
+  // 對外：時間 mix 再套上天氣（base/next 都解析成天氣變體）
   _getTimeOfDayBackgroundMix() {
+    const mix = this._getTimeSlotBgRaw();
+    return {
+      base:  this._resolveBgKey(mix.base),
+      next:  mix.next ? this._resolveBgKey(mix.next) : null,
+      alpha: mix.alpha,
+    };
+  }
+
+  // 純時間 → 三套 key（不含天氣）
+  _getTimeSlotBgRaw() {
     const now  = new Date();
     const mins = now.getHours() * 60 + now.getMinutes();
     const clamp = (v) => Math.min(1, Math.max(0, v));
@@ -258,6 +277,23 @@ export class OfficeScene extends Phaser.Scene {
     } else if (this.bgNext) {
       this.bgNext.setAlpha(0);
     }
+  }
+
+  // 天氣變化：在最上層放新天氣背景、60 秒淡入（不突兀）、淡完同步底層
+  _crossfadeWeather() {
+    if (this.textures.exists('studio_base')) return;   // 新棚景路徑不處理
+    const mix = this._getTimeOfDayBackgroundMix();      // 已含新天氣
+    if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
+    this._bgFade = this.add.image(0, 0, mix.base)
+      .setOrigin(0, 0).setDepth(0.2).setDisplaySize(this.W, this.H).setAlpha(0);
+    this.tweens.add({
+      targets: this._bgFade, alpha: 1, duration: 60000, ease: 'Linear',
+      onComplete: () => {
+        this._updateBackgroundMix();                   // 底層也換成新天氣
+        if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
+      },
+    });
+    console.info('[weather] crossfade →', this._weather, 'bg=', mix.base);
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
@@ -491,6 +527,16 @@ export class OfficeScene extends Phaser.Scene {
 
   _applyState(data) {
     this.state = data;
+
+    // 窗外天氣：state.weather 變了就換背景（首次同步、之後 60 秒 crossfade）
+    const w = data.weather || 'clear';
+    if (w !== this._weather) {
+      const first = (this._weather === undefined);
+      this._weather = w;
+      if (first) this._updateBackgroundMix();   // 首次：直接套用、不淡
+      else       this._crossfadeWeather();       // 之後：60 秒慢慢淡（不突兀）
+    }
+
     const ACTIVE = ['talking', 'thinking', 'researching', 'reacting'];
 
     // Phase 3 Step 6.7: TOP 5 已改成觀眾互動 CTA 固定文案、不再跟 state.keywords 連動

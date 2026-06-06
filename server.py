@@ -256,6 +256,7 @@ def _default_state() -> dict:
         "activity": "idle",
         "keywords": [],
         "ticker": "",               # 跑馬燈快訊（搞笑梗用、空=顯示預設促銷文字）
+        "weather": "clear",         # 窗外天氣（clear/cloudy/rain…）→ 前端選背景變體
         "hosts": {
             "aming": {
                 "status": "idle",
@@ -281,6 +282,7 @@ _STR_FIELD_DEFAULTS = {
     "mood":           "neutral",
     "activity":       "idle",
     "ticker":         "",
+    "weather":        "clear",
 }
 
 
@@ -1997,6 +1999,35 @@ async def update_state(request: Request):
     return {"ok": True}
 
 
+# ── Step 5.39: 窗外天氣（手動切、之後可接中央氣象署）─────────────
+_WEATHER_STATES = {"clear", "cloudy", "rain", "thunder", "typhoon"}
+
+
+@app.get("/api/weather")
+def get_weather():
+    st = _load_state()
+    return {"weather": st.get("weather", "clear"), "options": sorted(_WEATHER_STATES)}
+
+
+@app.post("/api/weather")
+async def set_weather(request: Request):
+    """手動切窗外天氣。前端 60 秒 crossfade 換背景（缺天氣圖自動 fallback 晴天）。
+    body: {"weather": "clear|cloudy|rain|thunder|typhoon"}"""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    w = str(body.get("weather", "")).strip()
+    if w not in _WEATHER_STATES:
+        return JSONResponse({"error": f"weather not allowed: {w}",
+                             "options": sorted(_WEATHER_STATES)}, status_code=400)
+    st = _load_state()
+    st["weather"] = w
+    _save_state(st)
+    print(f"[weather] 手動切換 → {w}")
+    return JSONResponse({"ok": True, "weather": w})
+
+
 # ── Step 5.34: 線上切聲音（不用重開伺服器、手機開 /voice 就能換）──────────
 # 白名單：只允許實測能用的 zh 聲音、避免亂打無效聲音導致沒聲音。
 _TTS_VOICE_OPTIONS = [
@@ -2552,6 +2583,57 @@ function card(lbl, big, sub) {
   return '<div class="card"><div class="lbl">'+lbl+'</div><div class="big">'+big+'</div><div class="sub">'+sub+'</div></div>';
 }
 load(); setInterval(load, 20000);
+</script>
+</body>
+</html>""")
+
+
+@app.get("/weather", response_class=HTMLResponse)
+def weather_page():
+    """Step 5.39: 手機可開的『窗外天氣』手動切換頁。手機開 http://<IP>:8765/weather。"""
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>TDT 窗外天氣</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:-apple-system,"Noto Sans TC",sans-serif; background:#11151c; color:#e9eef5; padding:18px 14px; }
+  h1 { font-size:20px; margin:4px 0 6px; }
+  .now { font-size:14px; color:#8294a8; margin-bottom:16px; }
+  .now b { color:#6ee79a; font-size:16px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  button { font-size:17px; padding:18px 8px; border-radius:12px; border:1px solid #33404f; background:#222b37; color:#e9eef5; cursor:pointer; }
+  button.sel { background:#2563eb; border-color:#2563eb; font-weight:700; }
+  button:active { transform:scale(0.97); }
+  .note { font-size:12px; color:#5a6b80; margin-top:16px; line-height:1.6; }
+  .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#2563eb; color:#fff; padding:10px 18px; border-radius:999px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+<h1>🌤️ TDT 窗外天氣</h1>
+<div class="now">目前：<b id="now">—</b></div>
+<div class="grid" id="btns"></div>
+<div class="note">切換後背景 60 秒慢慢淡入（不突兀）。缺對應天氣圖時自動 fallback 回晴天版（畫面不變、屬正常）。</div>
+<div class="toast" id="toast"></div>
+<script>
+const LABELS = {clear:'☀️ 晴天', cloudy:'☁️ 陰天', rain:'🌧️ 下雨', thunder:'⛈️ 雷雨', typhoon:'🌀 颱風'};
+const toast=(m)=>{const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1400);};
+let cur='';
+async function load(){
+  let d; try{ d=await (await fetch('/api/weather')).json(); }catch(e){return;}
+  cur=d.weather; document.getElementById('now').textContent=LABELS[cur]||cur;
+  let h=''; for(const w of d.options){ h+='<button class="'+(w===cur?'sel':'')+'" onclick="setW(\\''+w+'\\')">'+(LABELS[w]||w)+'</button>'; }
+  document.getElementById('btns').innerHTML=h;
+}
+async function setW(w){
+  const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weather:w})});
+  if(r.ok){ toast('已切 '+(LABELS[w]||w)); load(); } else { toast('失敗'); }
+}
+load(); setInterval(load, 5000);
 </script>
 </body>
 </html>""")

@@ -16,6 +16,17 @@ export class BootScene extends Phaser.Scene {
     this.load.image('studio_bg_morning', '/assets/wwt_studio_background_noon_v1.png');
     this.load.image('studio_bg_noon',    '/assets/wwt_studio_background_morning_v1.png');
     this.load.image('studio_bg_night',   '/assets/wwt_studio_background_night_v1.png');
+    // 窗外天氣：整張背景變體（studio_bg_{時段}_{天氣}）。有圖才開 CONFIG.weatherBg.enabled。
+    // 缺檔走下面 loaderror 靜默跳過、前端 _resolveBgKey 會 fallback 回晴天版。
+    const wbg = CONFIG.weatherBg;
+    if (wbg && wbg.enabled) {
+      (wbg.slots || ['morning','noon','night']).forEach(slot => {
+        (wbg.variants || []).forEach(w => {
+          const key = `studio_bg_${slot}_${w}`;
+          this.load.image(key, `/assets/${key}.png`);
+        });
+      });
+    }
 
     // 載入使用者自訂圖片（config.js 中 customAssets 設為 true 的項目）
     const ca = CONFIG.customAssets;
@@ -91,6 +102,9 @@ export class BootScene extends Phaser.Scene {
     this.load.on('loaderror', (file) => {
       if (file.key === 'bgm_1' || file.key === 'bgm_2') {
         console.warn(`[audio] ${file.key} 未找到、繼續無聲播放`);
+      } else if (file.key && file.key.startsWith('studio_bg_') && file.key.split('_').length > 3) {
+        // 天氣變體缺檔：靜默跳過、前端會 fallback 回晴天版
+        console.warn(`[weather] ${file.key} 沒這張、fallback 回晴天版`);
       }
     });
   }

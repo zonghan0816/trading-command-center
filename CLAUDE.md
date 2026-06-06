@@ -194,7 +194,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-05
-**目前階段**：Phase 4 Step 5.38 — 持久花費帳本 `wwt_cost_history.json` + `/api/cost` + 手機頁 `/cost`（跨重開保留 + 整月推估、判斷要不要轉 batch 預錄）
+**目前階段**：Phase 4 Step 5.39 — 窗外天氣引擎（整張背景替換 + 60 秒 crossfade + 缺圖 fallback + `/api/weather` + 手機頁 `/weather`）。**引擎已實作、待 GPT 天氣背景圖**
 **下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶
 **⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟「間歇性」搞壞、回空音訊。最終設計（Step 5.35）：① 兩位都只用台灣聲音、無大陸備胎（語速陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」、不換聲音、改演搞笑梗（state.ticker 跑馬燈 + 下一輪王于安 AI 吐槽 meta round）、10 分鐘自動探測、微軟修好自動恢復 + 演「修好了」梗；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
@@ -253,7 +253,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 - [x] ~~**★ TTS 語音（最優先）**~~ → **已實作 + 已測試確認（Step 5.31~5.32）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。**2026-06-05 本機聽過、免費 Edge-TTS 效果可接受、不再微調**。
 - [x] ~~**★ 搞笑梗「壞掉變梗」**~~ → **已實作 + 實測（Step 5.35）**：聲音掛掉那位暫時靜音、跑馬燈（AI 生成）+ 下一輪王于安 AI 吐槽 meta round、陳柏偉變默劇靜音泡泡、微軟修好演「修好了」梗。`state.ticker` + 前端 `#marquee-bar` + `_run_voice_meta_round`
 - [ ] **★ YouTube 聊天室 × AI 互動（設計定案、未實作）**：經兩份外部 AI review，最終設計 = **`91_YT_CHAT_SECURITY_FINAL_v2.md`（權威依據）**。Reviewer 判「~70 分、可 prototype、**公開前必補 10 項**」（output gate / raw comment 隔離主 AI 只看 intent / display name sanitizer / TTS+字幕+overlay 審核 / SC 預算防火牆 / 選舉誹謗兒少個資法務 / 互動內容不進 pool / unsafe spike auto-pause / 外部新聞也算敵對輸入 / 主持人人格無狀態不可被馴化）。核心：聊天留言=敵對流動資料、AI 回覆=公開播送、主 AI 不看 raw、最後 gate 審實際播出文字。pytchat 讀、複用 meta-round + state.ticker。討論脈絡見 89、review 原文見 `ai_live_chat_safety_review.md` / `ai_livestream_security_analysis.md`
-- [ ] **★ 窗外天氣即時氣象（產品 DNA、未實作）**：決議用「整張背景替換」不用窗戶圖層（地板採光與窗景耦合、見上方「🌤️ 窗外天氣」章節的實作決議）。擴 `_getTimeOfDayBackgroundMix()` 成時間×天氣矩陣 + 中央氣象署 API + 缺圖 fallback 回晴天版。素材交 GPT（每天氣×時段一張完整背景）
+- [~] **★ 窗外天氣即時氣象（引擎已實作 Step 5.39、待素材 + 中央氣象署 API）**：整張背景替換。已做：前端 `_resolveBgKey` 天氣變體 + 缺圖 fallback 晴天、`_crossfadeWeather` 60 秒淡入、`_applyState` 讀 `state.weather`；後端 `state.weather` + `POST /api/weather` + 手機頁 `/weather`；BootScene 依 `CONFIG.weatherBg.enabled` 載變體圖。**待辦**：① GPT 出天氣背景圖、檔名 `assets/studio_bg_{morning|noon|night}_{cloudy|rain}.png`（完整圖、窗景+地板採光一致）→ 放好後 config.js `weatherBg.enabled=true` ② 接中央氣象署 OpenData（需免費 API key、加防抖 15-30 分）自動驅動 `state.weather`。本機測法：開 enabled + 丟一張測試圖 + `/weather` 按鈕切 → 看 60 秒 crossfade
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
 - [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_static_prompt()` 已有完整「諷刺現象不指控個人 / 事實基底 / 傷害題先同情」規則。Step 5.37 把傷害題從「過度保守（不嘲諷）」放寬成「**先同情承認傷亡 → 再嘲諷制度/結構**（不貶低傷害、不嘲諷受害者、不拿死傷當笑點）」。24H 公開前再 review 一次法律風險

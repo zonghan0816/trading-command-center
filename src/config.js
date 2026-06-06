@@ -12,6 +12,20 @@ export const CONFIG = {
     bgmVolume: 0.14,
   },
 
+  // ── 窗外天氣（整張背景替換、不是窗戶圖層）─────────────────────
+  //  做法：背景 = studio_bg_{時段}_{天氣}.png（完整圖、窗景+地板採光一致）。
+  //  缺對應天氣圖 → 自動 fallback 回該時段晴天版（不會壞）。
+  //  enabled：有天氣背景圖後設 true、BootScene 才會去載那些變體圖。
+  //  variants：有哪些天氣變體（檔名後綴）。對應檔案放 assets/、命名見下。
+  //    例：studio_bg_morning_rain.png / studio_bg_noon_rain.png / studio_bg_night_rain.png
+  //  天氣由後端 state.weather 控制（手動 /api/weather 或之後接中央氣象署）。
+  //  "clear" = 用現有三張（無後綴）= 晴天。
+  weatherBg: {
+    enabled: false,
+    variants: ['cloudy', 'rain'],   // 有做哪些（晴天不用列）
+    slots: ['morning', 'noon', 'night'],
+  },
+
   // ── 佈局 ─────────────────────────────────────────────────────
   layout: {
     wallHeightRatio: 0.44,
