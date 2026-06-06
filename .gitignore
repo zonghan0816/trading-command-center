@@ -24,3 +24,8 @@ output/
 assets/audio/*.mp3
 assets/audio/*.ogg
 assets/audio/*.wav
+
+# Windows「複製」測試副本 / 其他臨時圖、不進 git
+assets/* - 複製*
+assets/*copy*.png
+assets/*_test.png
