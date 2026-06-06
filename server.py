@@ -257,6 +257,7 @@ def _default_state() -> dict:
         "keywords": [],
         "ticker": "",               # 跑馬燈快訊（搞笑梗用、空=顯示預設促銷文字）
         "weather": "clear",         # 窗外天氣（clear/cloudy/rain…）→ 前端選背景變體
+        "weather_fade_sec": 60,     # 天氣換背景的 crossfade 淡入秒數（可調、測試用）
         "hosts": {
             "aming": {
                 "status": "idle",
@@ -2006,26 +2007,43 @@ _WEATHER_STATES = {"clear", "cloudy", "rain", "thunder", "typhoon"}
 @app.get("/api/weather")
 def get_weather():
     st = _load_state()
-    return {"weather": st.get("weather", "clear"), "options": sorted(_WEATHER_STATES)}
+    return {"weather": st.get("weather", "clear"),
+            "fade_sec": int(st.get("weather_fade_sec", 60)),
+            "options": sorted(_WEATHER_STATES),
+            "fade_options": [10, 30, 60, 90, 120]}
 
 
 @app.post("/api/weather")
 async def set_weather(request: Request):
-    """手動切窗外天氣。前端 60 秒 crossfade 換背景（缺天氣圖自動 fallback 晴天）。
-    body: {"weather": "clear|cloudy|rain|thunder|typhoon"}"""
+    """手動切窗外天氣 / 調 crossfade 淡入秒數。weather 與 fade_sec 皆選填、至少給一個。
+    body: {"weather": "clear|cloudy|rain|thunder|typhoon", "fade_sec": 10~300}"""
     try:
         body = await request.json()
     except Exception:
         body = {}
-    w = str(body.get("weather", "")).strip()
-    if w not in _WEATHER_STATES:
-        return JSONResponse({"error": f"weather not allowed: {w}",
-                             "options": sorted(_WEATHER_STATES)}, status_code=400)
     st = _load_state()
-    st["weather"] = w
+    changed = []
+    if "weather" in body:
+        w = str(body.get("weather", "")).strip()
+        if w not in _WEATHER_STATES:
+            return JSONResponse({"error": f"weather not allowed: {w}",
+                                 "options": sorted(_WEATHER_STATES)}, status_code=400)
+        st["weather"] = w
+        changed.append(f"weather={w}")
+    if "fade_sec" in body:
+        try:
+            fs = int(body.get("fade_sec"))
+        except Exception:
+            return JSONResponse({"error": "fade_sec must be int"}, status_code=400)
+        fs = max(5, min(300, fs))   # 夾在 5~300 秒
+        st["weather_fade_sec"] = fs
+        changed.append(f"fade_sec={fs}")
+    if not changed:
+        return JSONResponse({"error": "give weather and/or fade_sec"}, status_code=400)
     _save_state(st)
-    print(f"[weather] 手動切換 → {w}")
-    return JSONResponse({"ok": True, "weather": w})
+    print(f"[weather] 手動設定 → {', '.join(changed)}")
+    return JSONResponse({"ok": True, "weather": st.get("weather", "clear"),
+                         "fade_sec": int(st.get("weather_fade_sec", 60))})
 
 
 # ── Step 5.34: 線上切聲音（不用重開伺服器、手機開 /voice 就能換）──────────
@@ -2615,23 +2633,33 @@ def weather_page():
 </head>
 <body>
 <h1>🌤️ TDT 窗外天氣</h1>
-<div class="now">目前：<b id="now">—</b></div>
+<div class="now">目前天氣：<b id="now">—</b></div>
 <div class="grid" id="btns"></div>
-<div class="note">切換後背景 60 秒慢慢淡入（不突兀）。缺對應天氣圖時自動 fallback 回晴天版（畫面不變、屬正常）。</div>
+<div class="now" style="margin-top:20px">淡入秒數：<b id="nowfade">—</b> 秒</div>
+<div class="grid" id="fadebtns"></div>
+<div class="note">切換後背景用上面的秒數慢慢淡入（測試用：10 秒看清楚、120 秒最柔）。缺對應天氣圖時自動 fallback 回晴天版（畫面不變、屬正常）。</div>
 <div class="toast" id="toast"></div>
 <script>
 const LABELS = {clear:'☀️ 晴天', cloudy:'☁️ 陰天', rain:'🌧️ 下雨', thunder:'⛈️ 雷雨', typhoon:'🌀 颱風'};
 const toast=(m)=>{const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1400);};
-let cur='';
+let cur='', curfade=60;
 async function load(){
   let d; try{ d=await (await fetch('/api/weather')).json(); }catch(e){return;}
-  cur=d.weather; document.getElementById('now').textContent=LABELS[cur]||cur;
+  cur=d.weather; curfade=d.fade_sec;
+  document.getElementById('now').textContent=LABELS[cur]||cur;
+  document.getElementById('nowfade').textContent=curfade;
   let h=''; for(const w of d.options){ h+='<button class="'+(w===cur?'sel':'')+'" onclick="setW(\\''+w+'\\')">'+(LABELS[w]||w)+'</button>'; }
   document.getElementById('btns').innerHTML=h;
+  let f=''; for(const s of (d.fade_options||[10,30,60,90,120])){ f+='<button class="'+(s===curfade?'sel':'')+'" onclick="setFade('+s+')">'+s+' 秒</button>'; }
+  document.getElementById('fadebtns').innerHTML=f;
 }
 async function setW(w){
   const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weather:w})});
   if(r.ok){ toast('已切 '+(LABELS[w]||w)); load(); } else { toast('失敗'); }
+}
+async function setFade(s){
+  const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fade_sec:s})});
+  if(r.ok){ toast('淡入 '+s+' 秒'); load(); } else { toast('失敗'); }
 }
 load(); setInterval(load, 5000);
 </script>

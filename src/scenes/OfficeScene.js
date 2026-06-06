@@ -286,14 +286,15 @@ export class OfficeScene extends Phaser.Scene {
     if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
     this._bgFade = this.add.image(0, 0, mix.base)
       .setOrigin(0, 0).setDepth(0.2).setDisplaySize(this.W, this.H).setAlpha(0);
+    const dur = this._weatherFadeMs || 60000;
     this.tweens.add({
-      targets: this._bgFade, alpha: 1, duration: 60000, ease: 'Linear',
+      targets: this._bgFade, alpha: 1, duration: dur, ease: 'Linear',
       onComplete: () => {
         this._updateBackgroundMix();                   // 底層也換成新天氣
         if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
       },
     });
-    console.info('[weather] crossfade →', this._weather, 'bg=', mix.base);
+    console.info('[weather] crossfade →', this._weather, 'bg=', mix.base, `(${dur/1000}s)`);
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
@@ -528,7 +529,8 @@ export class OfficeScene extends Phaser.Scene {
   _applyState(data) {
     this.state = data;
 
-    // 窗外天氣：state.weather 變了就換背景（首次同步、之後 60 秒 crossfade）
+    // 窗外天氣：state.weather 變了就換背景（首次同步、之後 crossfade）
+    this._weatherFadeMs = (Number(data.weather_fade_sec) || 60) * 1000;  // 可調淡入秒數
     const w = data.weather || 'clear';
     if (w !== this._weather) {
       const first = (this._weather === undefined);
