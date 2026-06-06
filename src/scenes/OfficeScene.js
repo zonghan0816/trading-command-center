@@ -906,7 +906,7 @@ export class OfficeScene extends Phaser.Scene {
     // mark in_progress、避免並發 fetch（await 期間另一個 delayedCall 觸發又 fetch）
     this._chatInProgress = true;
     try {
-      const res = await fetch('/api/chat', { method: 'POST' });
+      const res = await fetch('/api/next_segment');  // Step 5.42: 24H MVP pool 撈段（取代即時 /api/chat）
       if (res.ok) {
         const data = await res.json();
         if (data?.dialogue?.length >= 2) {
@@ -933,7 +933,7 @@ export class OfficeScene extends Phaser.Scene {
     this._prefetchInProgress = true;
     console.info('[TDT] prefetch started');
     try {
-      const res = await fetch('/api/chat', { method: 'POST' });
+      const res = await fetch('/api/next_segment');  // Step 5.42: 24H MVP pool 撈段（取代即時 /api/chat）
       if (res.ok) {
         const data = await res.json();
         if (data?.dialogue?.length >= 2) {
@@ -980,14 +980,19 @@ export class OfficeScene extends Phaser.Scene {
     this._prefetchStartedForSeq = null;
     if (this._stopCurrentAudio) this._stopCurrentAudio();  // Step 5.32: 新一輪開始、停掉殘留語音
 
-    // Phase 4 Step 5.6: 告訴後端「現在正在講這個 topic」、LED 才不會跑前面
+    // Phase 4 Step 5.6 / 5.42: 「話題先出來、對話再出來」
     const speakingTopic = data.topic || '';
     if (speakingTopic) {
+      // ① 告訴後端「現在正在講這個 topic」（poll fallback + 其他 consumer 用）
       fetch('http://localhost:8765/api/now_speaking', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ topic: speakingTopic }),
       }).catch(() => {});  // fire-and-forget、失敗不影響播放
+      // ② 直接把話題推上 LED、不等 3 秒 poll（index.html 暴露的入口）
+      if (typeof window !== 'undefined' && window.tdtShowTopic) {
+        try { window.tdtShowTopic(speakingTopic); } catch (_) {}
+      }
     }
 
     // 把 audio_urls 附加到每行、讓 _playLineSequence 可直接取用
@@ -996,7 +1001,10 @@ export class OfficeScene extends Phaser.Scene {
       ...line,
       _audio: audioUrls[i] || null,
     }));
-    this._playDialogue(lines, seq);
+    // ③ 等 LED 淡出→換→淡入（350ms）+ 一點 beat 後、角色才開口 → 話題一定先到。
+    //    TOPIC_LEAD_MS 可調：想更快接話就調小、想要更明顯的「報題」儀式感就調大。
+    const TOPIC_LEAD_MS = speakingTopic ? 900 : 0;
+    this.time.delayedCall(TOPIC_LEAD_MS, () => this._playDialogue(lines, seq));
     return true;
   }
 

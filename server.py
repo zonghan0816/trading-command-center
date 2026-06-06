@@ -35,7 +35,7 @@ _CHARS = {
         # 優勢：草根親和力、議題創造力、快速吸引注意
         # 弱點：容易把議論放大、情緒直接外顯、容易形成兩極評價
         'personality': '30多歲台灣政治人物兼 YouTuber（3Q 陳柏惟風）— 熱血行動派、草根親和力強、網感極強；節奏快、情緒起伏大、常用台語和網路用語；立場鮮明、敢正面交鋒、不喜歡打太極；看到不公義會直接爆氣、但也會自嘲幽默化解氣氛；說話方式像跟朋友閒聊、不端架子；遇到強烈認同的事情會大力鼓掌呼籲',
-        'catchphrases': ['3Q', '就是這樣啊', '你嘛幫幫忙', '靠夭喔', '說真的啦'],
+        'catchphrases': ['就是這樣啊', '你嘛幫幫忙', '靠夭喔', '說真的啦'],
     },
     'xiaomei': {
         'name': '王于安',
@@ -442,6 +442,18 @@ def _quality_check_line(text: str) -> tuple[str, bool]:
     return text, False
 
 
+def _strip_3q(text: str) -> str:
+    """移除台詞裡的口頭禪「3Q」（含全形/大小寫）及其緊接的語尾/標點，
+    再清掉殘留在句首的標點。整句被清空則回原句（避免空泡泡）。"""
+    if not text or not isinstance(text, str):
+        return text
+    import re
+    # 「3Q / 3q / ３Ｑ」+ 後面可能黏著的語尾與標點
+    t = re.sub(r'[3３][QqＱｑ][\s啦喔囉耶哦欸！!,，。、~～]*', '', text)
+    t = re.sub(r'^[\s！!,，。、~～：:]+', '', t).strip()   # 清句首殘留標點
+    return t if t else text
+
+
 def _quality_check_dialogue(dialogue: list) -> tuple[list, int]:
     """掃整輪 dialogue、回傳 (clean_dialogue, blocked_count)"""
     if not isinstance(dialogue, list):
@@ -456,8 +468,10 @@ def _quality_check_dialogue(dialogue: list) -> tuple[list, int]:
         safe_text, blocked = _quality_check_line(text)
         if blocked:
             blocked_count += 1
+        new_text = _strip_3q(safe_text)   # 一律過濾「3Q」口頭禪
+        if new_text != text:
             line = dict(line)
-            line["text"] = safe_text
+            line["text"] = new_text
         clean.append(line)
     return clean, blocked_count
 
@@ -1239,6 +1253,7 @@ async def _startup_news_tasks():
     asyncio.create_task(_news_refresh_loop())
     asyncio.create_task(_topic_rotate_loop())
     asyncio.create_task(_weather_auto_loop())   # Step 5.41: 真天氣自動驅動（需 CWA_API_KEY）
+    asyncio.create_task(_pool_refill_loop())    # Step 5.42: 24H MVP — pool 自動補貨
 
 
 def _build_static_prompt() -> str:
@@ -1459,14 +1474,14 @@ Google News RSS 標題常被截斷、2 字縮寫可能有多重含義：
 | `sincere` | 感謝支持者、說到真心話、認真拜託大家、低頭致謝 |
 | `resilient` | 被攻擊後堅守立場、「沒關係我繼續」、逆風仍站穩 |
 | `angry` | 義憤填膺、看不下去、大聲批評不公義、情緒直接外顯 |
-| `speech` | 對觀眾總結發言、呼籲行動、演說收尾、「3Q 大家」 |
+| `speech` | 對觀眾總結發言、呼籲行動、演說收尾、「謝謝大家」 |
 | `thinking` | 分析制度成因、討論模式、「我來想一下喔」、托下巴沉思 |
 | `mocking` | 諷刺現象、嘲諷政策荒謬、單邊冷笑、「你嘛幫幫忙」帶酸 |
 | `sympathy` | **涉及真實傷害題必備**、承認傷亡嚴重、不嘲弄當事人、凝重 |
 | `surprised` | 反應頭條、意外消息、「真的假的」、瞪大眼睛 |
 | `explain` | monologue 解釋政策邏輯、攤手比劃、「事情是這樣啦」 |
 | `mocking_laugh` | 嘲諷式爆笑收尾、punchline 完仰頭大笑 |
-| `greeting` | 開場 / 整點換場、揮手或抱拳、「3Q 大家好」 |
+| `greeting` | 開場 / 整點換場、揮手或抱拳、「大家好」 |
 | `disgusted` | 對荒謬政策、行為的不屑反應、揮手推遠 |
 
 3Q 挑選原則：
@@ -1815,6 +1830,250 @@ async def _gen_tts_dialogue(dialogue: list) -> list:
     return [None if isinstance(r, Exception) else r for r in results]
 
 
+# ── Step 5.42: 24H MVP — batch 預生成 + pool 循環（GPT 65 號架構）──────
+POOL_FILE         = _HERE / "wwt_dialogue_pool.json"
+_POOL_REFILL_AT   = 15          # pending < 此值 → 背景 refill
+_BATCH_SIZE       = 12          # 一次生成幾段（= 一批涵蓋幾個不同話題、話題多樣性旋鈕）
+_SEG_LINES        = "7~8"       # 每段對白句數（使用者選「深入」、2026-06-07、對話長度旋鈕）
+_BATCH_MAX_TOKENS = 8000        # 批次輸出上限（配合較長段落、留 headroom 避免 JSON 被截斷）
+_SEG_COOLDOWN_SEC = 6 * 3600    # 播過冷卻 6h 才可 recycle
+_SEG_EXPIRE_SEC   = 24 * 3600   # 生成超過 24h 過期、不再播
+_last_picked: dict = {}         # 上一段 {id,topic,tone}（硬限制用）
+_recent_picks: list = []        # 最近播的 {tone,angle}（軟權重用、最多 5）
+_batch_in_progress = False      # 防同時跑多個 batch
+
+
+def _load_pool() -> list:
+    if POOL_FILE.exists():
+        try:
+            d = json.loads(POOL_FILE.read_text(encoding="utf-8"))
+            return d if isinstance(d, list) else []
+        except Exception:
+            return []
+    return []
+
+
+def _save_pool(pool: list) -> None:
+    POOL_FILE.write_text(json.dumps(pool, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _sweep_pool(pool: list) -> list:
+    """移除過期段（生成超過 24h）。"""
+    import time
+    now = time.time()
+    return [s for s in pool if (now - float(s.get("created_at", now))) < _SEG_EXPIRE_SEC]
+
+
+def _pending_count(pool: list) -> int:
+    return sum(1 for s in pool if s.get("status") == "pending")
+
+
+def _build_batch_prompt(specs: list) -> str:
+    """批次動態 prompt：列出每段 topic/tone/angle、要求回 JSON 陣列。"""
+    out = ["## 🎬 批次生成（一次生成多段彼此獨立的對話）",
+           f"請生成 {len(specs)} 段**彼此獨立**的對話、陳柏偉與王于安交替、後句接住前句。",
+           f"★★ 硬性要求：**每段務必 {_SEG_LINES} 句**（每句＝一位主持人講一次）。"
+           f"每段 lines 陣列長度必須 ≥ 7，**低於 7 句視為不合格**。寧可長、不要短，不要只講 3~4 句就收。",
+           "每段要把一個話題聊得完整：開球 → 接話 → 展開 → 反駁/補充 → 舉例 → 轉折 → 收個 punchline，"
+           "有來有回像真的在討論一件事；不要硬湊重複字句、也不要草草收尾。",
+           "每段套指定的 topic / tone / angle："]
+    for sp in specs:
+        note = _ANGLE_NOTES.get(sp["angle"], "")
+        out.append(f"- 第 {sp['i']} 段（≥7 句）：topic=「{sp['topic']}」 tone=`{sp['tone']}` angle=`{sp['angle']}`（{note}）")
+    out += ["", "## 輸出格式（嚴格）",
+            "只輸出一個 JSON 陣列、不要任何其他文字、不要 markdown code fence。",
+            '每元素 = {"seg": <段號數字>, "lines": [ {"speaker":"aming","text":"...","emotions":["..."]}, ... ]}',
+            f"★ 再次提醒：每個 \"lines\" 長度要 {_SEG_LINES}（至少 7）。",
+            "speaker 只能 aming（陳柏偉）/ xiaomei（王于安）。各段套各自 tone（對照靜態區 tone 表）、明顯不同、不要重複開場或 punchline。",
+            "",
+            "## ⚠️ JSON 合法性（很重要、違反會整段被丟掉）",
+            "・text 內若要引用、一律用「」全形引號，**絕對不要用半形雙引號 \" **（會打斷 JSON 字串）。",
+            "・text 內**不要換行**、不要放 tab；一句講完就好。",
+            "・除了 JSON 本身的結構符號，不要輸出多餘的逗號或註解。"]
+    return "\n".join(out)
+
+
+def _parse_batch_json(text: str) -> list:
+    """容錯解析 batch 輸出。長 JSON 偶爾會有壞字（未跳脫引號 / 缺逗號 / 字串內換行）→
+    與其整批丟掉，不如：① 先試整包；② 截 [ ] 再試；③ 逐個頂層物件搶救（壞一個只丟一個）。
+    json.loads 一律 strict=False（容忍字串內控制字元如換行）。"""
+    raw = (text or "").strip()
+    if "```" in raw:                       # 去 markdown code fence
+        parts = raw.split("```")
+        if len(parts) > 1:
+            raw = parts[1]
+        raw = raw.lstrip()
+        if raw.startswith("json"):
+            raw = raw[4:]
+    raw = raw.strip()
+
+    # ① 整包
+    try:
+        d = json.loads(raw, strict=False)
+        if isinstance(d, list):
+            return d
+    except Exception:
+        pass
+    # ② 截到最外層 [ ... ]
+    s, e = raw.find("["), raw.rfind("]")
+    if s >= 0 and e > s:
+        try:
+            d = json.loads(raw[s:e + 1], strict=False)
+            if isinstance(d, list):
+                return d
+        except Exception:
+            pass
+    # ③ 逐個頂層物件搶救（字串/跳脫感知的括號掃描）
+    objs, depth, in_str, esc, start = [], 0, False, False, -1
+    for i, ch in enumerate(raw):
+        if in_str:
+            if esc:            esc = False
+            elif ch == "\\":   esc = True
+            elif ch == '"':    in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    objs.append(json.loads(raw[start:i + 1], strict=False))
+                except Exception:
+                    pass            # 壞的這段跳過、不影響其他段
+                start = -1
+    return objs
+
+
+async def _generate_batch(n: int = _BATCH_SIZE) -> int:
+    """一次 Claude call 生成 n 段、各帶 metadata、存進 pool（status=pending）。回新增段數。"""
+    global _batch_in_progress
+    if _batch_in_progress:
+        return 0
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return 0
+    over, reason = _check_budget(_load_state())
+    if over:
+        print(f"[pool] batch 跳過（超預算：{reason}）")
+        return 0
+    _batch_in_progress = True
+    try:
+        import uuid, time, random
+        # Step 5.42 多樣性：每批從整個新聞池「洗牌 + 隨機抽 n 條不重複」、
+        #   讓 ~30 條新聞全都輪得到（不再固定只用前 n 條）。不足 n 條才循環補。
+        pool_topics = list(_news_topics_cache) if _news_topics_cache else [random.choice(_CASUAL_TOPICS)]
+        if len(pool_topics) >= n:
+            chosen_topics = random.sample(pool_topics, n)
+        else:
+            shuffled = random.sample(pool_topics, len(pool_topics))  # 洗牌、再循環補滿
+            chosen_topics = [shuffled[i % len(shuffled)] for i in range(n)]
+        specs = [{"i": i, "topic": chosen_topics[i],
+                  "tone": _next_tone_for_topic(chosen_topics[i]),
+                  "angle": _next_angle_for_topic(chosen_topics[i])} for i in range(n)]
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=_BATCH_MAX_TOKENS,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": _build_static_prompt(), "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": _build_batch_prompt(specs)}]}])
+        parsed = _parse_batch_json(msg.content[0].text)
+        if not isinstance(parsed, list):
+            parsed = []
+        if len(parsed) < n:
+            print(f"[pool] ⚠️ 解析到 {len(parsed)}/{n} 段（其餘可能含壞字被跳過、不影響已搶救的）")
+
+        pool = _sweep_pool(_load_pool())
+        added = 0
+        for seg in parsed:
+            if not isinstance(seg, dict):
+                continue
+            idx, lines = seg.get("seg"), seg.get("lines")
+            spec = specs[idx] if isinstance(idx, int) and 0 <= idx < len(specs) else None
+            if spec is None or not isinstance(lines, list) or not lines:
+                continue
+            lines, _ = _quality_check_dialogue(lines)
+            pool.append({
+                "dialogue_id": str(uuid.uuid4()),
+                "topic": spec["topic"], "tone": spec["tone"], "angle": spec["angle"],
+                "segment_type": "live_chat", "lines": lines, "status": "pending",
+                "quality_score": 0.8, "created_at": time.time(),
+                "played_at": None, "cooling_until": None,
+            })
+            added += 1
+        _save_pool(pool)
+
+        st = _load_state()
+        u = getattr(msg, "usage", None)
+        cost = _estimate_cost_usd(int(getattr(u, "input_tokens", 0) or 0),
+                                  int(getattr(u, "output_tokens", 0) or 0),
+                                  int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+                                  int(getattr(u, "cache_read_input_tokens", 0) or 0))
+        _add_cost_to_state(st, cost); _save_state(st)
+        print(f"[pool] batch +{added} 段（pending={_pending_count(pool)}、+${cost:.4f}）")
+        return added
+    except Exception as e:
+        print(f"[pool] batch 失敗：{e}")
+        return 0
+    finally:
+        _batch_in_progress = False
+
+
+def _pick_segment():
+    """選下一段：硬限制（不連 2 段同 id/topic/tone）+ 軟權重（近 5 段 tone/angle 降權、quality 加權）。
+    選中標 played + 6h cooldown。回 segment dict 或 None。"""
+    import time, random
+    global _last_picked, _recent_picks
+    now = time.time()
+    pool = _sweep_pool(_load_pool())
+    pending = [s for s in pool if s.get("status") == "pending"]
+    recyclable = [s for s in pool if s.get("status") == "played"
+                  and s.get("cooling_until") and now >= float(s["cooling_until"])]
+    cands = pending if pending else recyclable
+    if not cands:
+        _save_pool(pool)
+        return None
+    lp = _last_picked
+    hard = [s for s in cands if (not lp) or (s.get("topic") != lp.get("topic")
+            and s.get("tone") != lp.get("tone") and s.get("dialogue_id") != lp.get("id"))]
+    cands2 = hard if hard else cands
+    rt = [r.get("tone") for r in _recent_picks]
+    ra = [r.get("angle") for r in _recent_picks]
+
+    def weight(s):
+        w = 1.0 + float(s.get("quality_score", 0.8))
+        if s.get("tone") in rt:  w *= 0.4
+        if s.get("angle") in ra: w *= 0.6
+        return max(0.05, w)
+
+    chosen = random.choices(cands2, weights=[weight(s) for s in cands2], k=1)[0]
+    chosen["status"] = "played"
+    chosen["played_at"] = now
+    chosen["cooling_until"] = now + _SEG_COOLDOWN_SEC
+    _save_pool(pool)
+    _last_picked = {"id": chosen["dialogue_id"], "topic": chosen.get("topic"), "tone": chosen.get("tone")}
+    _recent_picks.append({"tone": chosen.get("tone"), "angle": chosen.get("angle")})
+    _recent_picks = _recent_picks[-5:]
+    return chosen
+
+
+async def _pool_refill_loop():
+    """背景：pending 低於水位且沒在生時 → 生一批。啟動後自動把 pool 補到目標。"""
+    await asyncio.sleep(8)
+    while True:
+        try:
+            pool = _sweep_pool(_load_pool())
+            _save_pool(pool)
+            if _pending_count(pool) < _POOL_REFILL_AT and not _batch_in_progress:
+                await _generate_batch()
+        except Exception as e:
+            print(f"[pool] refill loop error: {e}")
+        await asyncio.sleep(30)
+
+
 async def _run_voice_meta_round(meta: dict, api_key: str):
     """Step 5.34 搞笑梗：生成一輪「聲音掛掉/修好」的吐槽 + 跑馬燈，回傳與 /api/chat 同格式。
     與正常輪隔離：不寫對話記憶 / archive / observe、不動 topic 輪數，只更新 hosts + ticker + cost。"""
@@ -2067,6 +2326,88 @@ async def generate_chat():
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
+
+@app.get("/api/next_segment")
+async def next_segment():
+    """24H MVP（Step 5.42）：從 pool 撈一段預生成對白播、取代每輪即時 /api/chat。
+    pool 空 → 回 503 + 觸發背景 batch、前端稍後重試。"""
+    # pause 中不發新段（沿用 /api/pause）
+    st0 = _load_state()
+    if st0.get("paused"):
+        return JSONResponse({"error": "paused", "retry": True}, status_code=503)
+
+    chosen = _pick_segment()
+    if not chosen:
+        asyncio.create_task(_generate_batch())
+        return JSONResponse({"error": "pool empty, generating", "retry": True},
+                            status_code=503)
+
+    lines = chosen["lines"]
+    # 兜舊段：pool 裡可能有用舊 prompt 生成、含「3Q」的段落 → 播出前清掉（新段生成時已清）
+    for ln in lines:
+        if isinstance(ln, dict) and isinstance(ln.get("text"), str):
+            ln["text"] = _strip_3q(ln["text"])
+    audio_urls = await _gen_tts_dialogue(lines)
+
+    # 更新 state（hosts last_output + topic + 清搞笑梗 ticker）
+    # ⚠️ Step 5.42 修：這裡【不】寫 speaking_topic。prefetch 會在當前段播到 2s 時就打
+    #    /api/next_segment 撈下一段，若這裡設 speaking_topic 會讓 LED 提前跳到下一段話題
+    #    （= 對話還沒講完話題就換）。speaking_topic 只由前端 /api/now_speaking 在「真正開始
+    #    播這段」時設、LED 才跟對話同步（Phase 4 Step 5.6 設計）。
+    st = _load_state()
+    for ln in lines:
+        spk = ln.get("speaker") if isinstance(ln, dict) else None
+        if spk in st.get("hosts", {}):
+            st["hosts"][spk]["status"]      = "talking"
+            st["hosts"][spk]["last_output"] = ln.get("text", "")
+    st["topic"]      = chosen.get("topic", "")   # 僅供 fallback / 隱藏面板、LED 不直接吃
+    st["mode"]       = "discussion"
+    st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+    if not _tts_voice_state:
+        st["ticker"] = ""
+    _save_state(st)
+
+    # 低水位 → 立即背景 refill（refill loop 也會兜底、雙重 _batch_in_progress 保護）
+    if _pending_count(_load_pool()) < _POOL_REFILL_AT:
+        asyncio.create_task(_generate_batch())
+
+    speaker_a = lines[0].get("speaker", "aming") if isinstance(lines[0], dict) else "aming"
+    speaker_b = next((l.get("speaker") for l in lines[1:]
+                      if isinstance(l, dict) and l.get("speaker") != speaker_a), None)
+    return {"dialogue": lines, "audio_urls": audio_urls,
+            "speaker_a": speaker_a, "speaker_b": speaker_b,
+            "tone": chosen.get("tone"), "angle": chosen.get("angle"),
+            "topic": chosen.get("topic", ""),
+            "from_pool": True, "dialogue_id": chosen.get("dialogue_id")}
+
+
+@app.get("/api/pool/status")
+def pool_status():
+    """pool 健康度：總段 / pending / cooling / 過期 sweep 後。"""
+    import time
+    now = time.time()
+    pool = _load_pool()
+    swept = _sweep_pool(pool)
+    pending  = sum(1 for s in swept if s.get("status") == "pending")
+    played   = [s for s in swept if s.get("status") == "played"]
+    coolable = sum(1 for s in played
+                   if s.get("cooling_until") and now >= float(s["cooling_until"]))
+    return JSONResponse({
+        "total": len(swept), "pending": pending,
+        "played": len(played), "recyclable": coolable,
+        "expired_swept": len(pool) - len(swept),
+        "batch_in_progress": _batch_in_progress,
+        "refill_at": _POOL_REFILL_AT, "batch_size": _BATCH_SIZE,
+    })
+
+
+@app.post("/api/pool/refill")
+async def pool_refill():
+    """手動觸發一批生成（測試用）。"""
+    added = await _generate_batch()
+    return JSONResponse({"ok": True, "added": added,
+                         "pending": _pending_count(_load_pool())})
 
 
 @app.get("/api/state")

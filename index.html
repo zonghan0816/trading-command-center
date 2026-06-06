@@ -413,6 +413,26 @@
         badge.className   = 'led-mode-badge ' + view.badgeClass;
       }
 
+      // 統一換 LED 內容：首次直接套、之後淡出→換→淡入。沒變則不動。
+      function showView(mode, topic) {
+        if (mode === lastMode && topic === lastTopic) return;
+        if (lastMode === null) {
+          applyView(mode, topic);
+        } else {
+          overlay.classList.add('fading');
+          setTimeout(() => {
+            applyView(mode, topic);
+            overlay.classList.remove('fading');
+          }, 350);
+        }
+        lastMode  = mode;
+        lastTopic = topic;
+      }
+
+      // Step 5.42: 讓 Phaser 場景「開口前」直接把話題推上 LED（不等 3 秒 poll）。
+      //   配合 OfficeScene 的 lead delay → 話題先出來、對話再出來。
+      window.tdtShowTopic = (topic) => showView('discussion', topic || '');
+
       async function poll() {
         try {
           const r = await fetch('/api/state');
@@ -420,23 +440,8 @@
           updateMarquee(d.ticker);   // Step 5.34: 跑馬燈快訊（每次都檢查、不受下面 early-return 影響）
           const mode  = d.mode  || 'idle';
           // Phase 4 Step 5.6: 優先顯示角色「正在講的話題」、不是排隊中的下一話題
-          // 才不會出現「螢幕話題已換、角色還在講上一個」的錯位
           const topic = d.speaking_topic || d.topic || '';
-          if (mode === lastMode && topic === lastTopic) return;  // 沒變不觸發動畫
-
-          // 首次載入（lastMode 為 null）直接套用、不淡出
-          if (lastMode === null) {
-            applyView(mode, topic);
-          } else {
-            // 淡出 → swap 內容 → 淡入
-            overlay.classList.add('fading');
-            setTimeout(() => {
-              applyView(mode, topic);
-              overlay.classList.remove('fading');
-            }, 350);
-          }
-          lastMode  = mode;
-          lastTopic = topic;
+          showView(mode, topic);     // 場景已推過就 no-op（lastTopic 一致）、poll 只負責 mode/補漏
         } catch (_) {}
       }
       poll();

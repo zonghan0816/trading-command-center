@@ -23,8 +23,11 @@ export const CONFIG = {
   weatherBg: {
     enabled: true,
     variants: ['cloudy', 'rain', 'thunder', 'typhoon'],   // 有做哪些（晴天不用列）
-    slots: ['morning', 'noon', 'afternoon', 'night'],
-    // 註：目前天氣圖只做了「中午」時段（studio_bg_noon_{天氣}）、其他時段缺圖會自動 fallback 回該時段晴天。
+    // ⚠️ morning 不列：早上沒有自己的天氣圖（借中午、_resolveBgKey morning→noon）。
+    //    若列上去 BootScene 會去試載 studio_bg_morning_* → 必 404（雖有 fallback、但 console 噴紅字）。
+    //    之後若真做了早上專屬天氣圖、再把 'morning' 加回來即可。
+    slots: ['noon', 'afternoon', 'night'],
+    // 註：noon/afternoon/night 各有自己的天氣圖；morning 執行時自動套 noon 的天氣。
   },
 
   // ── 佈局 ─────────────────────────────────────────────────────

@@ -193,11 +193,14 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 
 ## 📍 目前進度（每次工作結束更新）
 
-**最後更新**：2026-06-05
-**目前階段**：Phase 4 Step 5.41 — 窗外天氣**接中央氣象署 OpenData**（真天氣自動驅動）。**程式完成、待填 CWA_API_KEY 驗證**
+**最後更新**：2026-06-07
+**目前階段**：Phase 4 Step 5.42 — **24H MVP：batch 預生成 + pool 循環**（實作完成、本機測過 + 多樣性/順序/長度調校）。詳見 `93_24H_MVP_POOL_BATCH_IMPL.md`
+**⚠️ 24H MVP 注意**：對白來源從「每輪即時打 Claude」改成「背景批次預生成一池、播放只從 pool 撈」。`server.py` Step 5.42 區塊：`_generate_batch`（一次 call 出 12 段、各帶 topic/tone/angle metadata、存 `wwt_dialogue_pool.json`）→ `_pick_segment`（硬限制不連 2 段同 topic/tone + 軟權重近 5 段降權）→ `GET /api/next_segment`（撈段+生 TTS）。背景 `_pool_refill_loop`（pending<15 自動補）。前端 `OfficeScene` 兩處 fetch 從 `/api/chat` 改 `/api/next_segment`。`/api/chat` 保留（debug / 之後 5% live 插隊用）。pool 健康度看 `/api/pool/status`、手動補 `POST /api/pool/refill`。
+**⚠️ Step 5.42 後續調校（2026-06-07）**：① **話題多樣性**：batch 改「每批從 30 條新聞洗牌隨機抽 12 條」（不再固定前 12）。② **LED 同步**：`/api/next_segment` 不再寫 `speaking_topic`（prefetch 會害 LED 提前跳），改由前端 `_startDialogueFromData` 開播時推。③ **話題先、對話後**：`index.html` 開 `window.tdtShowTopic`，場景開口前先推 LED 換題、等 `TOPIC_LEAD_MS=900`ms 淡入才講。④ **對話長度**：使用者選「深入」，每段 **7~8 句**（`_SEG_LINES`），`max_tokens` 4000→8000（`_BATCH_MAX_TOKENS`），prompt 硬性要求 ≥7 句、實測 avg 7.1 全達標、一批 ≈ NT$1。⑤ `config.js` 天氣 slots 移除 `morning`（早上借中午、消除 4 個 404）。
+**⚠️ 上一階段（Step 5.41）**：窗外天氣接中央氣象署 OpenData（真天氣自動驅動）已完成驗證。
 **⚠️ 真天氣自動注意**：`server.py` `_weather_auto_loop` 每 15 分抓 CWA F-C0032-001（縣市 36hr 預報）的 Wx → `_map_wx_to_weather` 對應 晴/陰/雨/雷（颱風 Wx 不含、暫手動）→ 連續 2 次（≈30 分防抖）才設 `state.weather`。需 **`.env` 設 `CWA_API_KEY`**（免費註冊 opendata.cwa.gov.tw）、`CWA_LOCATION` 預設臺北市。有 key 則 `weather_auto` 預設開。`/weather` 頁有「🛰自動/✋手動」鈕；手動切天氣會自動關 auto。**CWA 實際回傳解析未用真 key 測過、填 key 後要驗一次**。
 **⚠️ 天氣系統注意**：背景 = f(時段, 天氣)。時段 4 段（早 06-11 / 中午 11-16 / 下午 16-18:30 / 晚 18:30-06、各切換提前 15 分淡入）。天氣 5 種（晴/陰/雨/雷/颱）。天氣圖對應：中午/下午/晚上各有自己的 `studio_bg_{slot}_{weather}.png`、**早上借中午天氣**（缺圖 fallback 回晴天）。手動切：`/weather`（含天氣/淡入秒數/強制時段測試鈕）；之後接中央氣象署自動。程式：`OfficeScene._getTimeSlotBgRaw`(時段)+`_resolveBgKey`(天氣 fallback)+`_crossfadeBg`(平滑)；`server.py` `state.weather/force_slot/weather_fade_sec` + `/api/weather`。
-**下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶
+**下一階段候選**：真人半身×看螢幕循環（87）/ pool 多樣性實跑觀察 / 熱門新聞 5% live 插隊 / 跨輪對話記憶
 **⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟「間歇性」搞壞、回空音訊。最終設計（Step 5.35）：① 兩位都只用台灣聲音、無大陸備胎（語速陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」、不換聲音、改演搞笑梗（state.ticker 跑馬燈 + 下一輪王于安 AI 吐槽 meta round）、10 分鐘自動探測、微軟修好自動恢復 + 演「修好了」梗；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
 
@@ -248,10 +251,12 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 | **4 Step 5.37** | **傷害題 prompt 放寬**（使用者拍板）：`_build_static_prompt` 傷害題從「過度保守、不嘲諷」改成「**先同情承認傷亡 → 再嘲諷制度/結構**」（火力對準制度、不貶低傷害、不嘲諷受害者、不拿死傷當笑點）。實測傷亡 topic 輸出正確（sympathy→mocking、船員框成受害者）。BGM 觀眾控 + prompt #2 荒謬開場 / #7 陳柏偉固定先開場 → 使用者決定不做 |
 | **★ 4 Step 5.36** | **修「沒聲音」根因 = edge-tts 間歇性回空音訊**（非 YunJhe 永久壞、循序 10/10 成功）：① 每句重試 `_TTS_RETRY=4`、退避遞增、單句失敗率 15%→~0.05%；② 熔斷器改「連續 `_TTS_DOWN_THRESHOLD=4` 句都失敗才算真的掛」（用 `_tts_fail_streak`、單句隨機失敗不連坐、各主持人獨立）。實測 5 輪 fresh 全 4/4、不誤觸 cooldown；真的掛時仍正常觸發梗。詳見 `88` 第 11 節 |
 | **★ 4 Step 5.35** | **聲音台灣 only + 壞掉演成搞笑梗**（符合「AI bug 變梗」DNA）：① 取消大陸備胎、兩位都只用台灣聲音（語速 陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」不換聲音、改演梗 —— `state.ticker` 跑馬燈快訊（前端 `#marquee-bar` 接、紅字快訊模式）+ 下一輪王于安 AI 吐槽 meta round（`_run_voice_meta_round`、Claude 回 `{ticker,dialogue}`、陳柏偉變默劇靜音泡泡）；③ 微軟修好自動恢復 + 演「修好了」梗。實測 real Claude call 通過。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md` 第 9~10 節 |
+| **4 Step 5.39~5.41** | **窗外天氣系統**：背景 = f(時段 4 段, 天氣 5 種)、平滑 crossfade（時段切換提前 15 分淡入）、`/weather` 手機控制頁 + **接中央氣象署 OpenData**（`_weather_auto_loop` 真天氣自動驅動、需 `CWA_API_KEY`）。詳見 `92_WEATHER_BG_ASSET_BRIEF.md` |
+| **★★ 4 Step 5.42** | **24H MVP：batch 預生成 + pool 循環**（核心架構轉向）：對白從「每輪即時打 Claude」改「背景批次預生成一池、播放只撈 pool」。`_generate_batch`（一次 call 12 段、各帶 metadata）+ `_pick_segment`（硬限制不連 2 段同 topic/tone + 軟權重）+ `GET /api/next_segment` + `_pool_refill_loop`（pending<15 自動補）。前端改撈 `/api/next_segment`。實測一批 12 段 ≈ NT$0.54、播放免費。詳見 `93_24H_MVP_POOL_BATCH_IMPL.md` |
 
 ### 已知待辦 / 限制
 
-- [ ] **24H MVP batch 預生成架構尚未實作**：目前仍是「即時生成」、Step 6.5 prefetch 還在。改 batch 預生成 + pool 循環。詳見 `62_24H_MVP_DISCUSSION_NOTES.md` / `63` 決策文件
+- [x] ~~**24H MVP batch 預生成架構**~~ → **已實作 + 本機測過（Step 5.42）**：batch 12 段/call + pool 循環 + 選球器（硬限制+軟權重）。播放走 `/api/next_segment`、不再每輪即時生。`/api/chat` 保留給 debug / 之後 5% live 插隊。詳見 `93_24H_MVP_POOL_BATCH_IMPL.md`
 - [x] ~~**★ TTS 語音（最優先）**~~ → **已實作 + 已測試確認（Step 5.31~5.32）**：Edge-TTS server-side（mp3 快取）+ Web Speech API browser fallback。本機 Windows 跑 edge-tts 正常；雲端 SSL/403 環境 fallback 到 speechSynthesis。**2026-06-05 本機聽過、免費 Edge-TTS 效果可接受、不再微調**。
 - [x] ~~**★ 搞笑梗「壞掉變梗」**~~ → **已實作 + 實測（Step 5.35）**：聲音掛掉那位暫時靜音、跑馬燈（AI 生成）+ 下一輪王于安 AI 吐槽 meta round、陳柏偉變默劇靜音泡泡、微軟修好演「修好了」梗。`state.ticker` + 前端 `#marquee-bar` + `_run_voice_meta_round`
 - [ ] **★ YouTube 聊天室 × AI 互動（設計定案、未實作）**：經兩份外部 AI review，最終設計 = **`91_YT_CHAT_SECURITY_FINAL_v2.md`（權威依據）**。Reviewer 判「~70 分、可 prototype、**公開前必補 10 項**」（output gate / raw comment 隔離主 AI 只看 intent / display name sanitizer / TTS+字幕+overlay 審核 / SC 預算防火牆 / 選舉誹謗兒少個資法務 / 互動內容不進 pool / unsafe spike auto-pause / 外部新聞也算敵對輸入 / 主持人人格無狀態不可被馴化）。核心：聊天留言=敵對流動資料、AI 回覆=公開播送、主 AI 不看 raw、最後 gate 審實際播出文字。pytchat 讀、複用 meta-round + state.ticker。討論脈絡見 89、review 原文見 `ai_live_chat_safety_review.md` / `ai_livestream_security_analysis.md`
