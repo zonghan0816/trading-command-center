@@ -2472,6 +2472,91 @@ def preview_emotions():
     return FileResponse(str(_HERE / "preview_emotions.html"))
 
 
+@app.get("/cost", response_class=HTMLResponse)
+def cost_page():
+    """Step 5.38: 手機可開的『花費帳本』頁、讀 /api/cost、跨重開保留 + 整月推估。
+    手機開 http://<這台IP>:8765/cost。"""
+    return HTMLResponse("""<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>TDT 花費帳本</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,"Noto Sans TC",sans-serif;
+         background:#11151c; color:#e9eef5; padding:16px 14px 40px; }
+  h1 { font-size:20px; margin:4px 0 14px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+  .card { background:#1b212b; border:1px solid #2a3340; border-radius:14px; padding:14px; }
+  .card .lbl { font-size:12px; color:#8294a8; margin-bottom:6px; }
+  .card .big { font-size:24px; font-weight:800; }
+  .card .sub { font-size:12px; color:#75839a; margin-top:3px; }
+  .proj { background:#1b212b; border:1px solid #2a3340; border-radius:14px; padding:16px; margin-bottom:14px; }
+  .proj.over { background:#3a1b1b; border-color:rgba(255,82,82,0.7); }
+  .proj .big { font-size:28px; font-weight:800; }
+  .proj.over .big { color:#ff6b6b; }
+  .proj.ok .big { color:#6ee79a; }
+  .warn { font-size:13px; margin-top:8px; line-height:1.5; }
+  .warn.over { color:#ff8a8a; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:7px 6px; border-bottom:1px solid #232c38; }
+  th { color:#8294a8; font-weight:600; }
+  td.num { text-align:right; color:#cfe; font-variant-numeric:tabular-nums; }
+  .refresh { font-size:12px; color:#5a6b80; text-align:center; margin:10px 0; }
+</style>
+</head>
+<body>
+<h1>💰 TDT 花費帳本</h1>
+<div id="root">載入中…</div>
+<div class="refresh">每 20 秒自動更新 · 跨重開保留</div>
+<script>
+const NT = (u) => 'NT$' + Math.round(u*31).toLocaleString();
+async function load() {
+  let d; try { d = await (await fetch('/api/cost')).json(); } catch(e){ return; }
+  const p = d.projected_full_month || {};
+  const over = !!p.over_monthly_cap;
+  let h = '';
+  h += '<div class="grid">';
+  h += card('今天', '$'+d.today.usd, NT(d.today.usd)+' · '+d.today.calls+' 輪');
+  h += card('本月累計', '$'+d.month_to_date.usd, NT(d.month_to_date.usd));
+  h += card('總累計', '$'+d.lifetime.usd, NT(d.lifetime.usd));
+  h += card('月上限', '$'+d.caps.monthly_usd, NT(d.caps.monthly_usd));
+  h += '</div>';
+  // 推估
+  if (p.usd != null) {
+    h += '<div class="proj '+(over?'over':'ok')+'">';
+    h += '<div class="lbl" style="font-size:12px;color:#8294a8">📊 整月推估（跑滿一個月）</div>';
+    h += '<div class="big">$'+p.usd+' <span style="font-size:16px">／ '+NT(p.usd)+'</span></div>';
+    h += '<div class="sub" style="font-size:12px;color:#75839a">'+(p.note||'')+'</div>';
+    h += '<div class="warn '+(over?'over':'')+'">'+(over
+      ? '⚠️ 超過月上限 $'+d.caps.monthly_usd+'（'+NT(d.caps.monthly_usd)+'）→ 即時生成撐不完整月、建議改 batch 預錄'
+      : '✅ 在月上限內')+'</div>';
+    h += '</div>';
+  } else {
+    h += '<div class="proj"><div class="warn">📊 整月推估：'+(p.note||'尚無完整天資料')+'</div></div>';
+  }
+  // 每日明細
+  const days = d.days || {};
+  const keys = Object.keys(days).sort().reverse();
+  h += '<table><tr><th>日期</th><th class="num">花費</th><th class="num">NT$</th><th class="num">輪數</th></tr>';
+  for (const k of keys) {
+    const v = days[k];
+    h += '<tr><td>'+k+'</td><td class="num">$'+(v.usd||0).toFixed(3)+'</td><td class="num">'+NT(v.usd||0)+'</td><td class="num">'+(v.calls||0)+'</td></tr>';
+  }
+  h += '</table>';
+  document.getElementById('root').innerHTML = h;
+}
+function card(lbl, big, sub) {
+  return '<div class="card"><div class="lbl">'+lbl+'</div><div class="big">'+big+'</div><div class="sub">'+sub+'</div></div>';
+}
+load(); setInterval(load, 20000);
+</script>
+</body>
+</html>""")
+
+
 @app.get("/voice", response_class=HTMLResponse)
 def voice_control_page():
     """Step 5.34: 手機可開的『線上切聲音』控制頁、不用重開伺服器。
