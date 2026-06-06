@@ -1079,7 +1079,11 @@ def _fetch_cwa_weather():
     url = ("https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
            f"?Authorization={CWA_API_KEY}&locationName={urllib.parse.quote(CWA_LOCATION)}")
     try:
-        with urllib.request.urlopen(url, timeout=10) as r:
+        import ssl
+        ctx = ssl.create_default_context()          # 企業/雲端 proxy 環境跳過憑證驗證（同 edge-tts 處理）
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(url, timeout=10, context=ctx) as r:
             data = json.loads(r.read().decode("utf-8"))
         loc = data["records"]["location"][0]
         wx = next(e for e in loc["weatherElement"] if e.get("elementName") == "Wx")
