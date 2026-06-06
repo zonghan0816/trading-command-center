@@ -9,6 +9,7 @@ import os
 import random
 import re
 import urllib.request
+import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
@@ -258,6 +259,7 @@ def _default_state() -> dict:
         "ticker": "",               # 跑馬燈快訊（搞笑梗用、空=顯示預設促銷文字）
         "weather": "clear",         # 窗外天氣（clear/cloudy/rain…）→ 前端選背景變體
         "weather_fade_sec": 60,     # 天氣換背景的 crossfade 淡入秒數（可調、測試用）
+        "weather_auto": bool(os.environ.get("CWA_API_KEY", "")),  # 真天氣自動驅動（有 CWA key 預設開）
         "force_slot": "auto",       # 測試用：強制時段（auto=依時間 / morning/noon/afternoon/night）
         "hosts": {
             "aming": {
@@ -1051,6 +1053,73 @@ async def _og_enrich_ambiguous(topics: list[str]) -> list[str]:
     return result
 
 
+# ── Step 5.41: 中央氣象署 OpenData → 真天氣自動驅動 ────────────────
+CWA_API_KEY  = os.environ.get("CWA_API_KEY", "")          # 免費註冊 opendata.cwa.gov.tw
+CWA_LOCATION = os.environ.get("CWA_LOCATION", "臺北市")    # 要跟哪個縣市的真天氣同步
+_WEATHER_AUTO_POLL_SEC = 900   # 每 15 分鐘抓一次
+_WEATHER_AUTO_CONFIRM  = 2     # 連續 2 次讀到同一個新天氣才採用（≈30 分防抖、不閃爍）
+
+
+def _map_wx_to_weather(desc: str) -> str:
+    """中央氣象署 Wx 天氣現象文字 → 我們的 5 態（順序重要：雷>雨>陰/多雲>晴）。
+    註：颱風 Wx 不含、需另查特報、暫不自動（保持手動切）。"""
+    d = desc or ""
+    if "雷" in d:                  return "thunder"
+    if "雨" in d:                  return "rain"
+    if d.startswith("晴"):         return "clear"   # 晴 / 晴時多雲 → 偏晴
+    if "陰" in d or "多雲" in d:   return "cloudy"  # 多雲 / 多雲時晴 / 陰 → 陰
+    if "晴" in d:                  return "clear"
+    return "clear"
+
+
+def _fetch_cwa_weather():
+    """抓 F-C0032-001（縣市 36hr 預報）當前時段 Wx → (state, desc)。阻塞、用 to_thread 呼叫。失敗回 None。"""
+    if not CWA_API_KEY:
+        return None
+    url = ("https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
+           f"?Authorization={CWA_API_KEY}&locationName={urllib.parse.quote(CWA_LOCATION)}")
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        loc = data["records"]["location"][0]
+        wx = next(e for e in loc["weatherElement"] if e.get("elementName") == "Wx")
+        desc = wx["time"][0]["parameter"]["parameterName"]
+        return _map_wx_to_weather(desc), desc
+    except Exception as e:
+        print(f"[weather] CWA fetch failed: {e}")
+        return None
+
+
+async def _weather_auto_loop():
+    """真天氣自動驅動：weather_auto 開 + 有 key 時、每 15 分抓 CWA → 防抖 → 設 state.weather。
+    前端 /api/state 輪詢會自動 crossfade 換背景。手動 /weather 切會關掉 auto（暫時人工接管）。"""
+    await asyncio.sleep(20)
+    pending, streak = None, 0
+    while True:
+        try:
+            st = _load_state()
+            if CWA_API_KEY and st.get("weather_auto"):
+                res = await asyncio.to_thread(_fetch_cwa_weather)
+                if res:
+                    new_w, desc = res
+                    cur = st.get("weather", "clear")
+                    if new_w == cur:
+                        pending, streak = None, 0
+                    else:
+                        if new_w == pending:
+                            streak += 1
+                        else:
+                            pending, streak = new_w, 1
+                        if streak >= _WEATHER_AUTO_CONFIRM:
+                            st["weather"] = new_w
+                            _save_state(st)
+                            print(f"[weather] 自動：{cur} → {new_w}（CWA {CWA_LOCATION}: {desc}）")
+                            pending, streak = None, 0
+        except Exception as e:
+            print(f"[weather] auto loop error: {e}")
+        await asyncio.sleep(_WEATHER_AUTO_POLL_SEC)
+
+
 async def _news_refresh_loop():
     """背景任務：每 N 分鐘刷新新聞快取。
     層二消解在 fetch_news_topics() 同步完成；層三 og 補強在這裡 async 執行。
@@ -1159,6 +1228,7 @@ async def _startup_news_tasks():
 
     asyncio.create_task(_news_refresh_loop())
     asyncio.create_task(_topic_rotate_loop())
+    asyncio.create_task(_weather_auto_loop())   # Step 5.41: 真天氣自動驅動（需 CWA_API_KEY）
 
 
 def _build_static_prompt() -> str:
@@ -2012,6 +2082,9 @@ def get_weather():
     return {"weather": st.get("weather", "clear"),
             "fade_sec": int(st.get("weather_fade_sec", 60)),
             "force_slot": st.get("force_slot", "auto"),
+            "weather_auto": bool(st.get("weather_auto", False)),
+            "cwa_configured": bool(CWA_API_KEY),   # .env 有沒有設 key
+            "cwa_location": CWA_LOCATION,
             "options": sorted(_WEATHER_STATES),
             "fade_options": [10, 30, 60, 90, 120],
             "slot_options": _SLOT_OPTIONS}
@@ -2033,7 +2106,11 @@ async def set_weather(request: Request):
             return JSONResponse({"error": f"weather not allowed: {w}",
                                  "options": sorted(_WEATHER_STATES)}, status_code=400)
         st["weather"] = w
-        changed.append(f"weather={w}")
+        st["weather_auto"] = False   # 手動切天氣 → 關掉自動（人工接管）
+        changed.append(f"weather={w} (auto off)")
+    if "weather_auto" in body:
+        st["weather_auto"] = bool(body.get("weather_auto"))
+        changed.append(f"weather_auto={st['weather_auto']}")
     if "fade_sec" in body:
         try:
             fs = int(body.get("fade_sec"))
@@ -2050,12 +2127,13 @@ async def set_weather(request: Request):
         st["force_slot"] = slot
         changed.append(f"force_slot={slot}")
     if not changed:
-        return JSONResponse({"error": "give weather / fade_sec / force_slot"}, status_code=400)
+        return JSONResponse({"error": "give weather / fade_sec / force_slot / weather_auto"}, status_code=400)
     _save_state(st)
     print(f"[weather] 手動設定 → {', '.join(changed)}")
     return JSONResponse({"ok": True, "weather": st.get("weather", "clear"),
                          "fade_sec": int(st.get("weather_fade_sec", 60)),
-                         "force_slot": st.get("force_slot", "auto")})
+                         "force_slot": st.get("force_slot", "auto"),
+                         "weather_auto": bool(st.get("weather_auto", False))})
 
 
 _SLOT_OPTIONS = ["auto", "morning", "noon", "afternoon", "night"]
@@ -2648,7 +2726,9 @@ def weather_page():
 </head>
 <body>
 <h1>🌤️ TDT 窗外天氣</h1>
-<div class="now">目前天氣：<b id="now">—</b></div>
+<div class="now">🛰 真天氣自動：<b id="nowauto">—</b> <span id="cwainfo" style="font-size:12px;color:#75839a"></span></div>
+<div class="grid" id="autobtns"></div>
+<div class="now" style="margin-top:20px">目前天氣：<b id="now">—</b></div>
 <div class="grid" id="btns"></div>
 <div class="now" style="margin-top:20px">淡入秒數：<b id="nowfade">—</b> 秒</div>
 <div class="grid" id="fadebtns"></div>
@@ -2660,11 +2740,17 @@ def weather_page():
 const LABELS = {clear:'☀️ 晴天', cloudy:'☁️ 陰天', rain:'🌧️ 下雨', thunder:'⛈️ 雷雨', typhoon:'🌀 颱風'};
 const SLOTS = {auto:'⏱ 自動', morning:'🌅 早上', noon:'☀️ 中午', afternoon:'🌇 下午', night:'🌃 晚上'};
 const toast=(m)=>{const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1400);};
-let cur='', curfade=60, curslot='auto';
+let cur='', curfade=60, curslot='auto', curauto=false;
 async function load(){
   let d; try{ d=await (await fetch('/api/weather')).json(); }catch(e){return;}
-  cur=d.weather; curfade=d.fade_sec; curslot=d.force_slot||'auto';
+  cur=d.weather; curfade=d.fade_sec; curslot=d.force_slot||'auto'; curauto=!!d.weather_auto;
   document.getElementById('now').textContent=LABELS[cur]||cur;
+  document.getElementById('nowauto').textContent = curauto ? '開（跟真天氣）' : '關（手動）';
+  document.getElementById('cwainfo').textContent = d.cwa_configured ? ('· '+d.cwa_location) : '· ⚠️ 未設 CWA_API_KEY';
+  let ab='';
+  ab+='<button class="'+(curauto?'sel':'')+'" '+(d.cwa_configured?'':'disabled')+' onclick="setAuto(true)">🛰 自動 開</button>';
+  ab+='<button class="'+(!curauto?'sel':'')+'" onclick="setAuto(false)">✋ 手動</button>';
+  document.getElementById('autobtns').innerHTML=ab;
   document.getElementById('nowfade').textContent=curfade;
   document.getElementById('nowslot').textContent=SLOTS[curslot]||curslot;
   let h=''; for(const w of d.options){ h+='<button class="'+(w===cur?'sel':'')+'" onclick="setW(\\''+w+'\\')">'+(LABELS[w]||w)+'</button>'; }
@@ -2685,6 +2771,10 @@ async function setFade(s){
 async function setSlot(s){
   const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force_slot:s})});
   if(r.ok){ toast('時段 '+(SLOTS[s]||s)); load(); } else { toast('失敗'); }
+}
+async function setAuto(b){
+  const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weather_auto:b})});
+  if(r.ok){ toast(b?'自動跟真天氣':'手動模式'); load(); } else { toast('失敗'); }
 }
 load(); setInterval(load, 5000);
 </script>

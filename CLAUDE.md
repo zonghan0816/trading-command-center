@@ -194,7 +194,8 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 ## 📍 目前進度（每次工作結束更新）
 
 **最後更新**：2026-06-05
-**目前階段**：Phase 4 Step 5.40 — 窗外天氣系統**完成**（4 時段 × 5 天氣、整張背景替換、平滑 crossfade、手機 `/weather` 遙控）
+**目前階段**：Phase 4 Step 5.41 — 窗外天氣**接中央氣象署 OpenData**（真天氣自動驅動）。**程式完成、待填 CWA_API_KEY 驗證**
+**⚠️ 真天氣自動注意**：`server.py` `_weather_auto_loop` 每 15 分抓 CWA F-C0032-001（縣市 36hr 預報）的 Wx → `_map_wx_to_weather` 對應 晴/陰/雨/雷（颱風 Wx 不含、暫手動）→ 連續 2 次（≈30 分防抖）才設 `state.weather`。需 **`.env` 設 `CWA_API_KEY`**（免費註冊 opendata.cwa.gov.tw）、`CWA_LOCATION` 預設臺北市。有 key 則 `weather_auto` 預設開。`/weather` 頁有「🛰自動/✋手動」鈕；手動切天氣會自動關 auto。**CWA 實際回傳解析未用真 key 測過、填 key 後要驗一次**。
 **⚠️ 天氣系統注意**：背景 = f(時段, 天氣)。時段 4 段（早 06-11 / 中午 11-16 / 下午 16-18:30 / 晚 18:30-06、各切換提前 15 分淡入）。天氣 5 種（晴/陰/雨/雷/颱）。天氣圖對應：中午/下午/晚上各有自己的 `studio_bg_{slot}_{weather}.png`、**早上借中午天氣**（缺圖 fallback 回晴天）。手動切：`/weather`（含天氣/淡入秒數/強制時段測試鈕）；之後接中央氣象署自動。程式：`OfficeScene._getTimeSlotBgRaw`(時段)+`_resolveBgKey`(天氣 fallback)+`_crossfadeBg`(平滑)；`server.py` `state.weather/force_slot/weather_fade_sec` + `/api/weather`。
 **下一階段候選**：真人半身×看螢幕循環（87）/ 24H MVP batch 預生成 / 跨輪對話記憶
 **⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟「間歇性」搞壞、回空音訊。最終設計（Step 5.35）：① 兩位都只用台灣聲音、無大陸備胎（語速陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」、不換聲音、改演搞笑梗（state.ticker 跑馬燈 + 下一輪王于安 AI 吐槽 meta round）、10 分鐘自動探測、微軟修好自動恢復 + 演「修好了」梗；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
