@@ -1098,7 +1098,7 @@ async def _weather_auto_loop():
     """真天氣自動驅動：weather_auto 開 + 有 key 時、每 15 分抓 CWA → 防抖 → 設 state.weather。
     前端 /api/state 輪詢會自動 crossfade 換背景。手動 /weather 切會關掉 auto（暫時人工接管）。"""
     await asyncio.sleep(20)
-    pending, streak = None, 0
+    pending, streak, first = None, 0, True
     while True:
         try:
             st = _load_state()
@@ -1109,7 +1109,12 @@ async def _weather_auto_loop():
                     cur = st.get("weather", "clear")
                     if new_w == cur:
                         pending, streak = None, 0
-                    else:
+                    elif first:                       # 啟動後第一次成功抓 → 立即同步真天氣（不用等防抖）
+                        st["weather"] = new_w
+                        _save_state(st)
+                        print(f"[weather] 自動(初次同步)：{cur} → {new_w}（CWA {CWA_LOCATION}: {desc}）")
+                        pending, streak = None, 0
+                    else:                             # 之後的變化才防抖（連續 2 次≈30 分、不閃爍）
                         if new_w == pending:
                             streak += 1
                         else:
@@ -1119,6 +1124,7 @@ async def _weather_auto_loop():
                             _save_state(st)
                             print(f"[weather] 自動：{cur} → {new_w}（CWA {CWA_LOCATION}: {desc}）")
                             pending, streak = None, 0
+                    first = False
         except Exception as e:
             print(f"[weather] auto loop error: {e}")
         await asyncio.sleep(_WEATHER_AUTO_POLL_SEC)
