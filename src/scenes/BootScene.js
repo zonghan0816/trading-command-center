@@ -13,9 +13,11 @@ export class BootScene extends Phaser.Scene {
     this.load.image('office_bg', '/assets/office-complete.png');
     this.load.image('wall_screen', '/assets/1.png');
     // Phase 3 Step 3：三個時段背景（保留向下相容、v3 啟用時不用）
-    this.load.image('studio_bg_morning', '/assets/wwt_studio_background_noon_v1.png');
-    this.load.image('studio_bg_noon',    '/assets/wwt_studio_background_morning_v1.png');
-    this.load.image('studio_bg_night',   '/assets/wwt_studio_background_night_v1.png');
+    // 4 時段晴天背景（使用者 2026-06-06 重整：早/中午/下午/晚）
+    this.load.image('studio_bg_morning',   '/assets/wwt_studio_background_morning_v1.png');
+    this.load.image('studio_bg_noon',      '/assets/studio_bg_noon.png');              // 中午（新圖、天氣變體的母版）
+    this.load.image('studio_bg_afternoon', '/assets/wwt_studio_background_noon_v1.png');
+    this.load.image('studio_bg_night',     '/assets/wwt_studio_background_night_v1.png');
     // 窗外天氣：整張背景變體（studio_bg_{時段}_{天氣}）。有圖才開 CONFIG.weatherBg.enabled。
     // 缺檔走下面 loaderror 靜默跳過、前端 _resolveBgKey 會 fallback 回晴天版。
     const wbg = CONFIG.weatherBg;

@@ -258,6 +258,7 @@ def _default_state() -> dict:
         "ticker": "",               # 跑馬燈快訊（搞笑梗用、空=顯示預設促銷文字）
         "weather": "clear",         # 窗外天氣（clear/cloudy/rain…）→ 前端選背景變體
         "weather_fade_sec": 60,     # 天氣換背景的 crossfade 淡入秒數（可調、測試用）
+        "force_slot": "auto",       # 測試用：強制時段（auto=依時間 / morning/noon/afternoon/night）
         "hosts": {
             "aming": {
                 "status": "idle",
@@ -284,6 +285,7 @@ _STR_FIELD_DEFAULTS = {
     "activity":       "idle",
     "ticker":         "",
     "weather":        "clear",
+    "force_slot":     "auto",
 }
 
 
@@ -2009,8 +2011,10 @@ def get_weather():
     st = _load_state()
     return {"weather": st.get("weather", "clear"),
             "fade_sec": int(st.get("weather_fade_sec", 60)),
+            "force_slot": st.get("force_slot", "auto"),
             "options": sorted(_WEATHER_STATES),
-            "fade_options": [10, 30, 60, 90, 120]}
+            "fade_options": [10, 30, 60, 90, 120],
+            "slot_options": _SLOT_OPTIONS}
 
 
 @app.post("/api/weather")
@@ -2038,12 +2042,23 @@ async def set_weather(request: Request):
         fs = max(5, min(300, fs))   # 夾在 5~300 秒
         st["weather_fade_sec"] = fs
         changed.append(f"fade_sec={fs}")
+    if "force_slot" in body:
+        slot = str(body.get("force_slot", "")).strip()
+        if slot not in _SLOT_OPTIONS:
+            return JSONResponse({"error": f"force_slot not allowed: {slot}",
+                                 "options": _SLOT_OPTIONS}, status_code=400)
+        st["force_slot"] = slot
+        changed.append(f"force_slot={slot}")
     if not changed:
-        return JSONResponse({"error": "give weather and/or fade_sec"}, status_code=400)
+        return JSONResponse({"error": "give weather / fade_sec / force_slot"}, status_code=400)
     _save_state(st)
     print(f"[weather] 手動設定 → {', '.join(changed)}")
     return JSONResponse({"ok": True, "weather": st.get("weather", "clear"),
-                         "fade_sec": int(st.get("weather_fade_sec", 60))})
+                         "fade_sec": int(st.get("weather_fade_sec", 60)),
+                         "force_slot": st.get("force_slot", "auto")})
+
+
+_SLOT_OPTIONS = ["auto", "morning", "noon", "afternoon", "night"]
 
 
 # ── Step 5.34: 線上切聲音（不用重開伺服器、手機開 /voice 就能換）──────────
@@ -2637,21 +2652,27 @@ def weather_page():
 <div class="grid" id="btns"></div>
 <div class="now" style="margin-top:20px">淡入秒數：<b id="nowfade">—</b> 秒</div>
 <div class="grid" id="fadebtns"></div>
-<div class="note">切換後背景用上面的秒數慢慢淡入（測試用：10 秒看清楚、120 秒最柔）。缺對應天氣圖時自動 fallback 回晴天版（畫面不變、屬正常）。</div>
+<div class="now" style="margin-top:20px">強制時段（測試）：<b id="nowslot">—</b></div>
+<div class="grid" id="slotbtns"></div>
+<div class="note">切換後背景用上面的秒數慢慢淡入（測試用：10 秒看清楚、120 秒最柔）。強制時段＝不等真實時間、直接切到該時段背景測天氣（測完記得切回「自動」）。缺對應天氣圖時自動 fallback（早上/下午會套白天天氣、再不行回晴天）。</div>
 <div class="toast" id="toast"></div>
 <script>
 const LABELS = {clear:'☀️ 晴天', cloudy:'☁️ 陰天', rain:'🌧️ 下雨', thunder:'⛈️ 雷雨', typhoon:'🌀 颱風'};
+const SLOTS = {auto:'⏱ 自動', morning:'🌅 早上', noon:'☀️ 中午', afternoon:'🌇 下午', night:'🌃 晚上'};
 const toast=(m)=>{const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1400);};
-let cur='', curfade=60;
+let cur='', curfade=60, curslot='auto';
 async function load(){
   let d; try{ d=await (await fetch('/api/weather')).json(); }catch(e){return;}
-  cur=d.weather; curfade=d.fade_sec;
+  cur=d.weather; curfade=d.fade_sec; curslot=d.force_slot||'auto';
   document.getElementById('now').textContent=LABELS[cur]||cur;
   document.getElementById('nowfade').textContent=curfade;
+  document.getElementById('nowslot').textContent=SLOTS[curslot]||curslot;
   let h=''; for(const w of d.options){ h+='<button class="'+(w===cur?'sel':'')+'" onclick="setW(\\''+w+'\\')">'+(LABELS[w]||w)+'</button>'; }
   document.getElementById('btns').innerHTML=h;
   let f=''; for(const s of (d.fade_options||[10,30,60,90,120])){ f+='<button class="'+(s===curfade?'sel':'')+'" onclick="setFade('+s+')">'+s+' 秒</button>'; }
   document.getElementById('fadebtns').innerHTML=f;
+  let sl=''; for(const s of (d.slot_options||['auto','morning','noon','afternoon','night'])){ sl+='<button class="'+(s===curslot?'sel':'')+'" onclick="setSlot(\\''+s+'\\')">'+(SLOTS[s]||s)+'</button>'; }
+  document.getElementById('slotbtns').innerHTML=sl;
 }
 async function setW(w){
   const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({weather:w})});
@@ -2660,6 +2681,10 @@ async function setW(w){
 async function setFade(s){
   const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fade_sec:s})});
   if(r.ok){ toast('淡入 '+s+' 秒'); load(); } else { toast('失敗'); }
+}
+async function setSlot(s){
+  const r=await fetch('/api/weather',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force_slot:s})});
+  if(r.ok){ toast('時段 '+(SLOTS[s]||s)); load(); } else { toast('失敗'); }
 }
 load(); setInterval(load, 5000);
 </script>

@@ -133,8 +133,15 @@ export class OfficeScene extends Phaser.Scene {
   _resolveBgKey(baseKey) {
     const w = this._weather || 'clear';
     if (!w || w === 'clear') return baseKey;
-    const variant = `${baseKey}_${w}`;
-    return this.textures.exists(variant) ? variant : baseKey;  // 缺天氣圖 → fallback
+    const exact = `${baseKey}_${w}`;
+    if (this.textures.exists(exact)) return exact;                 // 該時段自己的天氣圖（中午/晚上有）
+    // 沒自己的天氣圖 → 套同組：早上→中午天氣、下午→晚上天氣（使用者 2026-06-06 決定）
+    const fb = { studio_bg_morning: 'noon', studio_bg_afternoon: 'night' }[baseKey];
+    if (fb) {
+      const fbk = `studio_bg_${fb}_${w}`;
+      if (this.textures.exists(fbk)) return fbk;
+    }
+    return baseKey;                                                // 都沒有 → 回該時段晴天
   }
 
   // 對外：時間 mix 再套上天氣（base/next 都解析成天氣變體）
@@ -147,29 +154,33 @@ export class OfficeScene extends Phaser.Scene {
     };
   }
 
-  // 純時間 → 三套 key（不含天氣）
+  // 純時間 → 4 套 key（不含天氣）。使用者 2026-06-06 時間表：
+  //   早 06:00–11:00 / 中午 11:00–16:00 / 下午 16:00–18:30 / 晚 18:30–06:00
+  //   每個切換「提前 15 分鐘開始淡、到整點淡完」（例：05:45 開始淡、06:00 全早上）
   _getTimeSlotBgRaw() {
+    // 測試用：強制時段（/weather 設 force_slot、非 auto 就鎖死該時段、不過渡）
+    const fs = this._forceSlot;
+    if (fs && fs !== 'auto' && ['morning', 'noon', 'afternoon', 'night'].includes(fs))
+      return { base: `studio_bg_${fs}`, next: null, alpha: 0 };
     const now  = new Date();
-    const mins = now.getHours() * 60 + now.getMinutes();
+    const m = now.getHours() * 60 + now.getMinutes();
     const clamp = (v) => Math.min(1, Math.max(0, v));
-
-    // 過渡：night → morning  05:30–06:30  (330–390)
-    if (mins >= 330 && mins < 390)
-      return { base: 'studio_bg_night',   next: 'studio_bg_morning', alpha: clamp((mins - 330) / 60) };
-    // 穩定：morning           06:30–14:29  (390–869)
-    if (mins >= 390 && mins < 870)
-      return { base: 'studio_bg_morning', next: null, alpha: 0 };
-    // 過渡：morning → noon    14:30–15:30  (870–930)
-    if (mins >= 870 && mins < 930)
-      return { base: 'studio_bg_morning', next: 'studio_bg_noon',    alpha: clamp((mins - 870) / 60) };
-    // 穩定：noon              15:30–16:59  (930–1019)
-    if (mins >= 930 && mins < 1020)
-      return { base: 'studio_bg_noon',    next: null, alpha: 0 };
-    // 過渡：noon → night      17:00–18:00  (1020–1080)
-    if (mins >= 1020 && mins < 1080)
-      return { base: 'studio_bg_noon',    next: 'studio_bg_night',   alpha: clamp((mins - 1020) / 60) };
-    // 穩定：night             18:00–05:29
-    return { base: 'studio_bg_night', next: null, alpha: 0 };
+    // 過渡視窗 = [邊界-15, 邊界]、alpha = (m-起點)/15
+    if (m >= 345 && m < 360)                 // 05:45–06:00 晚→早
+      return { base: 'studio_bg_night',     next: 'studio_bg_morning',   alpha: clamp((m - 345) / 15) };
+    if (m >= 360 && m < 645)                 // 06:00–10:45 早 穩定
+      return { base: 'studio_bg_morning',   next: null, alpha: 0 };
+    if (m >= 645 && m < 660)                 // 10:45–11:00 早→中午
+      return { base: 'studio_bg_morning',   next: 'studio_bg_noon',      alpha: clamp((m - 645) / 15) };
+    if (m >= 660 && m < 945)                 // 11:00–15:45 中午 穩定
+      return { base: 'studio_bg_noon',      next: null, alpha: 0 };
+    if (m >= 945 && m < 960)                 // 15:45–16:00 中午→下午
+      return { base: 'studio_bg_noon',      next: 'studio_bg_afternoon', alpha: clamp((m - 945) / 15) };
+    if (m >= 960 && m < 1095)                // 16:00–18:15 下午 穩定
+      return { base: 'studio_bg_afternoon', next: null, alpha: 0 };
+    if (m >= 1095 && m < 1110)               // 18:15–18:30 下午→晚
+      return { base: 'studio_bg_afternoon', next: 'studio_bg_night',     alpha: clamp((m - 1095) / 15) };
+    return { base: 'studio_bg_night', next: null, alpha: 0 };  // 18:30–05:45 晚 穩定
   }
 
   _buildBackground() {
@@ -279,10 +290,10 @@ export class OfficeScene extends Phaser.Scene {
     }
   }
 
-  // 天氣變化：在最上層放新天氣背景、60 秒淡入（不突兀）、淡完同步底層
-  _crossfadeWeather() {
+  // 背景平滑切換（天氣變 or 強制切時段都用這個）：最上層放新背景、淡入、淡完同步底層
+  _crossfadeBg() {
     if (this.textures.exists('studio_base')) return;   // 新棚景路徑不處理
-    const mix = this._getTimeOfDayBackgroundMix();      // 已含新天氣
+    const mix = this._getTimeOfDayBackgroundMix();      // 已含現在的時段 + 天氣
     if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
     this._bgFade = this.add.image(0, 0, mix.base)
       .setOrigin(0, 0).setDepth(0.2).setDisplaySize(this.W, this.H).setAlpha(0);
@@ -290,11 +301,11 @@ export class OfficeScene extends Phaser.Scene {
     this.tweens.add({
       targets: this._bgFade, alpha: 1, duration: dur, ease: 'Linear',
       onComplete: () => {
-        this._updateBackgroundMix();                   // 底層也換成新天氣
+        this._updateBackgroundMix();                   // 底層也換成新背景
         if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
       },
     });
-    console.info('[weather] crossfade →', this._weather, 'bg=', mix.base, `(${dur/1000}s)`);
+    console.info('[bg] crossfade → slot=', this._forceSlot, 'weather=', this._weather, 'bg=', mix.base, `(${dur/1000}s)`);
   }
 
   // ── 裝飾（燈、植物、白板、機架）─────────────────────────────
@@ -529,14 +540,25 @@ export class OfficeScene extends Phaser.Scene {
   _applyState(data) {
     this.state = data;
 
+    // 可調淡入秒數（force_slot / 天氣 crossfade 共用）
+    this._weatherFadeMs = (Number(data.weather_fade_sec) || 60) * 1000;
+
+    // 測試用：強制時段（/weather force_slot）變了 → 平滑淡入該時段背景（首次直接套）
+    const fslot = data.force_slot || 'auto';
+    if (fslot !== this._forceSlot) {
+      const firstF = (this._forceSlot === undefined);
+      this._forceSlot = fslot;
+      if (firstF) this._updateBackgroundMix();   // 首次：直接套用
+      else        this._crossfadeBg();           // 之後：淡入（不突兀）
+    }
+
     // 窗外天氣：state.weather 變了就換背景（首次同步、之後 crossfade）
-    this._weatherFadeMs = (Number(data.weather_fade_sec) || 60) * 1000;  // 可調淡入秒數
     const w = data.weather || 'clear';
     if (w !== this._weather) {
       const first = (this._weather === undefined);
       this._weather = w;
       if (first) this._updateBackgroundMix();   // 首次：直接套用、不淡
-      else       this._crossfadeWeather();       // 之後：60 秒慢慢淡（不突兀）
+      else       this._crossfadeBg();            // 之後：慢慢淡（不突兀）
     }
 
     const ACTIVE = ['talking', 'thinking', 'researching', 'reacting'];

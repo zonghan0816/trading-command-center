@@ -21,9 +21,10 @@ export const CONFIG = {
   //  天氣由後端 state.weather 控制（手動 /api/weather 或之後接中央氣象署）。
   //  "clear" = 用現有三張（無後綴）= 晴天。
   weatherBg: {
-    enabled: false,
-    variants: ['cloudy', 'rain'],   // 有做哪些（晴天不用列）
-    slots: ['morning', 'noon', 'night'],
+    enabled: true,
+    variants: ['cloudy', 'rain', 'thunder', 'typhoon'],   // 有做哪些（晴天不用列）
+    slots: ['morning', 'noon', 'afternoon', 'night'],
+    // 註：目前天氣圖只做了「中午」時段（studio_bg_noon_{天氣}）、其他時段缺圖會自動 fallback 回該時段晴天。
   },
 
   // ── 佈局 ─────────────────────────────────────────────────────
