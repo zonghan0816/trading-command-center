@@ -160,6 +160,7 @@ STATE_FILE = _HERE / "wwt_state.json"
 NEWS_CACHE_FILE = _HERE / "wwt_news_cache.json"
 DIALOGUE_MEMORY_FILE = _HERE / "wwt_dialogue_memory.json"
 OBSERVE_LOG_FILE = _HERE / "wwt_observe_log.jsonl"   # Phase 4 Step 5.11: 24H 觀察期 JSONL 記錄
+COST_HISTORY_FILE = _HERE / "wwt_cost_history.json"  # 持久花費帳本（跨重開保留、不像 state 會 reset）
 DIALOGUE_ARCHIVE_FILE = _HERE / "wwt_dialogue_archive.jsonl"  # Step 5.28: 全文持久化、給 Shorts pipeline
 
 # ── TTS (Edge-TTS) ────────────────────────────────────────────────
@@ -342,12 +343,33 @@ def _get_cost_usage(st: dict) -> dict:
     return usage
 
 
+def _append_cost_history(cost_usd: float) -> None:
+    """把花費累加到持久帳本 wwt_cost_history.json（跨重開保留、不像 state 會 reset）。
+    結構：{"days": {"2026-06-06": {"usd": 3.27, "calls": 1100}}}。失敗不影響主流程。"""
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        data = {}
+        if COST_HISTORY_FILE.exists():
+            data = json.loads(COST_HISTORY_FILE.read_text(encoding="utf-8"))
+        days = data.get("days") if isinstance(data.get("days"), dict) else {}
+        entry = days.get(today) if isinstance(days.get(today), dict) else {"usd": 0.0, "calls": 0}
+        entry["usd"] = round(entry.get("usd", 0.0) + cost_usd, 6)
+        entry["calls"] = int(entry.get("calls", 0)) + 1
+        days[today] = entry
+        data["days"] = days
+        COST_HISTORY_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as e:
+        print(f"[cost] history write failed: {e}")
+
+
 def _add_cost_to_state(st: dict, cost_usd: float) -> dict:
-    """累積 cost 到 state、回傳更新後的 usage。Mutate state in-place。"""
+    """累積 cost 到 state、回傳更新後的 usage。Mutate state in-place。
+    同時寫入持久帳本（state 會在重開時 reset、帳本不會）。"""
     usage = _get_cost_usage(st)
     usage["today"]["amount_usd"] = round(usage["today"]["amount_usd"] + cost_usd, 6)
     usage["month"]["amount_usd"] = round(usage["month"]["amount_usd"] + cost_usd, 6)
     st["cost_usage"] = usage
+    _append_cost_history(cost_usd)   # 跨重開保留的帳本
     return usage
 
 
@@ -2061,6 +2083,58 @@ def get_budget():
         "over_budget": over,
         "reason":      reason,
     }
+
+
+@app.get("/api/cost")
+def get_cost():
+    """持久花費帳本（跨重開保留、不像 /api/budget 會被 reset）+ 整月推估。
+    用來判斷『要不要改 batch 預錄模式』。"""
+    import calendar
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    month = now.strftime("%Y-%m")
+    NT = 31  # 粗略匯率 USD→NT$
+
+    data = {}
+    if COST_HISTORY_FILE.exists():
+        try:
+            data = json.loads(COST_HISTORY_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+    days = data.get("days") if isinstance(data.get("days"), dict) else {}
+
+    def _u(d):
+        return float(days.get(d, {}).get("usd", 0.0)) if isinstance(days.get(d), dict) else 0.0
+
+    today_usd    = round(_u(today), 4)
+    month_usd    = round(sum(_u(d) for d in days if d.startswith(month)), 4)
+    lifetime_usd = round(sum(_u(d) for d in days), 4)
+
+    # 月推估：用「完整天（排除今天這個半天）」平均 × 當月總天數
+    complete = [d for d in days if d != today]
+    avg_full_day = round(sum(_u(d) for d in complete) / len(complete), 4) if complete else None
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    proj = None
+    if avg_full_day is not None:
+        proj_usd = round(avg_full_day * days_in_month, 2)
+        proj = {"usd": proj_usd, "ntd": round(proj_usd * NT),
+                "note": f"完整天平均 ${avg_full_day} × {days_in_month} 天（粗估）",
+                "over_monthly_cap": proj_usd > _MONTHLY_BUDGET_USD}
+    else:
+        proj = {"note": "尚無『完整 24h 天』資料、等跑滿一整天後才準"}
+
+    return JSONResponse({
+        "today":         {"date": today, "usd": today_usd, "ntd": round(today_usd * NT),
+                          "calls": int(days.get(today, {}).get("calls", 0)) if isinstance(days.get(today), dict) else 0},
+        "month_to_date": {"month": month, "usd": month_usd, "ntd": round(month_usd * NT)},
+        "lifetime":      {"usd": lifetime_usd, "ntd": round(lifetime_usd * NT)},
+        "avg_per_full_day_usd": avg_full_day,
+        "projected_full_month": proj,
+        "caps": {"daily_usd": _DAILY_BUDGET_USD, "monthly_usd": _MONTHLY_BUDGET_USD,
+                 "monthly_ntd_approx": round(_MONTHLY_BUDGET_USD * NT)},
+        "days": dict(sorted(days.items())),
+        "note": "USD；NT$ 約 ×31（粗略）。此帳本跨重開保留、不會被 state reset。",
+    })
 
 
 @app.post("/api/budget/reset")

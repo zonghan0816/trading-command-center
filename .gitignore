@@ -12,6 +12,7 @@ wwt_news_cache.json
 wwt_dialogue_memory.json
 wwt_observe_log.jsonl
 wwt_dialogue_archive.jsonl
+wwt_cost_history.json
 
 # Phase 4 Step 5.29: Shorts pipeline
 youtube_credentials.json
