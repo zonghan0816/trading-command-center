@@ -8,11 +8,21 @@ import json
 import os
 import random
 import re
+import sys
 import urllib.request
 import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+
+# 強制 stdout/stderr 用 UTF-8（errors=replace）：log 裡的中文/emoji（⚠️ ⛔ ▶ ♻️）
+# 在非 UTF-8 console（cp950）print 會 raise UnicodeEncodeError，若發生在 try 區塊內會被
+# 誤判成功能失敗（例如 batch 失敗）。這裡一次墊掉、不依賴 啟動.bat 的 chcp 65001。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 import anthropic
 from dotenv import load_dotenv
@@ -452,6 +462,31 @@ def _strip_3q(text: str) -> str:
     t = re.sub(r'[3３][QqＱｑ][\s啦喔囉耶哦欸！!,，。、~～]*', '', text)
     t = re.sub(r'^[\s！!,，。、~～：:]+', '', t).strip()   # 清句首殘留標點
     return t if t else text
+
+
+# ── 輸出閘（D、公開前安全層）：對「實際要播」的文字做最後檢查 ──────────
+#  偏保守、寧可誤殺（pool refill 會補）。命中 → 整段丟棄、不入 pool。
+#  注意：與 prompt 規則 A（具名不掛負評）分工——A 從源頭防、這層擋漏網的字面紅旗。
+_GATE_PATTERNS: list[tuple[str, str]] = [
+    # 侮辱性字眼（公然侮辱罪）
+    (r'智障|腦殘|白痴|低能|廢物|垃圾人|王八蛋|去死|滾蛋|渣男|賤貨|婊|腦袋裝屎', "侮辱字眼"),
+    # 未證實犯罪指控（誹謗罪）— 把人/單位講成涉案
+    (r'貪污|收賄|賄賂|洗錢|圖利|掏空|賣國|通敵', "未證實犯罪指控"),
+    # 臆測收錢 / 動機（陰謀論）
+    (r'一定是.{0,6}(收|拿|A)了?錢|根本就是.{0,4}(收|拿)錢|背後一定有', "臆測動機"),
+]
+
+
+def _output_gate_segment(lines: list) -> tuple[bool, str]:
+    """輸出閘：整段文字命中高風險樣式 → 不通過（整段丟）。回 (通過?, 原因)。"""
+    import re
+    if not isinstance(lines, list):
+        return True, ""
+    joined = " ".join(str(l.get("text", "")) for l in lines if isinstance(l, dict))
+    for pat, label in _GATE_PATTERNS:
+        if re.search(pat, joined):
+            return False, label
+    return True, ""
 
 
 def _quality_check_dialogue(dialogue: list) -> tuple[list, int]:
@@ -1363,6 +1398,15 @@ def _build_static_prompt() -> str:
 - 對「人」的評價 → 不要說
 - 對「現象 / 趨勢 / 制度」的評價 → 可以說
 
+#### ⚖️ 具名真人（最重要的法律紅線、誹謗/公然侮辱）
+topic 或新聞裡若出現**真實人名**（政治人物、官員、藝人、企業負責人、任何個人）：
+- ✅ 可以談「這個**事件 / 政策 / 現象**」本身
+- ❌ **不要把負面評價、人格判斷、嘲諷、罵詞掛到那個人名上**（這就是公然侮辱/誹謗）
+- ✅ 要批評時，把主詞換成「**這件事 / 這個政策 / 這種現象 / 這個制度**」，不要用人名當被罵的主詞
+- ❌ 範例（禁止）：「賴清德就是無能」「OOO 根本在擺爛」「某董事長一定有問題」
+- ✅ 範例（要這樣）：「這個政策上路就翻車」「這種事每次都一樣演」「制度設計本身就有洞」
+- 連藝人/網紅的私德、感情、外貌也一樣：談現象可以、**對具名個人的人身評論不行**
+
 #### 涉及實際傷害事件時（傷亡 / 受害者 / 嚴重後果、最重要）
 
 只要 topic 涉及「死亡 / 受傷 / 受害 / 災難 / 嚴重損失」、語氣走「**先同情、再嘲諷結構**」這個順序：
@@ -1402,7 +1446,8 @@ Google News RSS 標題常被截斷、2 字縮寫可能有多重含義：
 - ✅ 只引用 topic 文字裡**明確出現**的事實、不補充標題沒寫的背景
 
 ### 內容限制
-- 政治人身攻擊、宗教歧視、種族歧視、死亡案件、未成年、性侵、個資、誹謗、未證實指控、犯罪定罪判斷一律禁止
+- **一律禁止**：政治人身攻擊、宗教歧視、種族歧視、未成年（色情/暴力）、性侵、個資外洩、誹謗、未證實指控、對未定讞案件的有罪推定
+- **死亡 / 傷亡案件**：不在禁止之列、但**不可娛樂化、不可當笑點**——依上方「涉及實際傷害事件」規則（先同情承認嚴重 → 火力對準制度/結構、不對受害者）。重大新聞多含傷亡、要能談、只是要慎重
 
 ## 🚨 引用規則（discussion mode 用、本輪 mode = discussion 才生效）
 
@@ -1987,7 +2032,7 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
             print(f"[pool] ⚠️ 解析到 {len(parsed)}/{n} 段（其餘可能含壞字被跳過、不影響已搶救的）")
 
         pool = _sweep_pool(_load_pool())
-        added = 0
+        added, gated = 0, 0
         for seg in parsed:
             if not isinstance(seg, dict):
                 continue
@@ -1996,6 +2041,11 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
             if spec is None or not isinstance(lines, list) or not lines:
                 continue
             lines, _ = _quality_check_dialogue(lines)
+            ok, reason = _output_gate_segment(lines)   # D：輸出閘、不通過整段丟
+            if not ok:
+                gated += 1
+                print(f"[gate] ⛔ 丟棄一段（{reason}）topic=「{str(spec['topic'])[:18]}」")
+                continue
             pool.append({
                 "dialogue_id": str(uuid.uuid4()),
                 "topic": spec["topic"], "tone": spec["tone"], "angle": spec["angle"],
@@ -2013,7 +2063,8 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
                                   int(getattr(u, "cache_creation_input_tokens", 0) or 0),
                                   int(getattr(u, "cache_read_input_tokens", 0) or 0))
         _add_cost_to_state(st, cost); _save_state(st)
-        print(f"[pool] batch +{added} 段（pending={_pending_count(pool)}、+${cost:.4f}）")
+        gate_note = f"、閘擋 {gated} 段" if gated else ""
+        print(f"[pool] batch +{added} 段（pending={_pending_count(pool)}、+${cost:.4f}{gate_note}）")
         return added
     except Exception as e:
         print(f"[pool] batch 失敗：{e}")
@@ -2053,10 +2104,15 @@ def _pick_segment():
     chosen["status"] = "played"
     chosen["played_at"] = now
     chosen["cooling_until"] = now + _SEG_COOLDOWN_SEC
+    chosen["play_count"] = int(chosen.get("play_count", 0)) + 1   # 多樣性觀察：被重播幾次
     _save_pool(pool)
     _last_picked = {"id": chosen["dialogue_id"], "topic": chosen.get("topic"), "tone": chosen.get("tone")}
     _recent_picks.append({"tone": chosen.get("tone"), "angle": chosen.get("angle")})
     _recent_picks = _recent_picks[-5:]
+    pc = chosen["play_count"]
+    flag = f" ♻️第{pc}次重播" if pc > 1 else ""
+    print(f"[pool] ▶ 播放 topic=「{str(chosen.get('topic',''))[:22]}」 tone={chosen.get('tone')}"
+          f" id={str(chosen.get('dialogue_id',''))[:8]}{flag}")
     return chosen
 
 
@@ -2337,10 +2393,21 @@ async def next_segment():
     if st0.get("paused"):
         return JSONResponse({"error": "paused", "retry": True}, status_code=503)
 
-    chosen = _pick_segment()
+    # 撈段 + 輸出閘（D）：若撈到的段沒通過閘（多半是「閘上線前」的舊段）→ 跳過再撈。
+    #   _pick_segment 已把它標 played（6h 不再選）、等同淘汰。最多試 4 次。
+    chosen = None
+    for _ in range(4):
+        cand = _pick_segment()
+        if cand is None:
+            break
+        ok, reason = _output_gate_segment(cand.get("lines", []))
+        if ok:
+            chosen = cand
+            break
+        print(f"[gate] ⛔ 播放前擋下舊段（{reason}）topic=「{str(cand.get('topic',''))[:18]}」、換下一段")
     if not chosen:
         asyncio.create_task(_generate_batch())
-        return JSONResponse({"error": "pool empty, generating", "retry": True},
+        return JSONResponse({"error": "pool empty/gated, generating", "retry": True},
                             status_code=503)
 
     lines = chosen["lines"]
@@ -2384,7 +2451,7 @@ async def next_segment():
 
 @app.get("/api/pool/status")
 def pool_status():
-    """pool 健康度：總段 / pending / cooling / 過期 sweep 後。"""
+    """pool 健康度 + 多樣性觀察：總段 / pending / cooling / 重播統計。"""
     import time
     now = time.time()
     pool = _load_pool()
@@ -2393,12 +2460,22 @@ def pool_status():
     played   = [s for s in swept if s.get("status") == "played"]
     coolable = sum(1 for s in played
                    if s.get("cooling_until") and now >= float(s["cooling_until"]))
+    # 多樣性：播放總次數 / 不重複段數 / 被重播過的段數 / 最高重播次數
+    play_counts = [int(s.get("play_count", 0)) for s in swept]
+    total_plays = sum(play_counts)
+    replayed    = sum(1 for c in play_counts if c >= 2)
+    distinct_topics = len({s.get("topic") for s in swept})
     return JSONResponse({
         "total": len(swept), "pending": pending,
         "played": len(played), "recyclable": coolable,
         "expired_swept": len(pool) - len(swept),
         "batch_in_progress": _batch_in_progress,
         "refill_at": _POOL_REFILL_AT, "batch_size": _BATCH_SIZE,
+        # ── 多樣性觀察 ──
+        "total_plays": total_plays,            # 累計播了幾段次（含重播）
+        "replayed_segments": replayed,         # 有幾段被重播過（play_count>=2）
+        "max_play_count": max(play_counts) if play_counts else 0,  # 單段最高重播次數
+        "distinct_topics_in_pool": distinct_topics,                # pool 內不重複話題數
     })
 
 

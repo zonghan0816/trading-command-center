@@ -30,3 +30,8 @@ assets/audio/*.wav
 assets/* - 複製*
 assets/*copy*.png
 assets/*_test.png
+
+# 素材壓縮備份（大檔、不進 git）
+*.rar
+*.zip
+*.7z

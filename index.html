@@ -325,6 +325,24 @@
       text-shadow: 0 0 12px rgba(255,82,82,0.85);
       animation-duration: 26s;
     }
+    /* E（公開前）: 常駐 AI 免責標示。低調但永遠可見（跑馬燈會滾走、這個不會） */
+    #ai-disclaimer {
+      position: absolute;
+      bottom: 66px;            /* 在跑馬燈(60px)上方一點 */
+      left: 12px;
+      z-index: 13;
+      padding: 4px 10px;
+      background: rgba(0,0,0,0.42);
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 6px;
+      color: rgba(255,255,255,0.80);
+      font-size: 13px;
+      letter-spacing: 1px;
+      font-family: "Microsoft JhengHei", sans-serif;
+      pointer-events: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
   </style>
 </head>
 <body>
@@ -342,6 +360,8 @@
       ◆ 天天嘴台灣 · Taiwan Daily Talk · 純 AI 生成內容 · 24/7 LIVE Chat · AI 主持人不打烊 · 按讚 + 訂閱 + 小鈴鐺 · 留言告訴主持人 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
     </span>
   </div>
+  <!-- E（公開前）: 常駐 AI 免責標示 -->
+  <div id="ai-disclaimer">⚠ 本節目為 AI 生成內容・非新聞報導・觀點不代表任何真實人物</div>
   <div id="game-container">
     <div id="status-panel">
       <div class="panel-title">今日話題</div>

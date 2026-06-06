@@ -200,7 +200,8 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 **⚠️ 上一階段（Step 5.41）**：窗外天氣接中央氣象署 OpenData（真天氣自動驅動）已完成驗證。
 **⚠️ 真天氣自動注意**：`server.py` `_weather_auto_loop` 每 15 分抓 CWA F-C0032-001（縣市 36hr 預報）的 Wx → `_map_wx_to_weather` 對應 晴/陰/雨/雷（颱風 Wx 不含、暫手動）→ 連續 2 次（≈30 分防抖）才設 `state.weather`。需 **`.env` 設 `CWA_API_KEY`**（免費註冊 opendata.cwa.gov.tw）、`CWA_LOCATION` 預設臺北市。有 key 則 `weather_auto` 預設開。`/weather` 頁有「🛰自動/✋手動」鈕；手動切天氣會自動關 auto。**CWA 實際回傳解析未用真 key 測過、填 key 後要驗一次**。
 **⚠️ 天氣系統注意**：背景 = f(時段, 天氣)。時段 4 段（早 06-11 / 中午 11-16 / 下午 16-18:30 / 晚 18:30-06、各切換提前 15 分淡入）。天氣 5 種（晴/陰/雨/雷/颱）。天氣圖對應：中午/下午/晚上各有自己的 `studio_bg_{slot}_{weather}.png`、**早上借中午天氣**（缺圖 fallback 回晴天）。手動切：`/weather`（含天氣/淡入秒數/強制時段測試鈕）；之後接中央氣象署自動。程式：`OfficeScene._getTimeSlotBgRaw`(時段)+`_resolveBgKey`(天氣 fallback)+`_crossfadeBg`(平滑)；`server.py` `state.weather/force_slot/weather_fade_sec` + `/api/weather`。
-**下一階段候選**：真人半身×看螢幕循環（87）/ pool 多樣性實跑觀察 / 熱門新聞 5% live 插隊 / 跨輪對話記憶
+**下一階段候選**：① **熱門新聞 5% live 插隊（使用者 2026-06-07 決定要做、排入下一步）** / 真人半身×看螢幕循環（87）/ 24H 公開前法律 review（已初評、見下）
+**⚠️ 2026-06-07 使用者決策**：① 熱門新聞 5% live 插隊 → **要做**（pool 架構已留位、待接） ② 切聲音「更快生效」（丟預抓段）→ **取消、不做** ③ pool 多樣性觀察工具 → **已加**（`/api/pool/status` 多了 total_plays/replayed_segments/max_play_count/distinct_topics；`_pick_segment` 每次播放 console 印 `[pool] ▶ 播放 topic=...`、重播會標 `♻️第N次`；segment 加 `play_count`） ④ 跨輪記憶 → 維持現狀（段內接話 OK、段間獨立、暫不做）
 **⚠️ TTS 注意**：`zh-TW-YunJheNeural`（台灣男聲、陳柏偉）被微軟「間歇性」搞壞、回空音訊。最終設計（Step 5.35）：① 兩位都只用台灣聲音、無大陸備胎（語速陳柏偉+3%/王于安+2%）；② 聲音掛掉那位「暫時靜音」、不換聲音、改演搞笑梗（state.ticker 跑馬燈 + 下一輪王于安 AI 吐槽 meta round）、10 分鐘自動探測、微軟修好自動恢復 + 演「修好了」梗；③ 線上切聲音 API + 手機控制頁 `/voice`（免重開）。詳見 `88_TTS_VOICE_AUTO_FALLBACK.md`。
 **⚠️ 下一個 Claude 注意**：Step 5.33 已 merge，需要 `git pull` + 重啟 `啟動.bat`。對話 prompt 改重點：① tone 描述改「丟球/接球/反嗆」互動動態、強調每句接住上一句 ② 句子有長有短（開球長、接球短）、不再逼每句完整論述 ③ 接話短句不用硬塞 topic。台詞是「一次 API call 生成整輪」（`server.py` 約 1597 行），Claude 看得到前句所以能接話。若還覺得僵 → 往「跨輪記憶」調。
 
@@ -263,7 +264,7 @@ Claude Haiku 4.5 生成 dialogue（3~8 秒）
 - [x] ~~**★ 窗外天氣即時氣象（全完成 Step 5.39~5.41）**~~ → 4 時段×5 天氣、整張背景替換、平滑 crossfade、`/weather` 手機遙控、**中央氣象署真天氣自動驅動**（實測台北陰天→cloudy、啟動立即同步+之後防抖）。素材到位（中午/下午/晚上各自天氣、早上借中午）。⚠️ LIVE 機要自己在 `.env` 補 `CWA_API_KEY`（不跟 git）。
 - [ ] **真人半身 × 看螢幕循環**：下一代大改造（87 筆記）、開 `realistic` 分支、真人 PNG 交 GPT 生圖
 - [x] ~~Shorts pipeline 實戰測試~~ → 已跑通、第一支成功上傳 YT（Step 5.30）
-- [ ] **事實基底 + 活潑風格 prompt 規則**：`server.py` `_build_static_prompt()` 已有完整「諷刺現象不指控個人 / 事實基底 / 傷害題先同情」規則。Step 5.37 把傷害題從「過度保守（不嘲諷）」放寬成「**先同情承認傷亡 → 再嘲諷制度/結構**（不貶低傷害、不嘲諷受害者、不拿死傷當笑點）」。24H 公開前再 review 一次法律風險
+- [~] **事實基底 + 活潑風格 prompt 規則 + 公開前安全層**：`_build_static_prompt()` 有完整「諷刺現象不指控個人 / 事實基底 / 傷害題先同情」規則。**2026-06-07 法律 review 後加固（A/C/D/E）**：A=prompt 加「具名真人只談事件、負評不掛人名」（誹謗/公然侮辱紅線）；C=「死亡案件一律禁止」改成「不可娛樂化/當笑點」（解與傷害題規則的矛盾）；D=**輸出閘 `_output_gate_segment`**（生成 + 播放前都檢查實際文字、命中侮辱/未證實犯罪指控/臆測收錢就整段丟、偏保守）；E=`index.html` 常駐「AI 生成內容・非新聞報導・觀點不代表任何真人」標示。**仍待**：B=選舉期間排除候選人題（接近選舉再啟用）；公開前找真律師過一次；輸出閘可之後升級成 LLM 語意級。
 - [x] ~~小美 PNG 視覺問題~~ → 已改名王于安、15 張去綠幕 + histogram matching 色彩對齊完成
 - [x] ~~阿明 actions spritesheet 未接~~ → 已改名陳柏偉、9 emotion individual PNG 完成
 - [x] ~~BGM / 環境音~~ → 雙首輪流播放實作完成（badge 隱藏點擊開關）
