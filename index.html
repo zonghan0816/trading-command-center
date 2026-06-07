@@ -325,23 +325,36 @@
       text-shadow: 0 0 12px rgba(255,82,82,0.85);
       animation-duration: 26s;
     }
-    /* E（公開前）: 常駐 AI 免責標示。低調但永遠可見（跑馬燈會滾走、這個不會） */
-    #ai-disclaimer {
+    /* 中央 LED 電視牆「內部」右上角：時刻 + 日期（小、不超出螢幕、不擋主持人）。
+       錨在 LED 框：中心 left 50% / top 27%、寬 26vw、16:9。translateX(-100%) 把右緣對齊
+       LED 右緣後再往內縮 1vw；top 取 LED 上緣再往下 1vw。放在 #game-container 內、% 基準才一致。*/
+    #clock-overlay {
       position: absolute;
-      bottom: 66px;            /* 在跑馬燈(60px)上方一點 */
-      left: 12px;
-      z-index: 13;
-      padding: 4px 10px;
-      background: rgba(0,0,0,0.42);
-      border: 1px solid rgba(255,255,255,0.18);
-      border-radius: 6px;
-      color: rgba(255,255,255,0.80);
-      font-size: 13px;
-      letter-spacing: 1px;
-      font-family: "Microsoft JhengHei", sans-serif;
+      top:  calc(33% - (26vw * 9 / 16) / 2 + 1vw);
+      left: calc(56% + 13vw - 1vw);
+      transform: translateX(-100%);
+      text-align: right;
+      z-index: 11;
+      font-family: "Consolas", "Microsoft JhengHei", monospace;
       pointer-events: none;
       -webkit-user-select: none;
       user-select: none;
+    }
+    #clock-time {
+      font-size: 1.3vw;
+      font-weight: 700;
+      color: #FFB347;
+      letter-spacing: 1px;
+      line-height: 1;
+      text-shadow: 0 0 8px rgba(255,140,0,0.6);
+    }
+    #clock-date {
+      margin-top: 0.25vw;
+      font-size: 0.72vw;
+      font-weight: 600;
+      color: #8fd3ff;
+      letter-spacing: 1px;
+      text-shadow: 0 0 6px rgba(80,180,255,0.5);
     }
   </style>
 </head>
@@ -357,11 +370,9 @@
   <div id="brand-badge"></div>
   <div id="marquee-bar">
     <span class="marquee-text">
-      ◆ 天天嘴台灣 · Taiwan Daily Talk · 純 AI 生成內容 · 24/7 LIVE Chat · AI 主持人不打烊 · 按讚 + 訂閱 + 小鈴鐺 · 留言告訴主持人 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
+      ⚠ 本節目為 AI 生成內容・非新聞報導・觀點不代表任何真實人物 · 天天嘴台灣 Taiwan Daily Talk · 24/7 LIVE · AI 主持人不打烊 · 按讚 + 訂閱 + 小鈴鐺 · 留言告訴主持人 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
     </span>
   </div>
-  <!-- E（公開前）: 常駐 AI 免責標示 -->
-  <div id="ai-disclaimer">⚠ 本節目為 AI 生成內容・非新聞報導・觀點不代表任何真實人物</div>
   <div id="game-container">
     <div id="status-panel">
       <div class="panel-title">今日話題</div>
@@ -372,6 +383,11 @@
       <div id="led-topic-label">📌 目前話題</div>
       <div id="led-topic-text">—</div>
       <div id="led-mode-badge">STANDBY</div>
+    </div>
+    <!-- 中央電視牆內部右上角：時刻 + 日期 -->
+    <div id="clock-overlay">
+      <div id="clock-time">--:--:--</div>
+      <div id="clock-date">----/--/-- （-）</div>
     </div>
     <div id="debug-overlay">
       <div class="dbg-title">▸ DEBUG  [F2 to hide]</div>
@@ -466,6 +482,22 @@
       }
       poll();
       setInterval(poll, 3000);
+    })();
+
+    // 電視牆右上角：時刻 + 日期（本機時間、每秒更新）
+    (function clockOverlay() {
+      const tEl = document.getElementById('clock-time');
+      const dEl = document.getElementById('clock-date');
+      const wd  = ['日', '一', '二', '三', '四', '五', '六'];
+      const p2  = (n) => String(n).padStart(2, '0');
+      function tick() {
+        const now = new Date();
+        tEl.textContent = p2(now.getHours()) + ':' + p2(now.getMinutes()) + ':' + p2(now.getSeconds());
+        dEl.textContent = now.getFullYear() + '/' + p2(now.getMonth() + 1) + '/' + p2(now.getDate())
+                        + ' （' + wd[now.getDay()] + '）';
+      }
+      tick();
+      setInterval(tick, 1000);
     })();
   </script>
 

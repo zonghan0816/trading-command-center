@@ -109,8 +109,8 @@ export class OfficeScene extends Phaser.Scene {
       this._buildWorkstations();
       this._startBgm();            // BGM 兩首輪流播（bgm_1 / bgm_2）
 
-      // Part 2: 每 60 秒更新 crossfade alpha（長時間直播不中斷時背景慢慢變）
-      this.time.addEvent({ delay: 60000, callback: this._updateBackgroundMix, callbackScope: this, loop: true });
+      // Part 2: 每 1 秒更新 crossfade alpha（連續淡入、整點交接前 alpha 已≈1、不會在完成瞬間硬切）
+      this.time.addEvent({ delay: 1000, callback: this._updateBackgroundMix, callbackScope: this, loop: true });
       // this._buildSign(); // Phase 3: 新背景已有完整節目棚，暫停舊招牌
 
       // 嘗試連 API；離線時自動啟動 Demo 步驟序列
@@ -163,7 +163,7 @@ export class OfficeScene extends Phaser.Scene {
     if (fs && fs !== 'auto' && ['morning', 'noon', 'afternoon', 'night'].includes(fs))
       return { base: `studio_bg_${fs}`, next: null, alpha: 0 };
     const now  = new Date();
-    const m = now.getHours() * 60 + now.getMinutes();
+    const m = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;  // 含秒 → alpha 連續、整點交接不硬切
     const clamp = (v) => Math.min(1, Math.max(0, v));
     // 過渡視窗 = [邊界-15, 邊界]、alpha = (m-起點)/15
     if (m >= 345 && m < 360)                 // 05:45–06:00 晚→早
@@ -204,9 +204,11 @@ export class OfficeScene extends Phaser.Scene {
     console.info('[TDT] bg (legacy):', mix.base, mix.next ? `→ ${mix.next} α=${mix.alpha.toFixed(2)}` : '');
     this.bgBase = this.add.image(0, 0, mix.base)
       .setOrigin(0, 0).setDepth(0).setDisplaySize(this.W, this.H);
+    this._bgBaseKey = mix.base;
     this.bgNext = mix.next
       ? this.add.image(0, 0, mix.next).setOrigin(0, 0).setDepth(0.1).setDisplaySize(this.W, this.H).setAlpha(mix.alpha)
       : null;
+    this._bgNextKey = mix.next || null;
   }
 
   // Phase 4 Step 1: 預設天氣（Step 2 會接氣象 API、現在依時段大致選一張）
@@ -274,15 +276,22 @@ export class OfficeScene extends Phaser.Scene {
   _updateBackgroundMix() {
     // Phase 4 Step 1: 新棚景沒 crossfade 邏輯、直接 return
     if (this.textures.exists('studio_base')) return;
+    // 天氣/強制切時段的 crossfade tween 進行中 → 別插手（完成時它會自己 sync、避免每秒打架）
+    if (this._bgFade) return;
     // 舊三套背景 crossfade
     const mix = this._getTimeOfDayBackgroundMix();
-    if (this.bgBase) this.bgBase.setTexture(mix.base);
+    if (this.bgBase && this._bgBaseKey !== mix.base) {   // 只在底圖真的換了才 setTexture（每秒呼叫、避免重設）
+      this.bgBase.setTexture(mix.base);
+      this._bgBaseKey = mix.base;
+    }
     if (mix.next) {
       if (!this.bgNext) {
         this.bgNext = this.add.image(0, 0, mix.next)
           .setOrigin(0, 0).setDepth(0.1).setDisplaySize(this.W, this.H);
-      } else {
+        this._bgNextKey = mix.next;
+      } else if (this._bgNextKey !== mix.next) {
         this.bgNext.setTexture(mix.next);
+        this._bgNextKey = mix.next;
       }
       this.bgNext.setAlpha(mix.alpha);
     } else if (this.bgNext) {
@@ -301,8 +310,9 @@ export class OfficeScene extends Phaser.Scene {
     this.tweens.add({
       targets: this._bgFade, alpha: 1, duration: dur, ease: 'Linear',
       onComplete: () => {
-        this._updateBackgroundMix();                   // 底層也換成新背景
         if (this._bgFade) { this._bgFade.destroy(); this._bgFade = null; }
+        this._bgBaseKey = null;          // 強制下次 _updateBackgroundMix 重設底圖（_bgFade 已清、不會被 guard 擋）
+        this._updateBackgroundMix();     // 底層也換成新背景
       },
     });
     console.info('[bg] crossfade → slot=', this._forceSlot, 'weather=', this._weather, 'bg=', mix.base, `(${dur/1000}s)`);

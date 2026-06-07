@@ -813,6 +813,7 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     all_tuples: list[tuple[str, str, str]] = []  # (title, url, snippet)
     seen: set[str] = set()
     breakdown: list[str] = []
+    focus_count = 0                               # 「焦點」分類取了幾條（live 插隊偵測用）
     raw_per_section = max(_PER_CATEGORY_LIMIT * 2, 6)
     for label, sections in _NEWS_CATEGORIES:
         cat_pool: list[tuple[str, str, str]] = []
@@ -837,6 +838,8 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
             if new_in_cat >= _PER_CATEGORY_LIMIT or len(all_tuples) >= limit:
                 break
         breakdown.append(f"{label}={new_in_cat}(g{google_count}+y{yahoo_count})")
+        if label == "焦點":
+            focus_count = new_in_cat            # 焦點是第一個分類、其 headline 排在 all_tuples 最前面
         if len(all_tuples) >= limit:
             break
     if breakdown:
@@ -847,6 +850,10 @@ def fetch_news_topics(limit: int = _NEWS_FETCH_LIMIT) -> list[str]:
     for title, url, snippet in all_tuples:
         disambig = _disambiguate_title(title, context=snippet)
         all_headlines.append(disambig)
+
+    # live 插隊偵測用：記住「焦點」分類的 headline（排在最前 focus_count 條）
+    global _focus_headlines
+    _focus_headlines = all_headlines[:focus_count] if focus_count else []
 
     # 把帶 url 的資料暫存、供 _news_refresh_loop 層三使用
     global _pending_og_enrichment
@@ -1197,6 +1204,8 @@ async def _news_refresh_loop():
                 print(f"[news] cache refreshed: {len(topics)} headlines（queue +{added}、剩 {len(_topic_queue)}）")
                 _log_observe("news_refresh", total=len(topics), new_in_batch=new_count,
                              queue_refilled=added, queue_size=len(_topic_queue))
+                # 熱門新聞 5% live 插隊：偵測新出現的焦點 → 即時生一輪（首次只 seed）
+                await _maybe_queue_live_insert()
         except Exception as e:
             print(f"[news] refresh loop error: {e}")
         await asyncio.sleep(_NEWS_REFRESH_SEC)
@@ -1887,6 +1896,16 @@ _last_picked: dict = {}         # 上一段 {id,topic,tone}（硬限制用）
 _recent_picks: list = []        # 最近播的 {tone,angle}（軟權重用、最多 5）
 _batch_in_progress = False      # 防同時跑多個 batch
 
+# ── 熱門新聞 5% live 插隊（爆紅「焦點」新聞首次出現 → 即時生一輪插播、不進 pool）─────
+_LIVE_INSERT_ENABLED      = True
+_LIVE_INSERT_COOLDOWN_SEC = 600     # 兩次插隊至少間隔（news 每 5 分刷、這裡 10 分 → 控在 ~5% 以下）
+_LIVE_INSERT_LINES        = "4~5"   # 插隊段短一點、像「剛看到」的即時快訊反應
+_focus_headlines: list = []         # 最近一次 fetch 的「焦點」分類 headline（fetch_news_topics 填）
+_seen_focus: set = set()            # 已看過的焦點（只有「新出現」的才觸發插隊）
+_live_insert_queue: list = []       # 待播的 live 插隊段 [{topic, lines}]
+_live_seeded = False                # 啟動後第一批焦點只記住、不觸發（不是「剛發生」）
+_last_live_insert_ts = 0.0
+
 
 def _load_pool() -> list:
     if POOL_FILE.exists():
@@ -2114,6 +2133,92 @@ def _pick_segment():
     print(f"[pool] ▶ 播放 topic=「{str(chosen.get('topic',''))[:22]}」 tone={chosen.get('tone')}"
           f" id={str(chosen.get('dialogue_id',''))[:8]}{flag}")
     return chosen
+
+
+# ── 熱門新聞 live 插隊：生成 + 偵測 ─────────────────────────────────
+def _build_live_insert_prompt(spec: dict) -> str:
+    """單段「即時快訊反應」prompt（焦點新聞剛冒出來、主持人現在剛看到）。回 JSON 陣列(1 段)。"""
+    note = _ANGLE_NOTES.get(spec["angle"], "")
+    return "\n".join([
+        "## ⚡ 熱門快訊・即時反應",
+        f"這是剛冒出來的熱門焦點新聞、兩位主持人「現在剛看到」的即時反應。請生成 1 段對話、"
+        f"{_LIVE_INSERT_LINES} 句、陳柏偉與王于安交替、後句接住前句、語氣帶點「欸這個剛剛才出來」的即時感。",
+        f"topic=「{spec['topic']}」 tone=`react` angle=`{spec['angle']}`（{note}）",
+        "其餘規則同主 prompt（諷刺現象不指控個人、具名真人不掛負評、傷害題先同情）。",
+        "",
+        "## 輸出格式（嚴格）",
+        "只輸出一個 JSON 陣列、不要其他文字、不要 code fence。",
+        '格式 = [{"seg":0,"lines":[{"speaker":"aming","text":"...","emotions":["..."]}, ...]}]',
+        "speaker 只能 aming / xiaomei。text 內引用用「」全形、不要半形雙引號、不要換行。",
+    ])
+
+
+async def _generate_live_round(topic: str):
+    """為熱門 topic 即時生一段（短、react）。過品質+輸出閘+3Q。回 lines 或 None。"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return None
+    over, reason = _check_budget(_load_state())
+    if over:
+        print(f"[live] 跳過插隊（超預算：{reason}）")
+        return None
+    try:
+        spec = {"i": 0, "topic": topic, "tone": "react", "angle": _next_angle_for_topic(topic)}
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=2000,
+            messages=[{"role": "user", "content": [
+                {"type": "text", "text": _build_static_prompt(), "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": _build_live_insert_prompt(spec)}]}])
+        parsed = _parse_batch_json(msg.content[0].text)
+        seg0 = parsed[0] if parsed and isinstance(parsed[0], dict) else None
+        lines = seg0.get("lines") if seg0 else None
+        if not isinstance(lines, list) or not lines:
+            print(f"[live] 插隊生成失敗（空對話）：{topic[:18]}")
+            return None
+        lines, _ = _quality_check_dialogue(lines)
+        ok, gate_reason = _output_gate_segment(lines)
+        if not ok:
+            print(f"[live] ⛔ 插隊被輸出閘擋（{gate_reason}）：{topic[:18]}")
+            return None
+        st = _load_state()
+        u = getattr(msg, "usage", None)
+        cost = _estimate_cost_usd(int(getattr(u, "input_tokens", 0) or 0),
+                                  int(getattr(u, "output_tokens", 0) or 0),
+                                  int(getattr(u, "cache_creation_input_tokens", 0) or 0),
+                                  int(getattr(u, "cache_read_input_tokens", 0) or 0))
+        _add_cost_to_state(st, cost); _save_state(st)
+        print(f"[live] ⚡ 插隊生成 {len(lines)} 句（+${cost:.4f}）：{topic[:24]}")
+        return lines
+    except Exception as e:
+        print(f"[live] 插隊生成錯誤：{e}")
+        return None
+
+
+async def _maybe_queue_live_insert():
+    """偵測「新出現的焦點新聞」→ 生一輪 live 插隊段放佇列。啟動後第一批只 seed、不觸發。"""
+    global _last_live_insert_ts, _live_seeded
+    import time
+    if not _LIVE_INSERT_ENABLED:
+        return
+    fresh = [h for h in _focus_headlines if h and h not in _seen_focus]
+    for h in _focus_headlines:
+        if h:
+            _seen_focus.add(h)
+    if not _live_seeded:                 # 啟動後第一批焦點＝既有新聞、不算「剛發生」
+        _live_seeded = True
+        return
+    if not fresh or _live_insert_queue:  # 沒新焦點、或還有待播 → 不疊
+        return
+    now = time.time()
+    if now - _last_live_insert_ts < _LIVE_INSERT_COOLDOWN_SEC:
+        return
+    topic = fresh[0]
+    lines = await _generate_live_round(topic)
+    if lines:
+        _live_insert_queue.append({"topic": topic, "lines": lines})
+        _last_live_insert_ts = now
+        print(f"[live] ⚡ 熱門插隊已備、下一段播出：{topic[:24]}")
 
 
 async def _pool_refill_loop():
@@ -2393,6 +2498,35 @@ async def next_segment():
     if st0.get("paused"):
         return JSONResponse({"error": "paused", "retry": True}, status_code=503)
 
+    # ⚡ 熱門新聞 live 插隊優先（爆紅焦點首次出現的即時反應、~5%）。生成時已過品質+輸出閘。
+    if _live_insert_queue:
+        item = _live_insert_queue.pop(0)
+        lines = item["lines"]
+        for ln in lines:
+            if isinstance(ln, dict) and isinstance(ln.get("text"), str):
+                ln["text"] = _strip_3q(ln["text"])
+        audio_urls = await _gen_tts_dialogue(lines)
+        st = _load_state()
+        for ln in lines:
+            spk = ln.get("speaker") if isinstance(ln, dict) else None
+            if spk in st.get("hosts", {}):
+                st["hosts"][spk]["status"]      = "talking"
+                st["hosts"][spk]["last_output"] = ln.get("text", "")
+        st["topic"]      = item["topic"]
+        st["mode"]       = "discussion"
+        st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+        if not _tts_voice_state:
+            st["ticker"] = ""
+        _save_state(st)
+        spa = lines[0].get("speaker", "aming") if isinstance(lines[0], dict) else "aming"
+        spb = next((l.get("speaker") for l in lines[1:]
+                    if isinstance(l, dict) and l.get("speaker") != spa), None)
+        print(f"[live] ⚡ 播放熱門插隊：{str(item['topic'])[:20]}")
+        return {"dialogue": lines, "audio_urls": audio_urls,
+                "speaker_a": spa, "speaker_b": spb,
+                "tone": "react", "angle": "", "topic": item["topic"],
+                "from_pool": False, "live_insert": True}
+
     # 撈段 + 輸出閘（D）：若撈到的段沒通過閘（多半是「閘上線前」的舊段）→ 跳過再撈。
     #   _pick_segment 已把它標 played（6h 不再選）、等同淘汰。最多試 4 次。
     chosen = None
@@ -2476,6 +2610,9 @@ def pool_status():
         "replayed_segments": replayed,         # 有幾段被重播過（play_count>=2）
         "max_play_count": max(play_counts) if play_counts else 0,  # 單段最高重播次數
         "distinct_topics_in_pool": distinct_topics,                # pool 內不重複話題數
+        # ── 熱門 live 插隊 ──
+        "live_insert_enabled": _LIVE_INSERT_ENABLED,
+        "live_insert_queued": len(_live_insert_queue),    # 待播的插隊段數
     })
 
 
@@ -2485,6 +2622,21 @@ async def pool_refill():
     added = await _generate_batch()
     return JSONResponse({"ok": True, "added": added,
                          "pending": _pending_count(_load_pool())})
+
+
+@app.post("/api/live_insert")
+async def live_insert_ctl(request: Request):
+    """熱門 live 插隊控制：{"enabled":true/false} 開關、{"topic":"..."} 手動立即插一段（測試用）。"""
+    global _LIVE_INSERT_ENABLED
+    body = await request.json()
+    if "enabled" in body:
+        _LIVE_INSERT_ENABLED = bool(body.get("enabled"))
+    if body.get("topic"):                       # 手動觸發（測試用、繞過偵測+cooldown）
+        lines = await _generate_live_round(str(body["topic"]).strip())
+        if lines:
+            _live_insert_queue.append({"topic": str(body["topic"]).strip(), "lines": lines})
+    return JSONResponse({"ok": True, "enabled": _LIVE_INSERT_ENABLED,
+                         "queued": len(_live_insert_queue)})
 
 
 @app.get("/api/state")
