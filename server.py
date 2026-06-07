@@ -2849,17 +2849,23 @@ async def _yt_run_round(trigger: str = "auto") -> dict:
 
 
 async def _yt_interaction_loop():
-    """背景：每 interval 跑一次互動 round（看 mode）。lockdown 自動恢復。"""
+    """背景：每 interval 跑一次互動 round（看 mode）。lockdown 自動恢復。
+    短步輪詢（每 5s 檢查）→ interval_sec 改動幾秒內生效、不必等整個舊週期跑完。"""
     await asyncio.sleep(30)
+    last_run = 0.0
     while True:
         try:
             if _yt["mode"] == "LOCKDOWN" and time.time() >= _yt_lockdown_until:
                 _yt_set_mode("GUARDED", auto=True)
-            if _yt["enabled"] and _yt["mode"] not in ("OFF", "LOCKDOWN"):
+            now = time.time()
+            interval = max(30, int(_yt["interval_sec"]))
+            if (_yt["enabled"] and _yt["mode"] not in ("OFF", "LOCKDOWN")
+                    and now - last_run >= interval):
+                last_run = now
                 await _yt_run_round("auto")
         except Exception as e:
             print(f"[yt] interaction loop error: {e}")
-        await asyncio.sleep(max(30, int(_yt["interval_sec"])))
+        await asyncio.sleep(5)
 
 
 def _yt_api_service():
