@@ -2359,6 +2359,38 @@ _yt = {
     "invite_every_sec": 1800,  # 主持人口播「歡迎留言」邀請的最短間隔
 }
 
+# 設定存檔：重啟後自動載回上次設定（免每次重設）。檔不進 git。
+_YT_CONFIG_FILE = "wwt_yt_config.json"
+_YT_PERSIST_KEYS = ("enabled", "shadow", "mode", "source", "video_id",
+                    "interval_sec", "window_sec", "user_cooldown_sec",
+                    "web_search", "spice", "invite_every_sec")
+
+
+def _yt_save_config():
+    try:
+        with open(_YT_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump({k: _yt[k] for k in _YT_PERSIST_KEYS}, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[yt] 設定存檔失敗：{e}")
+
+
+def _yt_load_config():
+    try:
+        with open(_YT_CONFIG_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        for k in _YT_PERSIST_KEYS:
+            if k in d:
+                _yt[k] = d[k]
+        print(f"[yt] 已載入存檔設定：enabled={_yt['enabled']} shadow={_yt['shadow']} "
+              f"source={_yt['source']} interval={_yt['interval_sec']}s video={_yt['video_id'] or '—'}")
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"[yt] 設定載入失敗（用預設）：{e}")
+
+
+_yt_load_config()   # 啟動時自動載回上次設定
+
 # 限流（Cost-DoS 防護、token bucket、in-memory）
 _YT_RATE_PER_USER = 2        # 每人每分鐘最多幾則進 pipeline
 _YT_RATE_GLOBAL   = 30       # 全頻道每分鐘最多幾則
@@ -2374,6 +2406,23 @@ _yt_lockdown_until = 0.0
 _yt_compassion_ts = 0.0      # 上次關懷轉介時間（防洗版）
 _YT_COMPASSION_COOLDOWN = 600  # 關懷轉介冷卻（避免被刷）
 _yt_invite_ts = 0.0          # 上次口播「歡迎留言」邀請時間
+# 健康指標（給 /yt 狀態橫幅、一眼看出有沒有在運作）
+_yt_source_connected = False  # 讀取來源是否連上聊天室
+_yt_last_ingest_ts = 0.0      # 上次讀到留言（進 buffer）的時間
+_yt_last_round_ts = 0.0       # 上次跑互動 round 的時間
+_yt_last_round_info = ""      # 上次 round 結果摘要
+
+
+def _yt_record_round(res: dict):
+    """記錄上次 round 結果給狀態橫幅看。"""
+    global _yt_last_round_ts, _yt_last_round_info
+    _yt_last_round_ts = time.time()
+    if res and res.get("ok") and res.get("lines"):
+        first = res["lines"][0].get("text", "") if isinstance(res["lines"][0], dict) else ""
+        tag = "關懷轉介" if res.get("compassion") else "回應"
+        _yt_last_round_info = f"{tag}：{first[:18]}"
+    else:
+        _yt_last_round_info = "略過：" + str((res or {}).get("reason", ""))
 # 主持人定期口播「歡迎留言互動」邀請（固定模板、不打 LLM、零成本）
 _YT_INVITES = [
     [{"speaker": "xiaomei", "text": "對了各位,提醒一下——底下聊天室打字,我們真的會看、會回你喔!", "emotions": ["wave", "talk"]},
@@ -2505,6 +2554,8 @@ def _yt_ingest(raw_text: str, author: str = "", user_id: str = "",
         "risk": None, "categories": [],
     }
     _yt_buffer.append(msg)
+    global _yt_last_ingest_ts
+    _yt_last_ingest_ts = time.time()
     return msg
 
 
@@ -2785,6 +2836,7 @@ def _yt_kill():
     _yt["mode"] = "OFF"
     _yt_buffer.clear()
     _yt_play_queue.clear()
+    _yt_save_config()   # 存檔 → 重啟不會自動恢復（kill 是要它停）
     _yt_audit("kill_switch")
     print("[yt] 🛑 KILL SWITCH：互動已停、佇列已清")
 
@@ -2862,7 +2914,7 @@ async def _yt_interaction_loop():
             if (_yt["enabled"] and _yt["mode"] not in ("OFF", "LOCKDOWN")
                     and now - last_run >= interval):
                 last_run = now
-                await _yt_run_round("auto")
+                _yt_record_round(await _yt_run_round("auto"))
         except Exception as e:
             print(f"[yt] interaction loop error: {e}")
         await asyncio.sleep(5)
@@ -2922,6 +2974,8 @@ async def _yt_api_chat_loop():
         await asyncio.sleep(15)
         return
     print(f"[yt] ✅ 官方 API 已連線、開始接收留言 video={vid}")
+    global _yt_source_connected
+    _yt_source_connected = True
     page_token = None
     while _yt["enabled"] and _yt["source"] == "ytapi" and _yt["video_id"] == vid:
         try:
@@ -2931,6 +2985,7 @@ async def _yt_api_chat_loop():
             resp = await asyncio.to_thread(lambda: yt.liveChatMessages().list(**kw).execute())
         except Exception as e:
             print(f"[yt] 官方 API 讀取錯誤（直播結束？）、退出重連：{e}")
+            _yt_source_connected = False
             return
         now = time.time()
         for it in resp.get("items", []):
@@ -2958,6 +3013,7 @@ async def _yt_api_chat_loop():
         # 尊重 YT 建議間隔、但設 8 秒地板省配額（仍在 window 內、不漏留言）
         wait = max(8.0, (resp.get("pollingIntervalMillis") or 5000) / 1000.0)
         await asyncio.sleep(wait)
+    _yt_source_connected = False   # while 條件變 false（停用/換源/換片）→ 正常斷線
 
 
 async def _yt_source_loop():
@@ -3501,11 +3557,17 @@ def yt_status():
     unsafe = sum(1 for (_t, r) in recent if r in ("hard_block", "grey"))
     return JSONResponse({
         **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "video_id",
-                               "interval_sec", "window_sec", "web_search", "spice")},
+                               "interval_sec", "window_sec", "web_search", "spice",
+                               "invite_every_sec")},
         "buffer": len(_yt_buffer), "play_queue": len(_yt_play_queue),
         "recent_events": len(recent), "recent_unsafe": unsafe,
         "lockdown_until": _yt_lockdown_until,
         "audit_file": str(YT_AUDIT_FILE.name),
+        # 健康指標（狀態橫幅用）
+        "source_connected": _yt_source_connected,
+        "last_ingest_ago": int(now - _yt_last_ingest_ts) if _yt_last_ingest_ts else None,
+        "last_round_ago": int(now - _yt_last_round_ts) if _yt_last_round_ts else None,
+        "last_round_info": _yt_last_round_info,
     })
 
 
@@ -3533,6 +3595,12 @@ async def yt_config(request: Request):
             _yt["spice"] = max(0, min(100, int(body["spice"])))
         except Exception:
             pass
+    if "invite_every_sec" in body:
+        try:
+            _yt["invite_every_sec"] = max(60, int(body["invite_every_sec"]))
+        except Exception:
+            pass
+    _yt_save_config()   # 存檔 → 重啟自動載回
     _yt_audit("config", **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "web_search", "spice")})
     return JSONResponse({"ok": True, **{k: _yt[k] for k in
                          ("enabled", "shadow", "mode", "source", "video_id",
@@ -3556,6 +3624,7 @@ async def yt_inject(request: Request):
 async def yt_round():
     """手動觸發一次互動 round（測試用）。"""
     res = await _yt_run_round("manual")
+    _yt_record_round(res)
     return JSONResponse(res)
 
 
@@ -4431,10 +4500,15 @@ def yt_page():
   .note { font-size:12px; color:#5a6b80; line-height:1.6; }
   .toast { position:fixed; left:50%; bottom:18px; transform:translateX(-50%); background:#2563eb; color:#fff; padding:10px 18px; border-radius:999px; font-size:14px; opacity:0; transition:opacity .2s; pointer-events:none; }
   .toast.show { opacity:1; }
+  #banner { border-radius:12px; padding:14px; margin-bottom:12px; text-align:center; border:2px solid #444c57; background:#2a2f38; }
+  #banner_main { font-weight:800; font-size:18px; }
+  #banner_sub { font-size:12px; margin-top:6px; opacity:.95; line-height:1.5; }
 </style>
 </head>
 <body>
 <h1>👥 TDT YT 聊天互動</h1>
+
+<div id="banner"><div id="banner_main">讀取中…</div><div id="banner_sub"></div></div>
 
 <div class="card">
   <div class="row"><span class="lbl">總開關</span>
@@ -4459,6 +4533,11 @@ def yt_page():
     <input id="sp" type="range" min="0" max="100" step="5" style="flex:1;min-width:80px">
     <b id="s_sp">—</b>
     <span class="lbl" style="min-width:0;font-size:11px">(只影響「有人先嗆你」時、友善觀眾一律熱情)</span></div>
+  <div class="row"><span class="lbl">互動間隔</span>
+    <button data-iv="90">90秒</button><button data-iv="180">3分</button><button data-iv="600">10分</button>
+    <input id="iv" type="text" inputmode="numeric" style="max-width:80px" placeholder="秒">
+    <button id="b_iv">設定</button><b id="s_iv">—</b>
+    <span class="lbl" style="min-width:0;font-size:11px">(多久自動回一則)</span></div>
   <div class="row"><span class="lbl">video_id</span>
     <input id="vid" type="text" placeholder="不公開直播網址 watch?v= 後那串">
     <button id="b_vid">設定</button></div>
@@ -4486,21 +4565,40 @@ const $=id=>document.getElementById(id);
 function toast(t){const e=$('toast');e.textContent=t;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),1400);}
 function show(o){$('out').textContent=JSON.stringify(o,null,2);}
 async function cfg(body){const r=await fetch('/api/yt/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});toast('已設定');load();return r.json();}
+function fmtAgo(s){ if(s==null) return ''; if(s<60) return s+'秒'; if(s<3600) return Math.floor(s/60)+'分'; return Math.floor(s/3600)+'時'; }
 async function load(){try{const d=await(await fetch('/api/yt/status')).json();
   $('s_en').textContent=d.enabled?'啟用':'關閉';
   $('s_sh').textContent=d.shadow?'只記不播':'真的播';
   $('s_mode').textContent=d.mode; $('s_src').textContent=d.source;
   $('s_ws').textContent=d.web_search?'上網查證':'不查證';
   if(typeof d.spice==='number'){$('s_sp').textContent=d.spice+'%'; if(document.activeElement!==$('sp'))$('sp').value=d.spice;}
+  if(typeof d.interval_sec==='number'){$('s_iv').textContent=d.interval_sec+'s'; if(document.activeElement!==$('iv'))$('iv').placeholder=d.interval_sec;}
   $('s_buf').textContent=d.buffer; $('s_q').textContent=d.play_queue;
   $('s_ev').textContent=d.recent_events; $('s_un').textContent=d.recent_unsafe;
   if(d.video_id && !$('vid').value) $('vid').placeholder=d.video_id;
-}catch(e){}}
+  const bn=$('banner'), bm=$('banner_main'), bs=$('banner_sub');
+  let txt,bg,bc;
+  if(!d.enabled){ txt='⚪ 互動關閉'; bg='#2a2f38'; bc='#444c57'; }
+  else if(d.shadow){ txt='🟡 SHADOW 模式（只記 log、不會出聲）'; bg='#3a3416'; bc='#a9931f'; }
+  else { txt='🟢 互動運作中（會真的語音回應觀眾）'; bg='#16361f'; bc='#1f9d4d'; }
+  bm.textContent=txt; bn.style.background=bg; bn.style.borderColor=bc;
+  let sub=[];
+  if(d.enabled && (d.source==='ytapi'||d.source==='pytchat')){
+    sub.push(d.source_connected ? '📡 已連上聊天室' : '📡 未連上（確認直播在 LIVE + video_id 對）');
+  }
+  if(d.last_ingest_ago!=null) sub.push('上次讀到留言 '+fmtAgo(d.last_ingest_ago)+'前');
+  else if(d.enabled) sub.push('還沒讀到留言');
+  if(d.last_round_ago!=null) sub.push('上次互動 '+fmtAgo(d.last_round_ago)+'前'+(d.last_round_info?'（'+d.last_round_info+'）':''));
+  sub.push('間隔 '+d.interval_sec+'s');
+  bs.textContent=sub.join('　・　');
+}catch(e){ $('banner_main').textContent='⚠️ 連不到 server'; }}
 $('b_en_on').onclick=()=>cfg({enabled:true}); $('b_en_off').onclick=()=>cfg({enabled:false});
 $('b_sh_on').onclick=()=>cfg({shadow:true}); $('b_sh_off').onclick=()=>cfg({shadow:false});
 $('b_ws_on').onclick=()=>cfg({web_search:true}); $('b_ws_off').onclick=()=>cfg({web_search:false});
 document.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>cfg({spice:+b.dataset.sp}));
 $('sp').onchange=()=>cfg({spice:+$('sp').value});
+document.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>cfg({interval_sec:+b.dataset.iv}));
+$('b_iv').onclick=()=>{const v=parseInt($('iv').value);if(v)cfg({interval_sec:v});};
 document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>cfg({mode:b.dataset.m}));
 document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>cfg({source:b.dataset.src}));
 $('b_vid').onclick=()=>{const v=$('vid').value.trim();if(v)cfg({video_id:v});};
