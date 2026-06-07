@@ -2901,23 +2901,25 @@ async def _yt_run_round(trigger: str = "auto") -> dict:
 
 
 async def _yt_interaction_loop():
-    """背景：每 interval 跑一次互動 round（看 mode）。lockdown 自動恢復。
-    短步輪詢（每 5s 檢查）→ interval_sec 改動幾秒內生效、不必等整個舊週期跑完。"""
-    await asyncio.sleep(30)
+    """背景：事件驅動 — 有留言就盡快回，沒留言不空跑。
+    interval_sec = 兩次回應的「最短間隔」（防洗版/控成本），不是固定等待。
+    每 3s 檢查一次 → 留言進來後最快 ~3s 內就回（再扣生成/播放）。"""
+    await asyncio.sleep(20)
     last_run = 0.0
     while True:
         try:
             if _yt["mode"] == "LOCKDOWN" and time.time() >= _yt_lockdown_until:
                 _yt_set_mode("GUARDED", auto=True)
             now = time.time()
-            interval = max(30, int(_yt["interval_sec"]))
+            min_gap = max(15, int(_yt["interval_sec"]))
+            # 有候選留言 + 距上次回應已過最短間隔 → 馬上跑（不空等整個 interval）
             if (_yt["enabled"] and _yt["mode"] not in ("OFF", "LOCKDOWN")
-                    and now - last_run >= interval):
+                    and _yt_buffer and now - last_run >= min_gap):
                 last_run = now
                 _yt_record_round(await _yt_run_round("auto"))
         except Exception as e:
             print(f"[yt] interaction loop error: {e}")
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
 
 
 def _yt_api_service():
@@ -3557,8 +3559,8 @@ def yt_status():
     unsafe = sum(1 for (_t, r) in recent if r in ("hard_block", "grey"))
     return JSONResponse({
         **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "video_id",
-                               "interval_sec", "window_sec", "web_search", "spice",
-                               "invite_every_sec")},
+                               "interval_sec", "window_sec", "user_cooldown_sec",
+                               "web_search", "spice", "invite_every_sec")},
         "buffer": len(_yt_buffer), "play_queue": len(_yt_play_queue),
         "recent_events": len(recent), "recent_unsafe": unsafe,
         "lockdown_until": _yt_lockdown_until,
@@ -3584,12 +3586,21 @@ async def yt_config(request: Request):
         _yt["source"] = body["source"]
     if "video_id" in body:
         _yt["video_id"] = str(body["video_id"]).strip()
-    for k in ("interval_sec", "window_sec"):
-        if k in body:
-            try:
-                _yt[k] = max(30, int(body[k]))
-            except Exception:
-                pass
+    if "interval_sec" in body:
+        try:
+            _yt["interval_sec"] = max(15, int(body["interval_sec"]))   # 最短間隔、可低到 15s
+        except Exception:
+            pass
+    if "window_sec" in body:
+        try:
+            _yt["window_sec"] = max(30, int(body["window_sec"]))
+        except Exception:
+            pass
+    if "user_cooldown_sec" in body:
+        try:
+            _yt["user_cooldown_sec"] = max(10, int(body["user_cooldown_sec"]))
+        except Exception:
+            pass
     if "spice" in body:
         try:
             _yt["spice"] = max(0, min(100, int(body["spice"])))
@@ -4534,10 +4545,15 @@ def yt_page():
     <b id="s_sp">—</b>
     <span class="lbl" style="min-width:0;font-size:11px">(只影響「有人先嗆你」時、友善觀眾一律熱情)</span></div>
   <div class="row"><span class="lbl">互動間隔</span>
-    <button data-iv="90">90秒</button><button data-iv="180">3分</button><button data-iv="600">10分</button>
-    <input id="iv" type="text" inputmode="numeric" style="max-width:80px" placeholder="秒">
+    <button data-iv="15">15秒</button><button data-iv="30">30秒</button><button data-iv="90">90秒</button><button data-iv="600">10分</button>
+    <input id="iv" type="text" inputmode="numeric" style="max-width:70px" placeholder="秒">
     <button id="b_iv">設定</button><b id="s_iv">—</b>
-    <span class="lbl" style="min-width:0;font-size:11px">(多久自動回一則)</span></div>
+    <span class="lbl" style="min-width:0;font-size:11px">(最短多久回一則、有留言就回)</span></div>
+  <div class="row"><span class="lbl">同人冷卻</span>
+    <button data-cd="30">30秒</button><button data-cd="60">60秒</button><button data-cd="600">10分</button><button data-cd="3600">1時</button>
+    <input id="cd" type="text" inputmode="numeric" style="max-width:70px" placeholder="秒">
+    <button id="b_cd">設定</button><b id="s_cd">—</b>
+    <span class="lbl" style="min-width:0;font-size:11px">(同一人多久才能再被回、測試建議短)</span></div>
   <div class="row"><span class="lbl">video_id</span>
     <input id="vid" type="text" placeholder="不公開直播網址 watch?v= 後那串">
     <button id="b_vid">設定</button></div>
@@ -4573,6 +4589,7 @@ async function load(){try{const d=await(await fetch('/api/yt/status')).json();
   $('s_ws').textContent=d.web_search?'上網查證':'不查證';
   if(typeof d.spice==='number'){$('s_sp').textContent=d.spice+'%'; if(document.activeElement!==$('sp'))$('sp').value=d.spice;}
   if(typeof d.interval_sec==='number'){$('s_iv').textContent=d.interval_sec+'s'; if(document.activeElement!==$('iv'))$('iv').placeholder=d.interval_sec;}
+  if(typeof d.user_cooldown_sec==='number'){$('s_cd').textContent=d.user_cooldown_sec+'s'; if(document.activeElement!==$('cd'))$('cd').placeholder=d.user_cooldown_sec;}
   $('s_buf').textContent=d.buffer; $('s_q').textContent=d.play_queue;
   $('s_ev').textContent=d.recent_events; $('s_un').textContent=d.recent_unsafe;
   if(d.video_id && !$('vid').value) $('vid').placeholder=d.video_id;
@@ -4599,6 +4616,8 @@ document.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>cfg({spice:+b.da
 $('sp').onchange=()=>cfg({spice:+$('sp').value});
 document.querySelectorAll('[data-iv]').forEach(b=>b.onclick=()=>cfg({interval_sec:+b.dataset.iv}));
 $('b_iv').onclick=()=>{const v=parseInt($('iv').value);if(v)cfg({interval_sec:v});};
+document.querySelectorAll('[data-cd]').forEach(b=>b.onclick=()=>cfg({user_cooldown_sec:+b.dataset.cd}));
+$('b_cd').onclick=()=>{const v=parseInt($('cd').value);if(v>=0)cfg({user_cooldown_sec:v});};
 document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>cfg({mode:b.dataset.m}));
 document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>cfg({source:b.dataset.src}));
 $('b_vid').onclick=()=>{const v=$('vid').value.trim();if(v)cfg({video_id:v});};
