@@ -464,29 +464,109 @@ def _strip_3q(text: str) -> str:
     return t if t else text
 
 
-# ── 輸出閘（D、公開前安全層）：對「實際要播」的文字做最後檢查 ──────────
-#  偏保守、寧可誤殺（pool refill 會補）。命中 → 整段丟棄、不入 pool。
-#  注意：與 prompt 規則 A（具名不掛負評）分工——A 從源頭防、這層擋漏網的字面紅旗。
+# ── 輸出閘（D + 🟢 升級）：regex 快篩 → 命中才升級 source-aware LLM judge 定奪 ──────
+#  L0 regex / 人名+負評 = 「警報器」（只觸發、不下最終判決）；
+#  L2 LLM judge = 「語意法官」（帶新聞原文當上下文、分辨『討論已報導案件』vs『無端指控』）。
+#  生成時判一次、結果寫進 segment.safety；播放時只查 cache（零延遲、不打 LLM）。
+_GATE_VERSION = "2026-06-07-v2"
+
 _GATE_PATTERNS: list[tuple[str, str]] = [
-    # 侮辱性字眼（公然侮辱罪）
     (r'智障|腦殘|白痴|低能|廢物|垃圾人|王八蛋|去死|滾蛋|渣男|賤貨|婊|腦袋裝屎', "侮辱字眼"),
-    # 未證實犯罪指控（誹謗罪）— 把人/單位講成涉案
     (r'貪污|收賄|賄賂|洗錢|圖利|掏空|賣國|通敵', "未證實犯罪指控"),
-    # 臆測收錢 / 動機（陰謀論）
     (r'一定是.{0,6}(收|拿|A)了?錢|根本就是.{0,4}(收|拿)錢|背後一定有', "臆測動機"),
 ]
 
+# 人格貶損詞（用於「人名 + 負評」鄰近觸發、抓 regex 名單漏掉的具名辱罵、如「無能的騙子」）
+_NEG_PERSONAL = ("無能", "騙子", "草包", "米蟲", "腦殘", "智障", "白痴", "廢物",
+                 "渣", "婊", "下台", "可悲", "噁心", "卑鄙", "無恥", "敗類")
+# 抽人名時要濾掉的常見非人名詞
+_NAME_STOPWORDS = {"台灣", "中國", "美國", "日本", "政府", "法院", "檢方", "警方", "立院",
+                   "行政院", "民進黨", "國民黨", "民眾黨", "公司", "集團", "今日", "新聞",
+                   "表示", "指出", "報導", "目前", "相關", "事件", "政策", "制度", "問題",
+                   "國際", "焦點", "直播", "節目", "記者", "影片", "網友", "民眾", "社會"}
 
-def _output_gate_segment(lines: list) -> tuple[bool, str]:
-    """輸出閘：整段文字命中高風險樣式 → 不通過（整段丟）。回 (通過?, 原因)。"""
+
+def _extract_candidate_names(text: str) -> list:
+    """從新聞文字粗抽 2~4 字中文候選人名（重疊掃描 + 濾常見非人名詞）。只當『觸發』用、有雜訊無妨。"""
+    import re
+    if not text:
+        return []
+    out = set()
+    for L in (2, 3, 4):
+        out.update(re.findall(r'(?=([一-鿿]{%d}))' % L, text))
+    return [c for c in out if c not in _NAME_STOPWORDS]
+
+
+def _gate_prefilter(lines: list, topic: str = "", summary: str = "") -> tuple[bool, str]:
+    """L0/L1 快篩（純字串、不打 LLM）：回 (是否可疑, 原因)。可疑才需要升級 judge。"""
     import re
     if not isinstance(lines, list):
-        return True, ""
+        return False, ""
     joined = " ".join(str(l.get("text", "")) for l in lines if isinstance(l, dict))
-    for pat, label in _GATE_PATTERNS:
+    for pat, label in _GATE_PATTERNS:                  # ① 既有高風險樣式
         if re.search(pat, joined):
-            return False, label
-    return True, ""
+            return True, label
+    names = _extract_candidate_names(f"{topic} {summary}")   # ② 新聞裡的人名 + 負評鄰近
+    for name in names:
+        if name in joined:
+            for w in _NEG_PERSONAL:
+                if re.search(rf"{re.escape(name)}.{{0,12}}{w}|{w}.{{0,12}}{re.escape(name)}", joined):
+                    return True, f"具名+負評({name})"
+    return False, ""
+
+
+async def _llm_safety_judge(lines: list, topic: str, summary: str, label: str) -> dict:
+    """source-aware 語意審查（帶新聞原文）。回 {"status","reason","judged"}。
+    無 key / 出錯 → 保守 drop（= 不比舊版差）。"""
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"status": "drop", "reason": f"{label}(無 judge、保守丟棄)", "judged": False}
+    dlg = "\n".join(f"{l.get('speaker','')}: {l.get('text','')}"
+                    for l in lines if isinstance(l, dict))
+    prompt = (
+        "你是台灣繁體中文 AI 直播節目的「輸出安全審查員」。判斷以下『即將公開播送』的 AI 主持人對白"
+        "是否有誹謗 / 公然侮辱 / 未證實犯罪指控的法律風險。只輸出 JSON、不要其他文字。\n\n"
+        "判斷重點：\n"
+        "1. 是否對具名真實人物/公司/政黨/組織加上負面人格評價或辱罵。\n"
+        "2. 是否對具名對象指出未經法院判決的犯罪（貪污/收賄/洗錢…）。\n"
+        "3. 是否對偵查中/未定讞案件直接認定有罪。\n"
+        "4. 是否用「聽說/一定是/背後一定有」包裝未證實指控。\n"
+        "5. 是否拿死亡/傷亡/災難當笑點。\n\n"
+        "★ 放行原則（重要、避免誤殺）：\n"
+        "- 只是『引述新聞已報導的事實』（如新聞報導某官員被起訴）、或角色在批評『制度/政策/現象』→ pass 或 warn。\n"
+        "- 角色『自己』無端說某人犯罪/收錢、或直接辱罵具名真人 → drop。\n\n"
+        f"新聞標題：{topic}\n新聞摘要：{summary}\n觸發原因：{label}\n對白：\n{dlg}\n\n"
+        'JSON：{"status":"pass|warn|drop","reason":"簡短原因"}'
+    )
+    try:
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        msg = await client.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=200,
+            messages=[{"role": "user", "content": prompt}])
+        raw = msg.content[0].text.strip()
+        s, e = raw.find("{"), raw.rfind("}")
+        obj = json.loads(raw[s:e + 1]) if (s >= 0 and e > s) else {}
+        status = obj.get("status", "drop")
+        if status not in ("pass", "warn", "drop"):
+            status = "drop"
+        st = _load_state()
+        u = getattr(msg, "usage", None)
+        cost = _estimate_cost_usd(int(getattr(u, "input_tokens", 0) or 0),
+                                  int(getattr(u, "output_tokens", 0) or 0), 0, 0)
+        _add_cost_to_state(st, cost); _save_state(st)
+        return {"status": status, "reason": str(obj.get("reason", ""))[:80], "judged": True}
+    except Exception as ex:
+        print(f"[gate] judge 出錯、保守丟棄：{ex}")
+        return {"status": "drop", "reason": f"{label}(judge error)", "judged": False}
+
+
+async def _safety_gate_segment(lines: list, topic: str = "", summary: str = "") -> dict:
+    """完整輸出閘：快篩沒踩 flag → pass（不打 LLM）；踩到 → 升級 LLM judge 定奪。
+    回 {"status":"pass|warn|drop", "reason", "judged"}。"""
+    suspicious, label = _gate_prefilter(lines, topic, summary)
+    if not suspicious:
+        return {"status": "pass", "reason": "", "judged": False}
+    return await _llm_safety_judge(lines, topic, summary, label)
 
 
 def _quality_check_dialogue(dialogue: list) -> tuple[list, int]:
@@ -2060,10 +2140,12 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
             if spec is None or not isinstance(lines, list) or not lines:
                 continue
             lines, _ = _quality_check_dialogue(lines)
-            ok, reason = _output_gate_segment(lines)   # D：輸出閘、不通過整段丟
-            if not ok:
+            # 🟢 輸出閘：快篩沒事直接過、踩 flag 才升級 source-aware LLM judge（帶新聞標題當上下文）
+            verdict = await _safety_gate_segment(lines, topic=spec["topic"], summary=spec["topic"])
+            if verdict["status"] == "drop":
                 gated += 1
-                print(f"[gate] ⛔ 丟棄一段（{reason}）topic=「{str(spec['topic'])[:18]}」")
+                tag = "judge" if verdict["judged"] else "快篩"
+                print(f"[gate] ⛔ 丟棄一段（{tag}：{verdict['reason'] or '風險'}）topic=「{str(spec['topic'])[:18]}」")
                 continue
             pool.append({
                 "dialogue_id": str(uuid.uuid4()),
@@ -2071,6 +2153,9 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
                 "segment_type": "live_chat", "lines": lines, "status": "pending",
                 "quality_score": 0.8, "created_at": time.time(),
                 "played_at": None, "cooling_until": None,
+                "safety": {"status": verdict["status"], "reason": verdict["reason"],
+                           "gate_version": _GATE_VERSION, "judged": verdict["judged"],
+                           "checked_at": datetime.now().isoformat(timespec="seconds")},
             })
             added += 1
         _save_pool(pool)
@@ -2177,9 +2262,11 @@ async def _generate_live_round(topic: str):
             print(f"[live] 插隊生成失敗（空對話）：{topic[:18]}")
             return None
         lines, _ = _quality_check_dialogue(lines)
-        ok, gate_reason = _output_gate_segment(lines)
-        if not ok:
-            print(f"[live] ⛔ 插隊被輸出閘擋（{gate_reason}）：{topic[:18]}")
+        # 🟢 輸出閘（同 pool）：快篩沒事直接過、踩 flag 才升級 LLM judge
+        verdict = await _safety_gate_segment(lines, topic=topic, summary=topic)
+        if verdict["status"] == "drop":
+            tag = "judge" if verdict["judged"] else "快篩"
+            print(f"[live] ⛔ 插隊被輸出閘擋（{tag}：{verdict['reason']}）：{topic[:18]}")
             return None
         st = _load_state()
         u = getattr(msg, "usage", None)
@@ -2527,18 +2614,23 @@ async def next_segment():
                 "tone": "react", "angle": "", "topic": item["topic"],
                 "from_pool": False, "live_insert": True}
 
-    # 撈段 + 輸出閘（D）：若撈到的段沒通過閘（多半是「閘上線前」的舊段）→ 跳過再撈。
-    #   _pick_segment 已把它標 played（6h 不再選）、等同淘汰。最多試 4 次。
+    # 撈段 + 輸出閘（🟢）：播放零延遲、不打 LLM。
+    #   - 生成時已 judge 過、safety 是本版且 pass/warn → 直接信任 cache 播。
+    #   - 舊段 / 沒判過 / 版本過期 → 只跑 regex 快篩（瞬間）、可疑就跳過再撈。
     chosen = None
     for _ in range(4):
         cand = _pick_segment()
         if cand is None:
             break
-        ok, reason = _output_gate_segment(cand.get("lines", []))
-        if ok:
+        saf = cand.get("safety") or {}
+        if saf.get("gate_version") == _GATE_VERSION and saf.get("status") in ("pass", "warn"):
             chosen = cand
             break
-        print(f"[gate] ⛔ 播放前擋下舊段（{reason}）topic=「{str(cand.get('topic',''))[:18]}」、換下一段")
+        suspicious, reason = _gate_prefilter(cand.get("lines", []), cand.get("topic", ""))
+        if not suspicious:
+            chosen = cand
+            break
+        print(f"[gate] ⛔ 播放前快篩擋下舊段（{reason}）topic=「{str(cand.get('topic',''))[:18]}」、換下一段")
     if not chosen:
         asyncio.create_task(_generate_batch())
         return JSONResponse({"error": "pool empty/gated, generating", "retry": True},
