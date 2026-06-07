@@ -2862,13 +2862,114 @@ async def _yt_interaction_loop():
         await asyncio.sleep(max(30, int(_yt["interval_sec"])))
 
 
+def _yt_api_service():
+    """用現有 youtube_token.json（force-ssl）建 YouTube Data API service。
+    只讀 token + 自動 refresh、【不會】開瀏覽器（伺服器環境安全）。失敗回 None。"""
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        from googleapiclient.discovery import build
+    except Exception as e:
+        print(f"[yt] 缺 google 套件（pip install google-auth google-api-python-client）：{e}")
+        return None
+    tok = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_token.json")
+    if not os.path.exists(tok):
+        print("[yt] 找不到 youtube_token.json → 先跑 scripts/authorize_yt.py 授權")
+        return None
+    scopes = ["https://www.googleapis.com/auth/youtube.upload",
+              "https://www.googleapis.com/auth/youtube.force-ssl"]
+    try:
+        creds = Credentials.from_authorized_user_file(tok, scopes)
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                print("[yt] token 失效 → 重跑 scripts/authorize_yt.py")
+                return None
+        with open(tok, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+        return build("youtube", "v3", credentials=creds)
+    except Exception as e:
+        print(f"[yt] 建 YouTube API service 失敗：{e}")
+        return None
+
+
+async def _yt_api_chat_loop():
+    """官方 YouTube Data API 讀直播聊天室（讀得到不公開、穩、用現有 force-ssl token）。
+    結束/出錯就 return、由外層 _yt_source_loop 重連。"""
+    yt = await asyncio.to_thread(_yt_api_service)
+    if yt is None:
+        _yt["source"] = "fake"        # 沒授權 → 退回 fake、避免空轉
+        return
+    vid = _yt["video_id"]
+    try:
+        r = await asyncio.to_thread(
+            lambda: yt.videos().list(part="liveStreamingDetails", id=vid).execute())
+        items = r.get("items", [])
+        lcid = items[0].get("liveStreamingDetails", {}).get("activeLiveChatId") if items else None
+    except Exception as e:
+        print(f"[yt] 取 liveChatId 失敗、15 秒重試：{e}")
+        await asyncio.sleep(15)
+        return
+    if not lcid:
+        print(f"[yt] video={vid} 沒有進行中的聊天室（不是 live？或還沒開播）、15 秒重試")
+        await asyncio.sleep(15)
+        return
+    print(f"[yt] ✅ 官方 API 已連線、開始接收留言 video={vid}")
+    page_token = None
+    while _yt["enabled"] and _yt["source"] == "ytapi" and _yt["video_id"] == vid:
+        try:
+            kw = dict(liveChatId=lcid, part="snippet,authorDetails", maxResults=200)
+            if page_token:
+                kw["pageToken"] = page_token
+            resp = await asyncio.to_thread(lambda: yt.liveChatMessages().list(**kw).execute())
+        except Exception as e:
+            print(f"[yt] 官方 API 讀取錯誤（直播結束？）、退出重連：{e}")
+            return
+        now = time.time()
+        for it in resp.get("items", []):
+            sn = it.get("snippet", {})
+            au = it.get("authorDetails", {})
+            text = sn.get("displayMessage") or ""
+            if not text:
+                continue
+            # 只收近 window_sec 的、跳過重連時的舊 backlog（避免回覆很久以前的留言）
+            try:
+                pub = sn.get("publishedAt", "")
+                if now - datetime.fromisoformat(pub.replace("Z", "+00:00")).timestamp() > _yt["window_sec"]:
+                    continue
+            except Exception:
+                pass
+            is_sc = sn.get("type") in ("superChatEvent", "superStickerEvent")
+            amt = 0
+            try:
+                amt = int(sn.get("superChatDetails", {}).get("amountMicros", 0) or 0) // 1000000
+            except Exception:
+                pass
+            _yt_ingest(text, au.get("displayName", ""), au.get("channelId", ""),
+                       is_sc, amt, source="ytapi")
+        page_token = resp.get("nextPageToken")
+        # 尊重 YT 建議間隔、但設 8 秒地板省配額（仍在 window 內、不漏留言）
+        wait = max(8.0, (resp.get("pollingIntervalMillis") or 5000) / 1000.0)
+        await asyncio.sleep(wait)
+
+
 async def _yt_source_loop():
-    """讀聊天來源（pytchat）。source!=pytchat 或無 video_id → idle。斷線自動重連、不影響直播。"""
+    """讀聊天來源（官方 API ytapi / pytchat）。idle 預設、斷線自動重連、不影響直播。
+    ⚠️ pytchat 0.5.5 常被 YT 改版搞壞（讀 0 則）、且讀不到不公開 → 建議用 ytapi。"""
     await asyncio.sleep(20)
     while True:
-        if not (_yt["enabled"] and _yt["source"] == "pytchat" and _yt["video_id"]):
+        if not (_yt["enabled"] and _yt["video_id"] and _yt["source"] in ("pytchat", "ytapi")):
             await asyncio.sleep(15)
             continue
+        if _yt["source"] == "ytapi":
+            try:
+                await _yt_api_chat_loop()
+            except Exception as e:
+                print(f"[yt] 官方 API loop 例外、15 秒重連：{e}")
+            await asyncio.sleep(10)
+            continue
+        # ── 以下 legacy pytchat（保留、但現在多半讀不到）──
         try:
             import pytchat
         except ImportError:
@@ -3411,7 +3512,7 @@ async def yt_config(request: Request):
             _yt[k] = bool(body[k])
     if body.get("mode") in ("OPEN", "GUARDED", "LOCKDOWN", "OFF"):
         _yt_set_mode(body["mode"], auto=False)
-    if body.get("source") in ("fake", "pytchat"):
+    if body.get("source") in ("fake", "pytchat", "ytapi"):
         _yt["source"] = body["source"]
     if "video_id" in body:
         _yt["video_id"] = str(body["video_id"]).strip()
@@ -4341,7 +4442,7 @@ def yt_page():
     <button data-m="LOCKDOWN">LOCKDOWN</button><button data-m="OFF">OFF</button>
     <b id="s_mode">—</b></div>
   <div class="row"><span class="lbl">來源</span>
-    <button data-src="fake">假留言</button><button data-src="pytchat">YT(pytchat)</button>
+    <button data-src="fake">假留言</button><button data-src="ytapi">YT(官方API推薦)</button><button data-src="pytchat">pytchat(已壞)</button>
     <b id="s_src">—</b></div>
   <div class="row"><span class="lbl">查證</span>
     <button id="b_ws_on">上網查證</button><button id="b_ws_off">不查證</button>
@@ -4355,7 +4456,7 @@ def yt_page():
   <div class="row"><span class="lbl">video_id</span>
     <input id="vid" type="text" placeholder="不公開直播網址 watch?v= 後那串">
     <button id="b_vid">設定</button></div>
-  <div class="note">第一次測：總開關=啟用、Shadow=只記不播、來源=YT、貼 video_id。看下面 log 確認讀得到留言＋有跑 pipeline，再切「真的播」。⚠️ 用 <b>不公開(Unlisted)</b>、不要私人(Private)。</div>
+  <div class="note">第一次測：總開關=啟用、Shadow=只記不播、來源=<b>YT(官方API)</b>、貼 video_id。看下面 log 確認讀得到留言＋有跑 pipeline，再切「真的播」。⚠️ pytchat 已被 YT 改版搞壞（讀 0 則、且讀不到不公開）→ <b>用官方 API</b>（已用現有 youtube_token.json、不公開也讀得到）。</div>
 </div>
 
 <div class="card">
