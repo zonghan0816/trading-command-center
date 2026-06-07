@@ -2355,6 +2355,8 @@ _yt = {
     "window_sec": 300,       # 每次處理最近幾秒的留言
     "user_cooldown_sec": 3600,  # 同一觀眾多久才能再被回一次
     "web_search": True,      # 具名人物/時事題：先上網查證再中立回答（有每次查詢費用、走 API 帳）
+    "spice": 60,             # 嗆辣度 0~100：只影響「對方先嗆你」時反嗆多狠；友善觀眾一律熱情不受影響
+    "invite_every_sec": 1800,  # 主持人口播「歡迎留言」邀請的最短間隔
 }
 
 # 限流（Cost-DoS 防護、token bucket、in-memory）
@@ -2371,6 +2373,16 @@ _yt_metrics: list = []       # [(ts, risk)] 最近事件、算 unsafe ratio
 _yt_lockdown_until = 0.0
 _yt_compassion_ts = 0.0      # 上次關懷轉介時間（防洗版）
 _YT_COMPASSION_COOLDOWN = 600  # 關懷轉介冷卻（避免被刷）
+_yt_invite_ts = 0.0          # 上次口播「歡迎留言」邀請時間
+# 主持人定期口播「歡迎留言互動」邀請（固定模板、不打 LLM、零成本）
+_YT_INVITES = [
+    [{"speaker": "xiaomei", "text": "對了各位,提醒一下——底下聊天室打字,我們真的會看、會回你喔!", "emotions": ["wave", "talk"]},
+     {"speaker": "aming", "text": "對啦,想許願聊什麼、想吐槽、想嗆我們都可以,丟上來等一下就回你!", "emotions": ["talk", "passionate"]}],
+    [{"speaker": "aming", "text": "欸先說一下,這節目是可以互動的——在聊天室留言,主持人會回!", "emotions": ["talk", "wave"]},
+     {"speaker": "xiaomei", "text": "真的,別只是默默看啦,丟一句上來,我們陪你聊!", "emotions": ["smile", "talk"]}],
+    [{"speaker": "xiaomei", "text": "如果你正在看,留個言讓我們知道你在喔,我們會回你的留言!", "emotions": ["wave", "smile"]},
+     {"speaker": "aming", "text": "對,想聽我們聊哪條新聞、有什麼想法,聊天室告訴我們,馬上安排!", "emotions": ["talk", "passionate"]}],
+]
 
 # ── P0：normalization / 硬規則 / 偵測 ──────────────────────────────
 _YT_ZW = dict.fromkeys(map(ord, "​‌‍‎‏﻿⁠᠎"), None)
@@ -2642,6 +2654,22 @@ async def _yt_generate(intent: dict, name_safe: str):
     if over:
         return None
     topic = (list(_news_topics_cache)[:1] or ["今天的時事"])[0]
+    spice = max(0, min(100, int(_yt.get("spice", 60))))
+    if spice <= 30:
+        spice_desc = f"反嗆力道輕（嗆辣度 {spice}%）：點到為止、幽默吐槽一下就好、不要太兇"
+    elif spice <= 70:
+        spice_desc = f"反嗆力道中（嗆辣度 {spice}%）：機智回敬、有梗有力但不失風度"
+    else:
+        spice_desc = f"反嗆力道強（嗆辣度 {spice}%）：火力全開、嘴到爆、機智電爆對方的邏輯"
+    normal_note = (
+        "★ 先判斷這位觀眾的態度（從『觀眾想聊』那句看）：\n"
+        "（A）**友善 / 一般留言 / 提問 / 問候** → 兩位主持人**熱情、幽默、歡迎**地回應，有梗但**完全不要嗆對方**、不要找碴，像跟朋友聊天。\n"
+        "（B）**對方在嗆人 / 酸 / 挑釁 / 來鬧** → 主持人才開嗆、機智反嗆（笑死/哪招/你這邏輯死亡欸/大哥清醒點），"
+        f"{spice_desc}。\n"
+        "★ ★ 不管 A 或 B 都鐵則『對事不對人』：要電就電對方『講的話/邏輯/行為』，"
+        "**絕不罵對方這個人**——不講智商/外貌/人格（不說『你智障』『你腦袋有洞』『醜八怪』）。嘴內容、不嘴人。\n"
+        "★ 對象只能是『匿名觀眾/主持人彼此』；**絕不把粗話/負評掛到具名真人身上**。"
+    )
     style_note = {
         "neutral_taichi": "這題政治/敏感/情緒性：①先由一位主持人「反問釐清」帶出問題"
                           "（例：『你是說哪一件事呢？還是指…？』），②接著不等回覆、直接把這個議題本身講清楚——"
@@ -2649,12 +2677,7 @@ async def _yt_generate(intent: dict, name_safe: str):
                           "但**不替任何政黨或個人背書或攻擊、不下定論、不站隊**。重點：**好笑+中立、不是無聊的中立**，"
                           "不要像新聞主播念稿、不要硬轉移話題、不要敷衍帶過",
         "soft_redirect": "只能安全轉向、不給個案建議（醫療/法律/投資/心理），提醒去找專業",
-    }.get(intent.get("answer_style"),
-         "正常回應、火力全開：兩位主持人用最嗆最有梗的鄉民嘴砲口吻接這位觀眾——"
-         "可以反嗆、互虧、吐槽到爆、機智電爆酸民（笑死/哪招/你邏輯死亡欸/大哥清醒點），要好笑要狠、不要客氣、不要像念稿。"
-         "★ ★ 對事不對人：電的是對方『講的話/邏輯/行為』（例：『你這邏輯死亡欸』『難看你還來？』），"
-         "**不准罵對方這個人**——不講對方的智商/外貌/人格（不說『你智障』『你腦袋有洞』『醜八怪』）。嘴內容、不嘴人。"
-         "★ 嗆的對象是『匿名觀眾/彼此』就好；**絕不把粗話/負評掛到具名真人身上**")
+    }.get(intent.get("answer_style"), normal_note)
     use_search = bool(_yt.get("web_search"))
     search_note = (
         "・若觀眾問到**具名人物 / 時事 / 需要事實的題**：先用 web_search 上網查證，"
@@ -3200,6 +3223,34 @@ async def next_segment():
                 "tone": "react", "angle": "", "topic": item["topic"],
                 "from_pool": False, "live_insert": True}
 
+    # 👋 定期口播「歡迎留言」邀請（只有互動真的開著＝enabled 且非 shadow 才邀、避免請了卻不能互動）。
+    #     固定模板、不打 LLM、零成本；不設 yt_interaction（不亮「回應觀眾中」徽章）。
+    global _yt_invite_ts
+    now = time.time()
+    if (_yt.get("enabled") and not _yt.get("shadow")
+            and now - _yt_invite_ts >= _yt.get("invite_every_sec", 1800)):
+        _yt_invite_ts = now
+        lines = [dict(l) for l in random.choice(_YT_INVITES)]
+        audio_urls = await _gen_tts_dialogue(lines)
+        st = _load_state()
+        for ln in lines:
+            spk = ln.get("speaker")
+            if spk in st.get("hosts", {}):
+                st["hosts"][spk]["status"]      = "talking"
+                st["hosts"][spk]["last_output"] = ln.get("text", "")
+        st["topic"]      = "💬 歡迎在聊天室留言"
+        st["mode"]       = "discussion"
+        st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+        if not _tts_voice_state:
+            st["ticker"] = ""
+        _save_state(st)
+        spa = lines[0].get("speaker", "aming")
+        spb = next((l.get("speaker") for l in lines[1:] if l.get("speaker") != spa), None)
+        print("[yt] 📣 播放口播邀請（歡迎留言）")
+        return {"dialogue": lines, "audio_urls": audio_urls, "speaker_a": spa, "speaker_b": spb,
+                "tone": "wave", "angle": "", "topic": "💬 歡迎在聊天室留言",
+                "from_pool": False, "yt_invite": True}
+
     # 撈段 + 輸出閘（🟢）：播放零延遲、不打 LLM。
     #   - 生成時已 judge 過、safety 是本版且 pass/warn → 直接信任 cache 播。
     #   - 舊段 / 沒判過 / 版本過期 → 只跑 regex 快篩（瞬間）、可疑就跳過再撈。
@@ -3343,7 +3394,7 @@ def yt_status():
     unsafe = sum(1 for (_t, r) in recent if r in ("hard_block", "grey"))
     return JSONResponse({
         **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "video_id",
-                               "interval_sec", "window_sec", "web_search")},
+                               "interval_sec", "window_sec", "web_search", "spice")},
         "buffer": len(_yt_buffer), "play_queue": len(_yt_play_queue),
         "recent_events": len(recent), "recent_unsafe": unsafe,
         "lockdown_until": _yt_lockdown_until,
@@ -3370,10 +3421,15 @@ async def yt_config(request: Request):
                 _yt[k] = max(30, int(body[k]))
             except Exception:
                 pass
-    _yt_audit("config", **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "web_search")})
+    if "spice" in body:
+        try:
+            _yt["spice"] = max(0, min(100, int(body["spice"])))
+        except Exception:
+            pass
+    _yt_audit("config", **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "web_search", "spice")})
     return JSONResponse({"ok": True, **{k: _yt[k] for k in
                          ("enabled", "shadow", "mode", "source", "video_id",
-                          "interval_sec", "window_sec", "web_search")}})
+                          "interval_sec", "window_sec", "web_search", "spice")}})
 
 
 @app.post("/api/yt/inject")
@@ -4291,6 +4347,11 @@ def yt_page():
     <button id="b_ws_on">上網查證</button><button id="b_ws_off">不查證</button>
     <span class="lbl"></span><b id="s_ws">—</b>
     <span class="lbl" style="min-width:0;font-size:11px">(具名/時事題會上網查、有費用)</span></div>
+  <div class="row"><span class="lbl">嗆辣度</span>
+    <button data-sp="30">輕嗆</button><button data-sp="60">中嗆</button><button data-sp="90">火力全開</button>
+    <input id="sp" type="range" min="0" max="100" step="5" style="flex:1;min-width:80px">
+    <b id="s_sp">—</b>
+    <span class="lbl" style="min-width:0;font-size:11px">(只影響「有人先嗆你」時、友善觀眾一律熱情)</span></div>
   <div class="row"><span class="lbl">video_id</span>
     <input id="vid" type="text" placeholder="不公開直播網址 watch?v= 後那串">
     <button id="b_vid">設定</button></div>
@@ -4323,6 +4384,7 @@ async function load(){try{const d=await(await fetch('/api/yt/status')).json();
   $('s_sh').textContent=d.shadow?'只記不播':'真的播';
   $('s_mode').textContent=d.mode; $('s_src').textContent=d.source;
   $('s_ws').textContent=d.web_search?'上網查證':'不查證';
+  if(typeof d.spice==='number'){$('s_sp').textContent=d.spice+'%'; if(document.activeElement!==$('sp'))$('sp').value=d.spice;}
   $('s_buf').textContent=d.buffer; $('s_q').textContent=d.play_queue;
   $('s_ev').textContent=d.recent_events; $('s_un').textContent=d.recent_unsafe;
   if(d.video_id && !$('vid').value) $('vid').placeholder=d.video_id;
@@ -4330,6 +4392,8 @@ async function load(){try{const d=await(await fetch('/api/yt/status')).json();
 $('b_en_on').onclick=()=>cfg({enabled:true}); $('b_en_off').onclick=()=>cfg({enabled:false});
 $('b_sh_on').onclick=()=>cfg({shadow:true}); $('b_sh_off').onclick=()=>cfg({shadow:false});
 $('b_ws_on').onclick=()=>cfg({web_search:true}); $('b_ws_off').onclick=()=>cfg({web_search:false});
+document.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>cfg({spice:+b.dataset.sp}));
+$('sp').onchange=()=>cfg({spice:+$('sp').value});
 document.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>cfg({mode:b.dataset.m}));
 document.querySelectorAll('[data-src]').forEach(b=>b.onclick=()=>cfg({source:b.dataset.src}));
 $('b_vid').onclick=()=>{const v=$('vid').value.trim();if(v)cfg({video_id:v});};

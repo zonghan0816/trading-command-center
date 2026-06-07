@@ -356,6 +356,32 @@
       letter-spacing: 1px;
       text-shadow: 0 0 6px rgba(80,180,255,0.5);
     }
+    /* Step 5.45: 互動段播放時「💬 回應觀眾中」徽章（告知觀眾 AI 真的會回留言） */
+    #interaction-badge {
+      position: absolute;
+      top: 12%;
+      left: 50%;
+      transform: translateX(-50%) scale(0.96);
+      z-index: 13;
+      display: none;
+      padding: 0.5vw 1.3vw;
+      border-radius: 999px;
+      background: linear-gradient(135deg, rgba(0,200,90,0.95), rgba(0,150,70,0.95));
+      color: #fff;
+      font-size: 1.15vw;
+      font-weight: 800;
+      letter-spacing: 2px;
+      font-family: "Microsoft JhengHei", sans-serif;
+      box-shadow: 0 0 18px rgba(0,230,120,0.7), 0 2px 10px rgba(0,0,0,0.4);
+      border: 2px solid rgba(255,255,255,0.55);
+      pointer-events: none;
+      white-space: nowrap;
+    }
+    #interaction-badge.show { display: block; animation: ib-pulse 1.4s ease-in-out infinite; }
+    @keyframes ib-pulse {
+      0%,100% { transform: translateX(-50%) scale(0.97); box-shadow: 0 0 14px rgba(0,230,120,0.55), 0 2px 10px rgba(0,0,0,0.4); }
+      50%     { transform: translateX(-50%) scale(1.03); box-shadow: 0 0 26px rgba(0,230,120,0.95), 0 2px 10px rgba(0,0,0,0.4); }
+    }
   </style>
 </head>
 <body>
@@ -370,7 +396,7 @@
   <div id="brand-badge"></div>
   <div id="marquee-bar">
     <span class="marquee-text">
-      ⚠ 本節目為 AI 生成內容・非新聞報導・觀點不代表任何真實人物 · 天天嘴台灣 Taiwan Daily Talk · 24/7 LIVE · AI 主持人不打烊 · 按讚 + 訂閱 + 小鈴鐺 · 留言告訴主持人 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
+      ⚠ 本節目為 AI 生成內容・非新聞報導・觀點不代表任何真實人物 · 天天嘴台灣 Taiwan Daily Talk · 24/7 LIVE · AI 主持人不打烊 · 💬 在聊天室打字・主持人會回你 · 按讚訂閱開鈴鐺 · 歡迎分享給朋友 ·&nbsp;&nbsp;&nbsp;
     </span>
   </div>
   <div id="game-container">
@@ -384,6 +410,8 @@
       <div id="led-topic-text">—</div>
       <div id="led-mode-badge">STANDBY</div>
     </div>
+    <!-- Step 5.45: 互動段播放時顯示「正在回應觀眾」 -->
+    <div id="interaction-badge">💬 回應觀眾留言中…</div>
     <!-- 中央電視牆內部右上角：時刻 + 日期 -->
     <div id="clock-overlay">
       <div id="clock-time">--:--:--</div>
@@ -468,6 +496,13 @@
       // Step 5.42: 讓 Phaser 場景「開口前」直接把話題推上 LED（不等 3 秒 poll）。
       //   配合 OfficeScene 的 lead delay → 話題先出來、對話再出來。
       window.tdtShowTopic = (topic) => showView('discussion', topic || '');
+
+      // Step 5.45: 互動段播放時顯示「💬 回應觀眾留言中」徽章（場景每段開頭呼叫）
+      const interactionBadge = document.getElementById('interaction-badge');
+      window.tdtShowInteractionBadge = (on) => {
+        if (!interactionBadge) return;
+        interactionBadge.classList.toggle('show', !!on);
+      };
 
       async function poll() {
         try {

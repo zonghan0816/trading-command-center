@@ -18,7 +18,7 @@ const DATA_FLOWS = CONFIG.layout.dataFlows;
 // - 'string'           = 單行單欄（占整行寬）
 // - ['left', 'right']  = 雙欄並排（左欄 / 右欄）
 const DEFAULT_KEYWORDS = [
-  '按讚 + 訂閱 + 開啟鈴鐺',
+  '💬 留言聊天・主持人會回你！',
   ['來賓', '主播'],
   ['陳柏偉', '王于安'],
 ];
@@ -1003,6 +1003,11 @@ export class OfficeScene extends Phaser.Scene {
       if (typeof window !== 'undefined' && window.tdtShowTopic) {
         try { window.tdtShowTopic(speakingTopic); } catch (_) {}
       }
+    }
+
+    // 👥 互動段：畫面角落顯示「💬 回應觀眾中」徽章（非互動段則關掉）
+    if (typeof window !== 'undefined' && window.tdtShowInteractionBadge) {
+      try { window.tdtShowInteractionBadge(!!data.yt_interaction); } catch (_) {}
     }
 
     // 把 audio_urls 附加到每行、讓 _playLineSequence 可直接取用
