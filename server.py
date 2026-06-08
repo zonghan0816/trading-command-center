@@ -2916,7 +2916,7 @@ async def _yt_interaction_loop():
             if _yt["mode"] == "LOCKDOWN" and time.time() >= _yt_lockdown_until:
                 _yt_set_mode("GUARDED", auto=True)
             now = time.time()
-            min_gap = max(15, int(_yt["interval_sec"]))
+            min_gap = max(5, int(_yt["interval_sec"]))
             # 有候選留言 + 距上次回應已過最短間隔 → 馬上跑（不空等整個 interval）
             if (_yt["enabled"] and _yt["mode"] not in ("OFF", "LOCKDOWN")
                     and _yt_buffer and now - last_run >= min_gap):
@@ -3593,7 +3593,7 @@ async def yt_config(request: Request):
         _yt["video_id"] = str(body["video_id"]).strip()
     if "interval_sec" in body:
         try:
-            _yt["interval_sec"] = max(15, int(body["interval_sec"]))   # 最短間隔、可低到 15s
+            _yt["interval_sec"] = max(5, int(body["interval_sec"]))    # 最短間隔、可低到 5s
         except Exception:
             pass
     if "window_sec" in body:
@@ -4550,7 +4550,7 @@ def yt_page():
     <b id="s_sp">—</b>
     <span class="lbl" style="min-width:0;font-size:11px">(只影響「有人先嗆你」時、友善觀眾一律熱情)</span></div>
   <div class="row"><span class="lbl">互動間隔</span>
-    <button data-iv="15">15秒</button><button data-iv="30">30秒</button><button data-iv="90">90秒</button><button data-iv="600">10分</button>
+    <button data-iv="5">5秒</button><button data-iv="15">15秒</button><button data-iv="30">30秒</button><button data-iv="90">90秒</button><button data-iv="600">10分</button>
     <input id="iv" type="text" inputmode="numeric" style="max-width:70px" placeholder="秒">
     <button id="b_iv">設定</button><b id="s_iv">—</b>
     <span class="lbl" style="min-width:0;font-size:11px">(最短多久回一則、有留言就回)</span></div>
