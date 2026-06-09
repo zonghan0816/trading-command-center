@@ -2463,6 +2463,8 @@ _yt_lockdown_until = 0.0
 _yt_compassion_ts = 0.0      # 上次關懷轉介時間（防洗版）
 _YT_COMPASSION_COOLDOWN = 600  # 關懷轉介冷卻（避免被刷）
 _yt_invite_ts = 0.0          # 上次口播「歡迎留言」邀請時間
+_yt_seen_users: dict = {}    # user_hash -> 上次看到他留言的時間（判斷「新朋友」點名歡迎用）
+_YT_NEWCOMER_RESET_SEC = 6 * 3600  # 超過這時間沒出現、再來算「新朋友」(可重新被點名歡迎)
 # 健康指標（給 /yt 狀態橫幅、一眼看出有沒有在運作）
 _yt_source_connected = False  # 讀取來源是否連上聊天室
 _yt_last_ingest_ts = 0.0      # 上次讀到留言（進 buffer）的時間
@@ -2512,6 +2514,11 @@ _YT_CRISIS_RE = re.compile(
 # 政治狗哨 / 具名敏感（→ 強制 grey、不給實質立場）
 _YT_GREY_SLANG = ("1450", "塔綠班", "舔共", "中共同路人", "9.2", "823", "蟑螂",
                   "賴清德", "蔡英文", "柯文哲", "侯友宜", "韓國瑜", "馬英九", "蔣萬安")
+# 新人點名歡迎：把 YT 顯示名清成「可安全口播」的名字；含這些就不唸（退回 generic）
+_YT_NAME_BAD_RE = re.compile(
+    r'幹|靠北|智障|腦殘|白痴|去死|垃圾|王八|婊|雞掰|機掰|賤|屌|肏|'
+    r'fuck|shit|bitch|nigg|admin|管理員|官方|系統|moderator|版主', re.I)
+_YT_NAME_KEEP_RE = re.compile(r'[^一-鿿A-Za-z0-9]')  # 只留中英數（emoji/符號裝飾去掉）
 
 
 def _yt_normalize(text: str) -> str:
@@ -2565,6 +2572,22 @@ def _yt_sanitize_name(name: str) -> str:
     return "這位朋友"
 
 
+def _yt_clean_display_name(name: str) -> str:
+    """新人點名歡迎用：把 YT 顯示名清成可安全口播的名字；
+    不安全（髒話/惡意/政治人物/注音）或清完是空 → 回 ''（退回『新朋友』generic）。"""
+    if not name:
+        return ""
+    n = unicodedata.normalize("NFKC", str(name))
+    n = "".join(ch for ch in n if unicodedata.category(ch)[0] != "C")  # 去控制/零寬
+    n = _YT_NAME_KEEP_RE.sub("", n).strip()      # 只留中英數、去掉 emoji/符號裝飾
+    if not n:
+        return ""
+    n = n[:12]                                    # 太長多半是 spam/攻擊
+    if _YT_NAME_BAD_RE.search(n) or _YT_BLOCK_RE.search(n) or _yt_is_grey(n):
+        return ""                                 # 含髒話/惡意/政治人物/注音 → 不唸名、退 generic
+    return n
+
+
 def _yt_rate_allow(uid: str) -> bool:
     """token bucket：每人 + 全頻道每分鐘上限（Cost-DoS 防護）。"""
     now = time.time()
@@ -2603,9 +2626,18 @@ def _yt_ingest(raw_text: str, author: str = "", user_id: str = "",
     if blocked:
         _yt_audit("p0_block", reason=reason, user=uid, source=source)
         return None
+    # 新人偵測：這個 user 這段時間內第一次出現 → 主持人會點名歡迎（提高留存/宣傳）
+    now_ts = time.time()
+    is_newcomer = (now_ts - _yt_seen_users.get(uid, 0)) >= _YT_NEWCOMER_RESET_SEC
+    _yt_seen_users[uid] = now_ts
+    if len(_yt_seen_users) > 2000:                # 24/7 防無限長：清掉過期的
+        for k in [k for k, t in _yt_seen_users.items() if now_ts - t > _YT_NEWCOMER_RESET_SEC]:
+            _yt_seen_users.pop(k, None)
     msg = {
         "message_id": hashlib.sha256(f"{uid}{norm}{time.time()}".encode()).hexdigest()[:12],
         "source": source, "user_hash": uid, "name_safe": _yt_sanitize_name(author),
+        "name_display": _yt_clean_display_name(author),   # 已消毒、可口播的名字（新人點名用）
+        "is_newcomer": is_newcomer,
         "text_norm": norm, "is_sc": bool(is_sc), "sc_amount": int(sc_amount or 0),
         "ts": time.time(), "grey": _yt_is_grey(norm),
         "crisis": bool(_YT_CRISIS_RE.search(norm)),   # 痛苦/自傷/傷人念頭 → 關懷轉介
@@ -2703,6 +2735,7 @@ def _yt_select(classified: list, mode: str = "OPEN"):
         elif m["risk"] == "soft_redirect": s += 2
         elif m["risk"] == "grey":        s += 0.5
         if m["is_sc"]:                   s += min(m["sc_amount"], 500) * 1.5 / 100  # SC 加權、硬上限
+        if m.get("is_newcomer"):         s += 3   # 新朋友優先被點到（留存/宣傳）
         return s + random.random()
 
     chosen = max(cands, key=score)
@@ -2756,7 +2789,7 @@ async def _yt_build_intent(chosen: dict):
 
 
 # ── P4：主生成（固定人設 + 今日新聞 + intent、無記憶、不看 raw）────────
-async def _yt_generate(intent: dict, name_safe: str):
+async def _yt_generate(intent: dict, name_safe: str, is_newcomer: bool = False, name_display: str = ""):
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         return None
@@ -2795,6 +2828,17 @@ async def _yt_generate(intent: dict, name_safe: str):
         "查不到就老實說「目前查不到確切資訊」、絕不要編造。一般閒聊不用查。\n"
         if use_search else ""
     )
+    # 新朋友第一次留言 → 開場點名歡迎（名字已消毒、空字串就用 generic「新朋友」）
+    if is_newcomer:
+        who = name_display or "新朋友"
+        welcome_note = (
+            f"## 🎉 這是新朋友第一次留言！\n"
+            f"請其中一位主持人**開場第一句就熱情點名歡迎他**——直接喊出「{who}」"
+            f"（例：『喔!歡迎新來的 {who}!』『{who} 第一次來喔,歡迎歡迎!』),"
+            f"讓他有被看到、被歡迎的感覺,**再**接著回應他的留言。語氣熱情、像朋友、不要嗆他。\n"
+        )
+    else:
+        welcome_note = ""
     dyn = (
         "（這是『直接生成』任務：觀眾的問題在下面，請**直接產生兩位主持人的回應對白**，"
         "不要複述規則、不要反問我要 topic/tone/seg。"
@@ -2802,6 +2846,7 @@ async def _yt_generate(intent: dict, name_safe: str):
         f"## 👥 觀眾互動（回應一位觀眾、稱呼一律用「{name_safe}」、不要唸暱稱）\n"
         f"觀眾想聊：{intent.get('intent', '')}\n"
         f"回應方式：{style_note}\n"
+        + welcome_note
         + search_note +
         f"請兩位主持人用 3~5 句、緊扣『觀眾想聊』的內容回應——他問什麼就聊什麼、叫你們講笑話就講笑話、閒聊就閒聊。\n"
         "★ **不要主動把話題帶到今日新聞或時事**；只有當『觀眾想聊』裡他自己就提到某則新聞/時事/政治，才順著聊那件事。\n"
@@ -2935,7 +2980,9 @@ async def _yt_run_round(trigger: str = "auto") -> dict:
     if not chosen:
         return {"ok": False, "reason": "none selected", "diag": diag}
     intent = await _yt_build_intent(chosen)
-    lines = await _yt_generate(intent, chosen["name_safe"])
+    lines = await _yt_generate(intent, chosen["name_safe"],
+                               is_newcomer=bool(chosen.get("is_newcomer")),
+                               name_display=chosen.get("name_display", ""))
     if not lines:
         return {"ok": False, "reason": "gen fail"}
     # P5：輸出閘（複用）+ TTS sanitize + 洩漏檢查
