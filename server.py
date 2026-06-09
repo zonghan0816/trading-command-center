@@ -2468,6 +2468,7 @@ _yt_source_connected = False  # 讀取來源是否連上聊天室
 _yt_last_ingest_ts = 0.0      # 上次讀到留言（進 buffer）的時間
 _yt_last_round_ts = 0.0       # 上次跑互動 round 的時間
 _yt_last_round_info = ""      # 上次 round 結果摘要
+_yt_viewers = None            # 同時觀看人數（None=未知/未連線/主播關閉顯示）
 
 
 def _yt_record_round(res: dict):
@@ -3036,9 +3037,10 @@ async def _yt_api_chat_loop():
         await asyncio.sleep(15)
         return
     print(f"[yt] ✅ 官方 API 已連線、開始接收留言 video={vid}")
-    global _yt_source_connected
+    global _yt_source_connected, _yt_viewers
     _yt_source_connected = True
     page_token = None
+    last_viewers_fetch = 0.0
     while _yt["enabled"] and _yt["source"] == "ytapi" and _yt["video_id"] == vid:
         try:
             kw = dict(liveChatId=lcid, part="snippet,authorDetails", maxResults=200)
@@ -3048,6 +3050,7 @@ async def _yt_api_chat_loop():
         except Exception as e:
             print(f"[yt] 官方 API 讀取錯誤（直播結束？）、退出重連：{e}")
             _yt_source_connected = False
+            _yt_viewers = None
             return
         now = time.time()
         for it in resp.get("items", []):
@@ -3072,10 +3075,22 @@ async def _yt_api_chat_loop():
             _yt_ingest(text, au.get("displayName", ""), au.get("channelId", ""),
                        is_sc, amt, source="ytapi")
         page_token = resp.get("nextPageToken")
+        # 每 ~60s 抓一次「同時觀看人數」（1 unit、便宜）→ 給狀態橫幅 + 口播只在有人看時才講
+        if now - last_viewers_fetch >= 60:
+            last_viewers_fetch = now
+            try:
+                vr = await asyncio.to_thread(
+                    lambda: yt.videos().list(part="liveStreamingDetails", id=vid).execute())
+                vit = vr.get("items", [])
+                cv = vit[0].get("liveStreamingDetails", {}).get("concurrentViewers") if vit else None
+                _yt_viewers = int(cv) if cv is not None else None
+            except Exception:
+                pass
         # 尊重 YT 建議間隔、但設 8 秒地板省配額（仍在 window 內、不漏留言）
         wait = max(8.0, (resp.get("pollingIntervalMillis") or 5000) / 1000.0)
         await asyncio.sleep(wait)
     _yt_source_connected = False   # while 條件變 false（停用/換源/換片）→ 正常斷線
+    _yt_viewers = None
 
 
 async def _yt_source_loop():
@@ -3450,9 +3465,11 @@ async def next_segment():
 
     # 👋 定期口播「歡迎留言」邀請（只有互動真的開著＝enabled 且非 shadow 才邀、避免請了卻不能互動）。
     #     固定模板、不打 LLM、零成本；不設 yt_interaction（不亮「回應觀眾中」徽章）。
+    #     ★ 只在「有人看」時才邀（_yt_viewers>0）；人數未知(None)仍邀、不因抓不到而靜音。
     global _yt_invite_ts
     now = time.time()
     if (_yt.get("enabled") and not _yt.get("shadow")
+            and (_yt_viewers is None or _yt_viewers > 0)
             and now - _yt_invite_ts >= _yt.get("invite_every_sec", 1800)):
         _yt_invite_ts = now
         lines = [dict(l) for l in random.choice(_YT_INVITES)]
@@ -3627,6 +3644,7 @@ def yt_status():
         "audit_file": str(YT_AUDIT_FILE.name),
         # 健康指標（狀態橫幅用）
         "source_connected": _yt_source_connected,
+        "viewers": _yt_viewers,
         "last_ingest_ago": int(now - _yt_last_ingest_ts) if _yt_last_ingest_ts else None,
         "last_round_ago": int(now - _yt_last_round_ts) if _yt_last_round_ts else None,
         "last_round_info": _yt_last_round_info,
@@ -4662,6 +4680,7 @@ async function load(){try{const d=await(await fetch('/api/yt/status')).json();
   let sub=[];
   if(d.enabled && (d.source==='ytapi'||d.source==='pytchat')){
     sub.push(d.source_connected ? '📡 已連上聊天室' : '📡 未連上（確認直播在 LIVE + video_id 對）');
+    if(d.viewers!=null) sub.push('👁 '+d.viewers+' 人在看');
   }
   if(d.last_ingest_ago!=null) sub.push('上次讀到留言 '+fmtAgo(d.last_ingest_ago)+'前');
   else if(d.enabled) sub.push('還沒讀到留言');
