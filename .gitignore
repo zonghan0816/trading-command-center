@@ -37,3 +37,6 @@ assets/*_test.png
 *.rar
 *.zip
 *.7z
+
+# 執行 log（server 重導輸出、臨時）
+*.log

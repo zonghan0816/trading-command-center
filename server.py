@@ -1197,43 +1197,98 @@ async def _og_enrich_ambiguous(topics: list[str]) -> list[str]:
 
 # ── Step 5.41: 中央氣象署 OpenData → 真天氣自動驅動 ────────────────
 CWA_API_KEY  = os.environ.get("CWA_API_KEY", "")          # 免費註冊 opendata.cwa.gov.tw
-CWA_LOCATION = os.environ.get("CWA_LOCATION", "臺北市")    # 要跟哪個縣市的真天氣同步
+CWA_LOCATION = os.environ.get("CWA_LOCATION", "臺北市")    # 要跟哪個縣市的真天氣同步（預報用）
+CWA_STATION  = os.environ.get("CWA_STATION", "")           # 即時觀測測站名（空＝由 CWA_LOCATION 推導）
 _WEATHER_AUTO_POLL_SEC = 900   # 每 15 分鐘抓一次
 _WEATHER_AUTO_CONFIRM  = 2     # 連續 2 次讀到同一個新天氣才採用（≈30 分防抖、不閃爍）
+
+# 縣市 → 即時觀測局屬測站名（測站名 ≠ 縣市名的才列；其餘直接去「市/縣」推導）
+_CWA_CITY_STATION = {
+    "新北市": "板橋", "桃園市": "新屋", "屏東縣": "恆春",
+    "南投縣": "日月潭", "連江縣": "馬祖",
+}
+
+
+def _cwa_station_name() -> str:
+    """即時觀測要用測站名（如「臺北」）、不是縣市名（「臺北市」）。
+    直轄市/省轄市測站名＝縣市去掉「市/縣」（臺北市→臺北、臺中市→臺中…剛好對得上）。"""
+    if CWA_STATION:
+        return CWA_STATION
+    if CWA_LOCATION in _CWA_CITY_STATION:
+        return _CWA_CITY_STATION[CWA_LOCATION]
+    return CWA_LOCATION.replace("市", "").replace("縣", "")
 
 
 def _map_wx_to_weather(desc: str) -> str:
     """中央氣象署 Wx 天氣現象文字 → 我們的 5 態（順序重要：雷>雨>陰/多雲>晴）。
-    註：颱風 Wx 不含、需另查特報、暫不自動（保持手動切）。"""
+    註：颱風 Wx 不含、需另查特報、暫不自動（保持手動切）。
+    註：台灣夏天 36hr 預報幾乎天天有「午後/短暫雷陣雨」（夏季常態對流、不是整天雷暴）→
+        只有『非短暫』的雷雨/大雷雨才給 thunder；午後/短暫雷陣雨降級成 rain、背景才不會一直閃電。"""
     d = desc or ""
-    if "雷" in d:                  return "thunder"
-    if "雨" in d:                  return "rain"
-    if d.startswith("晴"):         return "clear"   # 晴 / 晴時多雲 → 偏晴
-    if "陰" in d or "多雲" in d:   return "cloudy"  # 多雲 / 多雲時晴 / 陰 → 陰
-    if "晴" in d:                  return "clear"
+    transient = ("短暫" in d) or ("午後" in d)    # 夏季常態陣雨、非劇烈天氣
+    if "雷" in d and not transient:  return "thunder"
+    if "雨" in d:                    return "rain"    # 含午後/短暫雷陣雨 → 當成下雨
+    if d.startswith("晴"):           return "clear"   # 晴 / 晴時多雲 → 偏晴
+    if "陰" in d or "多雲" in d:     return "cloudy"  # 多雲 / 多雲時晴 / 陰 → 陰
+    if "晴" in d:                    return "clear"
     return "clear"
 
 
-def _fetch_cwa_weather():
-    """抓 F-C0032-001（縣市 36hr 預報）當前時段 Wx → (state, desc)。阻塞、用 to_thread 呼叫。失敗回 None。"""
+def _cwa_ssl_ctx():
+    import ssl
+    ctx = ssl.create_default_context()          # 企業/雲端 proxy 環境跳過憑證驗證（同 edge-tts 處理）
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
+def _fetch_cwa_observation():
+    """O-A0003-001 即時觀測：測站「當下」天氣現象（窗外真實況、非預報）→ (state, desc)。失敗回 None。
+    預報會「賭最壞情況」（夏天天天掛午後雷陣雨）、觀測才是現在這一刻的真相 → 優先用這個。"""
+    if not CWA_API_KEY:
+        return None
+    station = _cwa_station_name()
+    url = ("https://opendata.cwa.gov.tw/api/v1/rest/datastore/O-A0003-001"
+           f"?Authorization={CWA_API_KEY}&StationName={urllib.parse.quote(station)}")
+    try:
+        with urllib.request.urlopen(url, timeout=10, context=_cwa_ssl_ctx()) as r:
+            data = json.loads(r.read().decode("utf-8"))
+        stations = data.get("records", {}).get("Station") or []
+        if not stations:
+            return None
+        we = stations[0].get("WeatherElement", {})
+        desc = (we.get("Weather") or "").strip()
+        if not desc or desc in ("-99", "X", "未知", "無"):   # 觀測無資料
+            return None
+        return _map_wx_to_weather(desc), f"觀測:{desc}"
+    except Exception as e:
+        print(f"[weather] CWA 觀測 fetch failed: {e}")
+        return None
+
+
+def _fetch_cwa_forecast():
+    """F-C0032-001（縣市 36hr 預報）當前時段 Wx → (state, desc)。即時觀測拿不到時的後備。"""
     if not CWA_API_KEY:
         return None
     url = ("https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
            f"?Authorization={CWA_API_KEY}&locationName={urllib.parse.quote(CWA_LOCATION)}")
     try:
-        import ssl
-        ctx = ssl.create_default_context()          # 企業/雲端 proxy 環境跳過憑證驗證（同 edge-tts 處理）
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        with urllib.request.urlopen(url, timeout=10, context=ctx) as r:
+        with urllib.request.urlopen(url, timeout=10, context=_cwa_ssl_ctx()) as r:
             data = json.loads(r.read().decode("utf-8"))
         loc = data["records"]["location"][0]
         wx = next(e for e in loc["weatherElement"] if e.get("elementName") == "Wx")
         desc = wx["time"][0]["parameter"]["parameterName"]
-        return _map_wx_to_weather(desc), desc
+        return _map_wx_to_weather(desc), f"預報:{desc}"
     except Exception as e:
-        print(f"[weather] CWA fetch failed: {e}")
+        print(f"[weather] CWA 預報 fetch failed: {e}")
         return None
+
+
+def _fetch_cwa_weather():
+    """真天氣來源：① 即時觀測（窗外當下、優先）② 36hr 預報（後備）。阻塞、用 to_thread 呼叫。失敗回 None。"""
+    if not CWA_API_KEY:
+        return None
+    return _fetch_cwa_observation() or _fetch_cwa_forecast()
 
 
 async def _weather_auto_loop():
