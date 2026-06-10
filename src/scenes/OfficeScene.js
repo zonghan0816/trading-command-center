@@ -114,6 +114,17 @@ export class OfficeScene extends Phaser.Scene {
       this._buildPropOverlay();    // Phase 4 Step 2: 依時段疊道具（depth 1、在角色之下）
       this._buildDecorations();
       this._buildWorkstations();
+      this._buildCurtain();        // 布簾過場（換裝/換幕、骨架；測試：console 打 window.tdtCurtainChange()）
+      // 換裝排程（骨架）：目前只 1 套、自動換裝預設關；先用 console 測試入口看布簾效果
+      this._currentOutfit     = this._pickTodaysOutfit();
+      this._outfitAutoEnabled = false;   // 等真的有多套衣服再開（true=每天清晨自動換）
+      this._outfitChangeHour  = 6;       // 自動換裝時間（清晨、觀眾最少）
+      this._lastOutfitDate    = new Date().toDateString();
+      if (typeof window !== 'undefined') {
+        window.tdtCurtainChange = (outfit) =>
+          this._runCurtainChange(() => this._applyOutfit(outfit || this._pickTodaysOutfit()));
+      }
+      this.time.addEvent({ delay: 60000, callback: this._maybeDailyOutfitChange, callbackScope: this, loop: true });
       this._startBgm();            // BGM 兩首輪流播（bgm_1 / bgm_2）
 
       // Part 2: 每 1 秒更新 crossfade alpha（連續淡入、整點交接前 alpha 已≈1、不會在完成瞬間硬切）
@@ -1437,6 +1448,95 @@ export class OfficeScene extends Phaser.Scene {
 
   _createBgmToggle(_hasBgm) {
     // 開關移到 brand-badge 隱藏點擊（index.html），畫面不顯示按鈕
+  }
+
+  // ── 布簾過場（換裝/換幕）─────────────────────────────────────
+  // 設計：像舞台表演，布簾「完全遮住主播」時瞬間換裝（不淡不剪、不詭異），再拉開亮相。
+  // 角色不能像天氣那樣 crossfade（衣服會疊影/溶解），所以用布簾遮住換。
+  // 素材未到前先用紅色塊驗證「遮得乾淨 + 時機對」。測試：console 打 window.tdtCurtainChange()
+  _buildCurtain() {
+    const { W, H } = this;
+    const DEPTH = 50;                     // 蓋在主播(30)/泡泡(33)之上
+    const half  = Math.ceil(W / 2) + 4;   // 多 4px 重疊、中央不露縫
+    const COLOR = 0x7a1320;               // 暫用劇場紅色塊（之後換布簾 PNG）
+    const cy = H / 2;
+    // 位置記「中心 x」（rectangle origin 預設 0.5）；open=畫面外、close=覆蓋
+    this._curtainPos = {
+      L: { open: -half / 2,    close: half / 2 },       // 左片關上覆蓋 [0, half]
+      R: { open: W + half / 2, close: W - half / 2 },   // 右片關上覆蓋 [W-half, W]
+    };
+    this._curtainL = this.add.rectangle(this._curtainPos.L.open, cy, half, H, COLOR)
+      .setDepth(DEPTH).setVisible(false);
+    this._curtainR = this.add.rectangle(this._curtainPos.R.open, cy, half, H, COLOR)
+      .setDepth(DEPTH).setVisible(false);
+    // 過場字卡（logo 位、暫用文字；之後換成品牌 logo 圖）
+    this._curtainCard = this.add.text(W / 2, cy, '天天嘴台灣', {
+      fontSize: '64px', color: '#FFE08A', fontStyle: 'bold',
+      fontFamily: '"Microsoft JhengHei", Arial, sans-serif',
+    }).setOrigin(0.5).setDepth(DEPTH + 0.1).setAlpha(0).setVisible(false);
+    this._curtainBusy = false;
+  }
+
+  // 跑一次布簾過場：拉上 →（完全遮住時呼叫 onCovered 換裝）→ 停一下 → 拉開。
+  _runCurtainChange(onCovered, opts = {}) {
+    if (this._curtainBusy || !this._curtainL) return;
+    this._curtainBusy = true;
+    const closeMs = opts.closeMs ?? 700, holdMs = opts.holdMs ?? 1200, openMs = opts.openMs ?? 700;
+    const P = this._curtainPos, L = this._curtainL, R = this._curtainR, card = this._curtainCard;
+    L.x = P.L.open; R.x = P.R.open;                 // 保險：從「開」起步
+    L.setVisible(true); R.setVisible(true);
+    // ① 拉上
+    this.tweens.add({ targets: L, x: P.L.close, duration: closeMs, ease: 'Sine.easeInOut' });
+    this.tweens.add({
+      targets: R, x: P.R.close, duration: closeMs, ease: 'Sine.easeInOut',
+      onComplete: () => {
+        // ② 完全遮住 → 幕後瞬間換裝（觀眾看不到）
+        try { if (typeof onCovered === 'function') onCovered(); }
+        catch (e) { console.warn('[curtain] onCovered error', e); }
+        card.setVisible(true);
+        this.tweens.add({ targets: card, alpha: 1, duration: 250 });
+        // ③ 停一下再拉開
+        this.time.delayedCall(holdMs, () => {
+          this.tweens.add({ targets: card, alpha: 0, duration: 200,
+            onComplete: () => card.setVisible(false) });
+          this.tweens.add({ targets: L, x: P.L.open, duration: openMs, ease: 'Sine.easeInOut' });
+          this.tweens.add({
+            targets: R, x: P.R.open, duration: openMs, ease: 'Sine.easeInOut',
+            onComplete: () => { L.setVisible(false); R.setVisible(false); this._curtainBusy = false; },
+          });
+        });
+      },
+    });
+  }
+
+  // 幕後換裝（STUB）：素材到位前先記錄 + 重播 idle（同套衣服、無視覺變化）。
+  // TODO（素材到位後）：依 outfit 載入/切到對應 char_ 貼圖與動畫、再 play idle。
+  _applyOutfit(outfit) {
+    this._currentOutfit = outfit;
+    console.info('[curtain] 換裝 →', outfit, '（skeleton：目前只有 outfit_1、無實際貼圖切換）');
+    Object.keys(this.characters || {}).forEach((id) => {
+      const ch = this.characters[id];
+      if (ch?.sprite) {
+        // TODO: 之後改成切到 outfit 對應的 texture/anim
+        ch.sprite.play(this._animKey(id, 'idle'));
+      }
+    });
+  }
+
+  // 依日期挑當天的衣服（之後擴成一週 7 套 / 季節套）
+  _pickTodaysOutfit() {
+    const OUTFITS = ['outfit_1'];        // 之後：['outfit_1' … 'outfit_7']
+    return OUTFITS[new Date().getDay() % OUTFITS.length];   // 0=日 … 6=六
+  }
+
+  // 每天清晨自動換裝一次（預設關、等真的有多套衣服再開）
+  _maybeDailyOutfitChange() {
+    if (!this._outfitAutoEnabled) return;                  // 預設關、避免只有 1 套時亂跑
+    if (new Date().getHours() < (this._outfitChangeHour ?? 6)) return;
+    const today = new Date().toDateString();
+    if (this._lastOutfitDate === today) return;            // 今天換過了
+    this._lastOutfitDate = today;
+    this._runCurtainChange(() => this._applyOutfit(this._pickTodaysOutfit()));
   }
 
   update() {
