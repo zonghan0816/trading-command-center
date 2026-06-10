@@ -64,6 +64,13 @@ export class OfficeScene extends Phaser.Scene {
       this._nextDialogue = null;            // 已 prefetch 好的下一輪 data（待 consume）
       this._prefetchInProgress = false;     // prefetch fetch 是否進行中
       this._prefetchStartedForSeq = null;   // 已對哪個 seq 觸發過 prefetch（避免同輪重複觸發）
+      // 24H watchdog 心跳（給 index.html 的 watchdog 用、它不靠 Phaser 時鐘、Phaser 死了也能 reload 復原）：
+      //   __tdtSceneAlive = update() 每幀更新（Phaser 渲染迴圈活著）；__tdtPlayTs = 對話/迴圈有在前進
+      if (typeof window !== 'undefined') {
+        window.__tdtScene = this;
+        window.__tdtPlayTs = Date.now();
+        window.__tdtSceneAlive = Date.now();
+      }
 
       // Phase 4 Step 3.0: cache 當前時段、給 _buildWorkstations / sprite.play 用
       this._currentSlot = this._getCurrentTimeSlot();
@@ -893,6 +900,7 @@ export class OfficeScene extends Phaser.Scene {
 
     // Phase 3 Step 6.7: 暫停中、500ms 後再檢查（讓 OBS 畫面不停、但不打 API）
     if (this.state?.paused) {
+      if (typeof window !== 'undefined') window.__tdtPlayTs = Date.now();  // 暫停是正常、心跳保持新鮮、watchdog 不誤判
       this.time.delayedCall(500, this._fetchAndPlayDialogue, [], this);
       return;
     }
@@ -928,6 +936,7 @@ export class OfficeScene extends Phaser.Scene {
     } catch (_) {}
     // API 失敗 → 3 秒後靜默重試
     this._chatInProgress = false;
+    if (typeof window !== 'undefined') window.__tdtPlayTs = Date.now();  // pool 空/fetch 失敗也算「活著在重試」、別誤判凍住
     this.time.delayedCall(3000, this._fetchAndPlayDialogue, [], this);
   }
 
@@ -1203,6 +1212,7 @@ export class OfficeScene extends Phaser.Scene {
 
   _playLineSequence(lines, walkerId, onComplete, seq) {
     if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
+    if (typeof window !== 'undefined') window.__tdtPlayTs = Date.now();  // watchdog 心跳：每句都更新＝對話真的在前進
     if (lines.length === 0) { onComplete(); return; }
     const [line, ...rest] = lines;
     const ch = this.characters[line.speaker];
@@ -1429,5 +1439,8 @@ export class OfficeScene extends Phaser.Scene {
     // 開關移到 brand-badge 隱藏點擊（index.html），畫面不顯示按鈕
   }
 
-  update() {}
+  update() {
+    // 24H watchdog 心跳：Phaser 渲染迴圈每幀呼叫 update()、整個凍住就會停 → index.html watchdog 用這個判斷「畫面死了」
+    if (typeof window !== 'undefined') window.__tdtSceneAlive = Date.now();
+  }
 }

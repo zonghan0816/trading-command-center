@@ -594,5 +594,68 @@
       window.dispatchEvent(new CustomEvent('bgm-toggle', { detail: { muted: !muted } }));
     });
   </script>
+
+  <script>
+    // ── 24H watchdog：前端凍住自動復原（不靠 Phaser 時鐘、Phaser 死了也救得回）──────────
+    //   心跳由 OfficeScene 更新：__tdtSceneAlive=update() 每幀（渲染迴圈活著）、__tdtPlayTs=對話/迴圈有在前進。
+    //   ① 整個畫面死掉（update 停、連 idle 動畫都不動）→ reload
+    //   ② 畫面還活著但對話卡住（_chatInProgress 卡住沒清）→ 先軟復原、不行才 reload
+    //   pool 空/暫停都會持續更新 __tdtPlayTs，所以不會誤判；只有「迴圈真的停掉」才會動作。
+    (function () {
+      var CHECK_MS       = 8000;    // 每 8 秒檢查
+      var GRACE_MS       = 30000;   // 開場 30 秒寬限（等 Phaser/CDN 載入、不誤判）
+      var SCENE_DEAD_MS  = 25000;   // update() 心跳停這麼久＝渲染迴圈死了 → reload
+      var PLAY_SOFT_MS   = 90000;   // 對話心跳停這麼久（畫面還活著）→ 軟復原（重設旗標、重踢迴圈）
+      var PLAY_HARD_MS   = 240000;  // 軟復原也沒救回來 → reload
+      var RELOAD_GAP_MS  = 60000;   // 兩次 reload 至少間隔 60 秒、避免一直閃畫面
+      var bootAt = Date.now();
+      var softLatch = false;
+
+      function canReload() {
+        var last = +sessionStorage.getItem('tdt_wd_reload') || 0;
+        return Date.now() - last > RELOAD_GAP_MS;
+      }
+      function doReload(why) {
+        if (!canReload()) return;
+        sessionStorage.setItem('tdt_wd_reload', '' + Date.now());
+        console.error('[watchdog] ' + why + ' → reload 復原');
+        location.reload();
+      }
+
+      setInterval(function () {
+        var now = Date.now();
+        if (now - bootAt < GRACE_MS) return;                 // 開場寬限
+        var sc    = window.__tdtScene;
+        var alive = window.__tdtSceneAlive || 0;
+        var play  = window.__tdtPlayTs || 0;
+
+        // ① 整個 Phaser 渲染迴圈死掉（畫面凍住、idle 動畫也停）→ reload
+        if (now - alive > SCENE_DEAD_MS) {
+          doReload('場景無心跳 ' + Math.round((now - alive) / 1000) + 's');
+          return;
+        }
+        // 暫停是正常、不算停滯（OfficeScene 暫停時也持續更新 __tdtPlayTs）
+        if (sc && sc.state && sc.state.paused) return;
+
+        var idle = now - play;
+        // ② 畫面活著但對話卡住 → 先軟復原一次（重設旗標、重踢出段迴圈）
+        if (idle > PLAY_SOFT_MS && !softLatch && sc) {
+          softLatch = true;
+          console.warn('[watchdog] 對話停滯 ' + Math.round(idle / 1000) + 's、軟復原（重設旗標重踢迴圈）');
+          try {
+            sc._chatInProgress = false;
+            sc._prefetchInProgress = false;
+            sc._nextDialogue = null;
+            if (typeof sc._fetchAndPlayDialogue === 'function') sc._fetchAndPlayDialogue();
+          } catch (e) { console.warn('[watchdog] 軟復原出錯', e); }
+        }
+        if (idle < PLAY_SOFT_MS) softLatch = false;          // 恢復健康 → 解除 latch、下次還能再軟復原
+        // ③ 軟復原沒用、繼續卡 → reload
+        if (idle > PLAY_HARD_MS) doReload('對話停滯 ' + Math.round(idle / 1000) + 's 軟復原無效');
+      }, CHECK_MS);
+
+      console.info('[watchdog] 24H 前端看門狗已啟動 (scene<' + SCENE_DEAD_MS / 1000 + 's, soft ' + PLAY_SOFT_MS / 1000 + 's, hard ' + PLAY_HARD_MS / 1000 + 's)');
+    })();
+  </script>
 </body>
 </html>

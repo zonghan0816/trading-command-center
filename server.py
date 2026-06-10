@@ -2414,13 +2414,16 @@ _yt = {
     "web_search": True,      # 具名人物/時事題：先上網查證再中立回答（有每次查詢費用、走 API 帳）
     "spice": 60,             # 嗆辣度 0~100：只影響「對方先嗆你」時反嗆多狠；友善觀眾一律熱情不受影響
     "invite_every_sec": 1800,  # 主持人口播「歡迎留言」邀請的最短間隔
+    "viewer_gate": True,       # ★省配額：沒人看時不讀聊天、只偷瞄人數；有人看才讀（10k/日配額才夠用）
+    "idle_poll_sec": 40,       # 沒人看時、每幾秒偷瞄一次觀看人數（videos.list 1 unit、便宜）
 }
 
 # 設定存檔：重啟後自動載回上次設定（免每次重設）。檔不進 git。
 _YT_CONFIG_FILE = "wwt_yt_config.json"
 _YT_PERSIST_KEYS = ("enabled", "shadow", "mode", "source", "video_id",
                     "interval_sec", "window_sec", "user_cooldown_sec",
-                    "web_search", "spice", "invite_every_sec")
+                    "web_search", "spice", "invite_every_sec",
+                    "viewer_gate", "idle_poll_sec")
 
 
 def _yt_save_config():
@@ -3070,11 +3073,18 @@ async def _yt_api_chat_loop():
         _yt["source"] = "fake"        # 沒授權 → 退回 fake、避免空轉
         return
     vid = _yt["video_id"]
-    try:
-        r = await asyncio.to_thread(
-            lambda: yt.videos().list(part="liveStreamingDetails", id=vid).execute())
+    global _yt_source_connected, _yt_viewers
+
+    def _fetch_meta():
+        # 一次 videos.list（1 unit）同時拿到 activeLiveChatId + concurrentViewers
+        r = yt.videos().list(part="liveStreamingDetails", id=vid).execute()
         items = r.get("items", [])
-        lcid = items[0].get("liveStreamingDetails", {}).get("activeLiveChatId") if items else None
+        d = items[0].get("liveStreamingDetails", {}) if items else {}
+        cv = d.get("concurrentViewers")
+        return d.get("activeLiveChatId"), (int(cv) if cv is not None else None)
+
+    try:
+        lcid, _yt_viewers = await asyncio.to_thread(_fetch_meta)
     except Exception as e:
         print(f"[yt] 取 liveChatId 失敗、15 秒重試：{e}")
         await asyncio.sleep(15)
@@ -3083,12 +3093,27 @@ async def _yt_api_chat_loop():
         print(f"[yt] video={vid} 沒有進行中的聊天室（不是 live？或還沒開播）、15 秒重試")
         await asyncio.sleep(15)
         return
-    print(f"[yt] ✅ 官方 API 已連線、開始接收留言 video={vid}")
-    global _yt_source_connected, _yt_viewers
+    gate = bool(_yt.get("viewer_gate", True))
+    idle_poll = max(15, int(_yt.get("idle_poll_sec", 40)))
+    print(f"[yt] ✅ 官方 API 已連線 video={vid}（省配額 viewer_gate={'開' if gate else '關'}、viewers={_yt_viewers}）")
     _yt_source_connected = True
     page_token = None
-    last_viewers_fetch = 0.0
+    last_meta_fetch = time.time()
     while _yt["enabled"] and _yt["source"] == "ytapi" and _yt["video_id"] == vid:
+        # ★省配額：開 gate 且「沒人看」→ 不讀聊天（貴）、只定期偷瞄人數（便宜）。一有人看才讀。
+        #   viewers=None（直播沒公開觀看數）也視為沒人看；要照讀就把 viewer_gate 關掉。
+        if gate and not (_yt_viewers and _yt_viewers > 0):
+            await asyncio.sleep(idle_poll)
+            try:
+                lcid, _yt_viewers = await asyncio.to_thread(_fetch_meta)
+            except Exception as e:
+                print(f"[yt] 偷瞄人數失敗、{idle_poll}s 後重試：{e}")
+                continue
+            if not lcid:                       # 直播結束 → 退出由外層重連
+                print("[yt] 直播聊天室已關閉、退出重連")
+                break
+            page_token = None                  # 有人看時從「現在」開始讀、不撈舊 backlog
+            continue
         try:
             kw = dict(liveChatId=lcid, part="snippet,authorDetails", maxResults=200)
             if page_token:
@@ -3122,15 +3147,11 @@ async def _yt_api_chat_loop():
             _yt_ingest(text, au.get("displayName", ""), au.get("channelId", ""),
                        is_sc, amt, source="ytapi")
         page_token = resp.get("nextPageToken")
-        # 每 ~60s 抓一次「同時觀看人數」（1 unit、便宜）→ 給狀態橫幅 + 口播只在有人看時才講
-        if now - last_viewers_fetch >= 60:
-            last_viewers_fetch = now
+        # 讀聊天時每 ~60s 順手更新人數（判斷人走了沒 → 走了下一圈就回省配額模式）
+        if now - last_meta_fetch >= 60:
+            last_meta_fetch = now
             try:
-                vr = await asyncio.to_thread(
-                    lambda: yt.videos().list(part="liveStreamingDetails", id=vid).execute())
-                vit = vr.get("items", [])
-                cv = vit[0].get("liveStreamingDetails", {}).get("concurrentViewers") if vit else None
-                _yt_viewers = int(cv) if cv is not None else None
+                _, _yt_viewers = await asyncio.to_thread(_fetch_meta)
             except Exception:
                 pass
         # 尊重 YT 建議間隔、但設 8 秒地板省配額（仍在 window 內、不漏留言）
@@ -3684,7 +3705,8 @@ def yt_status():
     return JSONResponse({
         **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "video_id",
                                "interval_sec", "window_sec", "user_cooldown_sec",
-                               "web_search", "spice", "invite_every_sec")},
+                               "web_search", "spice", "invite_every_sec",
+                               "viewer_gate", "idle_poll_sec")},
         "buffer": len(_yt_buffer), "play_queue": len(_yt_play_queue),
         "recent_events": len(recent), "recent_unsafe": unsafe,
         "lockdown_until": _yt_lockdown_until,
@@ -3702,7 +3724,7 @@ def yt_status():
 async def yt_config(request: Request):
     """設定：{enabled, shadow, mode, source, video_id, interval_sec, window_sec, web_search}。"""
     body = await request.json()
-    for k in ("enabled", "shadow", "web_search"):
+    for k in ("enabled", "shadow", "web_search", "viewer_gate"):
         if k in body:
             _yt[k] = bool(body[k])
     if body.get("mode") in ("OPEN", "GUARDED", "LOCKDOWN", "OFF"):
@@ -3736,11 +3758,17 @@ async def yt_config(request: Request):
             _yt["invite_every_sec"] = max(60, int(body["invite_every_sec"]))
         except Exception:
             pass
+    if "idle_poll_sec" in body:
+        try:
+            _yt["idle_poll_sec"] = max(15, int(body["idle_poll_sec"]))
+        except Exception:
+            pass
     _yt_save_config()   # 存檔 → 重啟自動載回
     _yt_audit("config", **{k: _yt[k] for k in ("enabled", "shadow", "mode", "source", "web_search", "spice")})
     return JSONResponse({"ok": True, **{k: _yt[k] for k in
                          ("enabled", "shadow", "mode", "source", "video_id",
-                          "interval_sec", "window_sec", "web_search", "spice")}})
+                          "interval_sec", "window_sec", "web_search", "spice",
+                          "viewer_gate", "idle_poll_sec")}})
 
 
 @app.post("/api/yt/inject")
