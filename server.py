@@ -770,6 +770,12 @@ def _disambiguate_title(title: str, context: str = '') -> str:
     for surface in _AMBIGUOUS_SURFACES:
         if surface not in result:
             continue
+        # ★ 只替換「獨立短詞」：surface 前後都不是中文字才算。
+        #   否則會把更長的名字切壞 —— 例：賴瑞隆 的「賴」≠賴清德、高市早苗 的「高市」≠高雄市、
+        #   侯漢廷 的「侯」、柯志恩 的「柯」… 都曾被誤代換成總統/市長。
+        standalone = re.compile(r'(?<![一-鿿])' + re.escape(surface) + r'(?![一-鿿])')
+        if not standalone.search(result):
+            continue   # surface 只是更長名字/詞的一部分、不是獨立短詞 → 不動它
         candidates = [r for r in _ENTITY_RULES if r['surface'] == surface]
         best, best_score = None, 0
         for c in candidates:
@@ -777,10 +783,10 @@ def _disambiguate_title(title: str, context: str = '') -> str:
             if score > best_score:
                 best_score, best = score, c
         if best and best_score >= 1:
-            result = result.replace(surface, best['canonical'])
+            result = standalone.sub(best['canonical'], result)
             print(f"[disambig] '{surface}' → '{best['canonical']}' (score={best_score})")
         else:
-            result = result.replace(surface, f'{surface}【?含義不明，請勿推測】')
+            result = standalone.sub(f'{surface}【?含義不明，請勿推測】', result)
             print(f"[disambig] '{surface}' 無上下文 → 標記歧義")
     return result
 
@@ -2474,6 +2480,9 @@ _yt_last_ingest_ts = 0.0      # 上次讀到留言（進 buffer）的時間
 _yt_last_round_ts = 0.0       # 上次跑互動 round 的時間
 _yt_last_round_info = ""      # 上次 round 結果摘要
 _yt_viewers = None            # 同時觀看人數（None=未知/未連線/主播關閉顯示）
+_yt_quota_exhausted = False    # YT Data API 配額是否已爆（讀不到聊天）→ 主播會講一句梗
+_yt_quota_msg_ts = 0.0         # 上次播「額度爆」梗的時間（冷卻、不洗版）
+_YT_QUOTA_MSG_COOLDOWN = 3600  # 額度爆時每隔多久講一次（1 小時、額度會卡好幾小時）
 
 
 def _yt_record_round(res: dict):
@@ -2494,6 +2503,14 @@ _YT_INVITES = [
      {"speaker": "xiaomei", "text": "真的,別只是默默看啦,丟一句上來,我們陪你聊!", "emotions": ["smile", "talk"]}],
     [{"speaker": "xiaomei", "text": "如果你正在看,留個言讓我們知道你在喔,我們會回你的留言!", "emotions": ["wave", "smile"]},
      {"speaker": "aming", "text": "對,想聽我們聊哪條新聞、有什麼想法,聊天室告訴我們,馬上安排!", "emotions": ["talk", "passionate"]}],
+]
+
+# 額度爆掉時主持人講的梗（固定模板、把「讀不到聊天」變內容、符合「AI bug 變梗」DNA）
+_YT_QUOTA_LINES = [
+    [{"speaker": "aming", "text": "哎呀跟大家報告一下——我們今天讀留言的額度被 YouTube 收走啦,暫時看不到聊天室!", "emotions": ["talk", "surprised"]},
+     {"speaker": "xiaomei", "text": "不是不理你喔,是真的額度滿了啦!台灣下午三點重置,等等回來繼續陪你聊!", "emotions": ["smile", "wave"]}],
+    [{"speaker": "xiaomei", "text": "誒老實說,我們今天的留言額度爆了,現在丟訊息我們會晚一點才看到喔!", "emotions": ["talk", "skeptical"]},
+     {"speaker": "aming", "text": "省著點用嘛!額度一回來我們馬上開讀,先繼續嘴新聞啦!", "emotions": ["passionate", "talk"]}],
 ]
 
 # ── P0：normalization / 硬規則 / 偵測 ──────────────────────────────
@@ -3073,7 +3090,7 @@ async def _yt_api_chat_loop():
         _yt["source"] = "fake"        # 沒授權 → 退回 fake、避免空轉
         return
     vid = _yt["video_id"]
-    global _yt_source_connected, _yt_viewers
+    global _yt_source_connected, _yt_viewers, _yt_quota_exhausted
 
     def _fetch_meta():
         # 一次 videos.list（1 unit）同時拿到 activeLiveChatId + concurrentViewers
@@ -3085,7 +3102,10 @@ async def _yt_api_chat_loop():
 
     try:
         lcid, _yt_viewers = await asyncio.to_thread(_fetch_meta)
+        _yt_quota_exhausted = False     # 讀得到 → 額度沒問題
     except Exception as e:
+        if "quota" in str(e).lower():
+            _yt_quota_exhausted = True   # 額度爆 → 讓主播講一句梗
         print(f"[yt] 取 liveChatId 失敗、15 秒重試：{e}")
         await asyncio.sleep(15)
         return
@@ -3106,7 +3126,10 @@ async def _yt_api_chat_loop():
             await asyncio.sleep(idle_poll)
             try:
                 lcid, _yt_viewers = await asyncio.to_thread(_fetch_meta)
+                _yt_quota_exhausted = False
             except Exception as e:
+                if "quota" in str(e).lower():
+                    _yt_quota_exhausted = True
                 print(f"[yt] 偷瞄人數失敗、{idle_poll}s 後重試：{e}")
                 continue
             if not lcid:                       # 直播結束 → 退出由外層重連
@@ -3531,12 +3554,40 @@ async def next_segment():
                 "tone": "react", "angle": "", "topic": item["topic"],
                 "from_pool": False, "live_insert": True}
 
+    global _yt_invite_ts, _yt_quota_msg_ts
+    now = time.time()
+
+    # 🤖 額度爆掉時主持人講一句梗（把「讀不到聊天」變內容、不尷尬；符合 AI bug 變梗 DNA）。
+    #     額度會卡好幾小時 → 冷卻 _YT_QUOTA_MSG_COOLDOWN 才再講一次、不洗版。
+    if (_yt.get("enabled") and not _yt.get("shadow") and _yt_quota_exhausted
+            and now - _yt_quota_msg_ts >= _YT_QUOTA_MSG_COOLDOWN):
+        _yt_quota_msg_ts = now
+        lines = [dict(l) for l in random.choice(_YT_QUOTA_LINES)]
+        audio_urls = await _gen_tts_dialogue(lines)
+        st = _load_state()
+        for ln in lines:
+            spk = ln.get("speaker")
+            if spk in st.get("hosts", {}):
+                st["hosts"][spk]["status"]      = "talking"
+                st["hosts"][spk]["last_output"] = ln.get("text", "")
+        st["topic"]      = "💬 聊天室額度滿了"
+        st["mode"]       = "discussion"
+        st["updated_at"] = datetime.now().strftime("%H:%M:%S")
+        if not _tts_voice_state:
+            st["ticker"] = ""
+        _save_state(st)
+        spa = lines[0].get("speaker", "aming")
+        spb = next((l.get("speaker") for l in lines[1:] if l.get("speaker") != spa), None)
+        print("[yt] 🤖 播放額度爆梗")
+        return {"dialogue": lines, "audio_urls": audio_urls, "speaker_a": spa, "speaker_b": spb,
+                "tone": "talk", "angle": "", "topic": "💬 聊天室額度滿了",
+                "from_pool": False, "yt_quota_msg": True}
+
     # 👋 定期口播「歡迎留言」邀請（只有互動真的開著＝enabled 且非 shadow 才邀、避免請了卻不能互動）。
     #     固定模板、不打 LLM、零成本；不設 yt_interaction（不亮「回應觀眾中」徽章）。
     #     ★ 只在「有人看」時才邀（_yt_viewers>0）；人數未知(None)仍邀、不因抓不到而靜音。
-    global _yt_invite_ts
-    now = time.time()
-    if (_yt.get("enabled") and not _yt.get("shadow")
+    #     ★ 額度爆時不邀（不能讀就別承諾「會回你」、改播上面的額度梗）。
+    if (_yt.get("enabled") and not _yt.get("shadow") and not _yt_quota_exhausted
             and (_yt_viewers is None or _yt_viewers > 0)
             and now - _yt_invite_ts >= _yt.get("invite_every_sec", 1800)):
         _yt_invite_ts = now
