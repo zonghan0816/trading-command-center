@@ -1010,20 +1010,9 @@ export class OfficeScene extends Phaser.Scene {
     this._prefetchStartedForSeq = null;
     if (this._stopCurrentAudio) this._stopCurrentAudio();  // Step 5.32: 新一輪開始、停掉殘留語音
 
-    // Phase 4 Step 5.6 / 5.42: 「話題先出來、對話再出來」
+    // 2026-06-16：topic 改在「對話真正開口的此刻」才推（見 _playDialogue），不在這裡（consume 當下）推。
+    //   原本在這裡推 + 等 900ms 對話才開口 → 話題比對話早一截；現在改成跟第一句同步。
     const speakingTopic = data.topic || '';
-    if (speakingTopic) {
-      // ① 告訴後端「現在正在講這個 topic」（poll fallback + 其他 consumer 用）
-      fetch('http://localhost:8765/api/now_speaking', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topic: speakingTopic }),
-      }).catch(() => {});  // fire-and-forget、失敗不影響播放
-      // ② 直接把話題推上 LED、不等 3 秒 poll（index.html 暴露的入口）
-      if (typeof window !== 'undefined' && window.tdtShowTopic) {
-        try { window.tdtShowTopic(speakingTopic); } catch (_) {}
-      }
-    }
 
     // 👥 互動段：畫面角落顯示「💬 回應觀眾中」徽章（非互動段則關掉）
     if (typeof window !== 'undefined' && window.tdtShowInteractionBadge) {
@@ -1036,14 +1025,11 @@ export class OfficeScene extends Phaser.Scene {
       ...line,
       _audio: audioUrls[i] || null,
     }));
-    // ③ 等 LED 淡出→換→淡入（350ms）+ 一點 beat 後、角色才開口 → 話題一定先到。
-    //    TOPIC_LEAD_MS 可調：想更快接話就調小、想要更明顯的「報題」儀式感就調大。
-    const TOPIC_LEAD_MS = speakingTopic ? 900 : 0;
-    this.time.delayedCall(TOPIC_LEAD_MS, () => this._playDialogue(lines, seq));
+    this.time.delayedCall(0, () => this._playDialogue(lines, seq, speakingTopic));
     return true;
   }
 
-  _playDialogue(lines, seq) {
+  _playDialogue(lines, seq, topic) {
     if (seq !== this._dialogueSeq) return;  // Phase 3 Step 5.1: 舊 seq、不執行
     const walkerId = lines[0].speaker;
     const targetId = lines.find((l, i) => i > 0 && l.speaker !== walkerId)?.speaker;
@@ -1053,6 +1039,16 @@ export class OfficeScene extends Phaser.Scene {
       this._chatInProgress = false;
       this.time.delayedCall(800, this._fetchAndPlayDialogue, [], this);
       return;
+    }
+
+    // ★ topic 在「對話真正要開口的此刻」才推上 LED + 告訴後端 speaking_topic → 跟第一句同步、不提前。
+    //   現有段播放中、LED 維持目前話題；下一段的話題只在它開口時才換上去。
+    if (topic && typeof window !== 'undefined') {
+      fetch('http://localhost:8765/api/now_speaking', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic }),
+      }).catch(() => {});
+      if (window.tdtShowTopic) { try { window.tdtShowTopic(topic); } catch (_) {} }
     }
 
     // Phase 3 Step 4: movement frozen → walker 直接進入 talking 狀態

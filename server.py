@@ -196,6 +196,14 @@ _TTS_RATE = {
     "aming":   "+0%",   # 陳柏偉：正常速（之後用 /voice 現場微調）
     "xiaomei": "+0%",   # 王于安：正常速（之後用 /voice 現場微調）
 }
+# ElevenLabs：指定主持人改用 ElevenLabs 聲音、其餘維持 edge-tts。
+# key 與 voice_id 走 .env（不進 git）；任一空 → 該位仍用 edge-tts。ElevenLabs 失敗會自動 fallback 回 edge-tts。
+ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY", "")
+_TTS_ELEVEN_VOICE = {
+    "xiaomei": os.environ.get("ELEVEN_VOICE_XIAOMEI", ""),   # 王于安：填你選的 ElevenLabs voice_id
+    # "aming": os.environ.get("ELEVEN_VOICE_AMING", ""),     # 之後若也要換陳柏偉再開
+}
+_ELEVEN_MODEL = os.environ.get("ELEVEN_MODEL", "eleven_multilingual_v2")  # 中文支援好；turbo_v2_5 較便宜
 # edge-tts 間歇性回空音訊 → 每句最多重試這麼多次（退避遞增、跨過 edge-tts 爛掉的幾秒）。
 # 大多數隨機失敗重試後就成功、那句就有聲音。
 _TTS_RETRY = 4
@@ -1902,6 +1910,38 @@ def _tts_cache_path(voice: str, rate: str, text: str) -> Path:
     return TTS_DIR / f"{h}.mp3"
 
 
+def _eleven_tts_bytes(text: str, voice_id: str) -> bytes | None:
+    """呼叫 ElevenLabs TTS、回 mp3 bytes。阻塞、用 asyncio.to_thread 呼叫。失敗回 None。"""
+    if not ELEVENLABS_API_KEY or not voice_id or not text:
+        return None
+    url = (f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+           f"?output_format=mp3_44100_128")
+    body = json.dumps({
+        "text": text,
+        "model_id": _ELEVEN_MODEL,
+        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+    }).encode("utf-8")
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "xi-api-key": ELEVENLABS_API_KEY,
+        "Content-Type": "application/json",
+        "Accept": "audio/mpeg",
+    })
+    try:
+        import ssl
+        ctx = ssl.create_default_context()   # 同 edge-tts/CWA：跳過企業/雲端 proxy 憑證
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            data = r.read()
+        if data and len(data) > 200:         # 太小八成是錯誤 JSON、不是音訊
+            return data
+        print(f"[tts] ElevenLabs 回傳異常（{len(data) if data else 0} bytes）")
+        return None
+    except Exception as e:
+        print(f"[tts] ElevenLabs 失敗：{e}")
+        return None
+
+
 # 搞笑梗觸發：聲音掛掉/恢復的轉折事件、給 /api/chat 下一輪生成跑馬燈 + 王于安吐槽。
 # None = 無待處理事件；否則 {"speaker","name","event": "down"|"recover"}
 _pending_voice_meta: dict | None = None
@@ -1992,6 +2032,21 @@ async def _gen_tts_line(speaker: str, text: str) -> str | None:
     if not primary or not text:
         return None
     rate = _TTS_RATE.get(speaker, "+0%")
+    # ── 指定主持人改用 ElevenLabs（例：王于安）。命中快取直接回；ElevenLabs 失敗→落 edge-tts 保證有聲 ──
+    eleven_voice = _TTS_ELEVEN_VOICE.get(speaker, "")
+    if eleven_voice and ELEVENLABS_API_KEY:
+        cache = _tts_cache_path(f"el:{eleven_voice}", _ELEVEN_MODEL, text)
+        if cache.exists():
+            return f"/tts/{cache.name}"
+        audio = await asyncio.to_thread(_eleven_tts_bytes, text, eleven_voice)
+        if audio:
+            try:
+                cache.write_bytes(audio)
+                return f"/tts/{cache.name}"
+            except Exception as e:
+                print(f"[tts] ElevenLabs 寫檔失敗：{e}")
+        else:
+            print(f"[tts] ElevenLabs 無音訊、{speaker} 回退 edge-tts")
     candidates, _in_cooldown = _candidate_voices(speaker)
     primary_failed_now = False
     for voice in candidates:
@@ -2060,10 +2115,10 @@ async def _gen_tts_dialogue(dialogue: list) -> list:
 POOL_FILE         = _HERE / "wwt_dialogue_pool.json"
 _POOL_REFILL_AT   = 15          # pending < 此值 → 背景 refill
 _BATCH_SIZE       = 12          # 一次生成幾段（= 一批涵蓋幾個不同話題、話題多樣性旋鈕）
-_SEG_LINES        = "7~8"       # 每段對白句數（使用者選「深入」、2026-06-07、對話長度旋鈕）
+_SEG_LINES        = "5~6"       # 每段對白句數（2026-06-16 從 7~8 改短：短但完整的小對話、省點成本+話題切換快）
 _BATCH_MAX_TOKENS = 8000        # 批次輸出上限（配合較長段落、留 headroom 避免 JSON 被截斷）
 _SEG_COOLDOWN_SEC = 6 * 3600    # 播過冷卻 6h 才可 recycle
-_SEG_EXPIRE_SEC   = 24 * 3600   # 生成超過 24h 過期、不再播
+_SEG_EXPIRE_SEC   = 72 * 3600   # 生成超過 72h(3天)過期、不再播（2026-06-16 從 24h 拉長：段活久→多重播→省成本）
 _last_picked: dict = {}         # 上一段 {id,topic,tone}（硬限制用）
 _recent_picks: list = []        # 最近播的 {tone,angle}（軟權重用、最多 5）
 _batch_in_progress = False      # 防同時跑多個 batch
@@ -2108,18 +2163,18 @@ def _build_batch_prompt(specs: list) -> str:
     """批次動態 prompt：列出每段 topic/tone/angle、要求回 JSON 陣列。"""
     out = ["## 🎬 批次生成（一次生成多段彼此獨立的對話）",
            f"請生成 {len(specs)} 段**彼此獨立**的對話、陳柏偉與王于安交替、後句接住前句。",
-           f"★★ 硬性要求：**每段務必 {_SEG_LINES} 句**（每句＝一位主持人講一次）。"
-           f"每段 lines 陣列長度必須 ≥ 7，**低於 7 句視為不合格**。寧可長、不要短，不要只講 3~4 句就收。",
-           "每段要把一個話題聊得完整：開球 → 接話 → 展開 → 反駁/補充 → 舉例 → 轉折 → 收個 punchline，"
-           "有來有回像真的在討論一件事；不要硬湊重複字句、也不要草草收尾。",
+           f"★★ 硬性要求：**每段 {_SEG_LINES} 句**（每句＝一位主持人講一次）、lines 陣列長度 5~6。"
+           "重點是「短但完整」：不要硬拉長，更不要講一半就斷。",
+           "每段是一個**完整的小對話**：開球 → 幾個來回接話/反駁/舉例 → 收個自然的 punchline 收尾。"
+           "雖然只有 5~6 句，但要有頭有尾、像把一件事聊到一個段落，**絕不可以戛然而止或讓人覺得沒講完**。",
            "每段套指定的 topic / tone / angle："]
     for sp in specs:
         note = _ANGLE_NOTES.get(sp["angle"], "")
-        out.append(f"- 第 {sp['i']} 段（≥7 句）：topic=「{sp['topic']}」 tone=`{sp['tone']}` angle=`{sp['angle']}`（{note}）")
+        out.append(f"- 第 {sp['i']} 段（5~6 句、完整收尾）：topic=「{sp['topic']}」 tone=`{sp['tone']}` angle=`{sp['angle']}`（{note}）")
     out += ["", "## 輸出格式（嚴格）",
             "只輸出一個 JSON 陣列、不要任何其他文字、不要 markdown code fence。",
             '每元素 = {"seg": <段號數字>, "lines": [ {"speaker":"aming","text":"...","emotions":["..."]}, ... ]}',
-            f"★ 再次提醒：每個 \"lines\" 長度要 {_SEG_LINES}（至少 7）。",
+            f"★ 再次提醒：每個 \"lines\" 長度 {_SEG_LINES}（5~6 句、要完整收尾、不可被截斷）。",
             "speaker 只能 aming（陳柏偉）/ xiaomei（王于安）。各段套各自 tone（對照靜態區 tone 表）、明顯不同、不要重複開場或 punchline。",
             "",
             "## ⚠️ JSON 合法性（很重要、違反會整段被丟掉）",
