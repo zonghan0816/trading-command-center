@@ -2334,7 +2334,10 @@ def _pick_segment():
     pending = [s for s in pool if s.get("status") == "pending"]
     recyclable = [s for s in pool if s.get("status") == "played"
                   and s.get("cooling_until") and now >= float(s["cooling_until"])]
-    cands = pending if pending else recyclable
+    # 2026-06-21 修 bug：原本「有 pending 就完全不碰 recyclable」，導致 refill loop
+    # 一直把 pending 補滿、recyclable 永遠選不到 → 72h 延長期限形同無效（重播機制是死的）。
+    # 改成兩邊一起當候選池，讓重播真的會發生、pending 消耗變慢、補新頻率才會降。
+    cands = pending + recyclable
     if not cands:
         _save_pool(pool)
         return None
