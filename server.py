@@ -2123,6 +2123,11 @@ _last_picked: dict = {}         # 上一段 {id,topic,tone}（硬限制用）
 _recent_picks: list = []        # 最近播的 {tone,angle}（軟權重用、最多 5）
 _batch_in_progress = False      # 防同時跑多個 batch
 
+# 2026-06-22：Claude API 帳號層級月額度被打到上限時的退避（跟 app 內部 _check_budget 是兩個獨立關卡、
+# 帳號額度爆掉時 _check_budget 可能還沒過內部上限、若不擋會每 30s/10min 狂打必定 400 的 call）。
+_anthropic_quota_exhausted_until = 0.0
+_ANTHROPIC_QUOTA_BACKOFF_SEC = 1800     # 退避 30 分鐘再試一次、不用每個 tick 都重打
+
 # ── 熱門新聞 5% live 插隊（爆紅「焦點」新聞首次出現 → 即時生一輪插播、不進 pool）─────
 _LIVE_INSERT_ENABLED      = True
 _LIVE_INSERT_COOLDOWN_SEC = 600     # 兩次插隊至少間隔（news 每 5 分刷、這裡 10 分 → 控在 ~5% 以下）
@@ -2239,13 +2244,20 @@ def _parse_batch_json(text: str) -> list:
     return objs
 
 
+def _is_anthropic_quota_error(e: Exception) -> bool:
+    """偵測 Anthropic 帳號層級月額度爆掉的 400（"You have reached your specified API usage limits"）。"""
+    return "usage limit" in str(e).lower()
+
+
 async def _generate_batch(n: int = _BATCH_SIZE) -> int:
     """一次 Claude call 生成 n 段、各帶 metadata、存進 pool（status=pending）。回新增段數。"""
-    global _batch_in_progress
+    global _batch_in_progress, _anthropic_quota_exhausted_until
     if _batch_in_progress:
         return 0
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
+        return 0
+    if time.time() < _anthropic_quota_exhausted_until:
         return 0
     over, reason = _check_budget(_load_state())
     if over:
@@ -2318,7 +2330,11 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
         print(f"[pool] batch +{added} 段（pending={_pending_count(pool)}、+${cost:.4f}{gate_note}）")
         return added
     except Exception as e:
-        print(f"[pool] batch 失敗：{e}")
+        if _is_anthropic_quota_error(e):
+            _anthropic_quota_exhausted_until = time.time() + _ANTHROPIC_QUOTA_BACKOFF_SEC
+            print(f"[pool] ⚠️ Claude API 帳號額度已爆、{_ANTHROPIC_QUOTA_BACKOFF_SEC // 60} 分鐘內不再嘗試生新（靠 pool 重播撐著）：{e}")
+        else:
+            print(f"[pool] batch 失敗：{e}")
         return 0
     finally:
         _batch_in_progress = False
@@ -2390,8 +2406,11 @@ def _build_live_insert_prompt(spec: dict) -> str:
 
 async def _generate_live_round(topic: str):
     """為熱門 topic 即時生一段（短、react）。過品質+輸出閘+3Q。回 lines 或 None。"""
+    global _anthropic_quota_exhausted_until
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
+        return None
+    if time.time() < _anthropic_quota_exhausted_until:
         return None
     over, reason = _check_budget(_load_state())
     if over:
@@ -2428,7 +2447,11 @@ async def _generate_live_round(topic: str):
         print(f"[live] ⚡ 插隊生成 {len(lines)} 句（+${cost:.4f}）：{topic[:24]}")
         return lines
     except Exception as e:
-        print(f"[live] 插隊生成錯誤：{e}")
+        if _is_anthropic_quota_error(e):
+            _anthropic_quota_exhausted_until = time.time() + _ANTHROPIC_QUOTA_BACKOFF_SEC
+            print(f"[live] ⚠️ Claude API 帳號額度已爆、暫停插隊生成：{e}")
+        else:
+            print(f"[live] 插隊生成錯誤：{e}")
         return None
 
 
