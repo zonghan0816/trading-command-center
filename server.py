@@ -2759,6 +2759,7 @@ def _yt_acc_cost(msg):
 
 # ── P1：分類（risk + categories）。grey 直接標、其餘批次 LLM ────────────
 async def _yt_classify(msgs: list) -> list:
+    global _anthropic_quota_exhausted_until
     to_llm = []
     for m in msgs:
         if m.get("grey"):
@@ -2799,7 +2800,11 @@ async def _yt_classify(msgs: list) -> list:
             m["risk"] = r if r in ("safe", "soft_redirect", "grey", "hard_block") else "grey"
             m["categories"] = o.get("categories", []) if isinstance(o.get("categories"), list) else []
     except Exception as ex:
-        print(f"[yt] classify 出錯、保守標 grey：{ex}")
+        if _is_anthropic_quota_error(ex):
+            _anthropic_quota_exhausted_until = time.time() + _ANTHROPIC_QUOTA_BACKOFF_SEC
+            print(f"[yt] ⚠️ Claude API 帳號額度已爆、{_ANTHROPIC_QUOTA_BACKOFF_SEC // 60} 分鐘內暫停互動（避免狂打死掉的 API）：{ex}")
+        else:
+            print(f"[yt] classify 出錯、保守標 grey：{ex}")
         for m in to_llm:
             m["risk"] = m.get("risk") or "grey"
     return msgs
@@ -3068,6 +3073,10 @@ async def _yt_run_round(trigger: str = "auto") -> dict:
         _yt_play_queue.append({"lines": lines, "name_safe": "這位朋友", "ephemeral": True})
         print("[yt] 💚 關懷轉介入播放佇列")
         return {"ok": True, "shadow": False, "compassion": True, "lines": lines}
+    # Anthropic 帳號額度爆掉時：classify/intent/generate 全要打 API → 整輪跳過、避免每則留言狂噴 400 洗版。
+    # （上面的關懷轉介用固定模板、不需 API，照常運作。）額度恢復後旗標自動過期、互動自動恢復。
+    if time.time() < _anthropic_quota_exhausted_until:
+        return {"ok": False, "reason": "anthropic_quota_exhausted"}
     classified = await _yt_classify(cands)
     _yt_record_metrics(classified)
     if _yt["mode"] == "LOCKDOWN":                          # 分類後可能觸發 spike
