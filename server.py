@@ -1952,7 +1952,6 @@ def _candidate_voices(speaker: str) -> tuple[list[str], bool]:
     正常：聲音優先 + 備胎墊底（目前設定無備胎）。
     冷卻中：回備胎（無備胎 = [] = 該主持人靜音）、不每句重試壞掉的聲音。
     """
-    import time
     primary = _TTS_VOICES.get(speaker)
     fallbacks = [v for v in _TTS_FALLBACK_VOICES.get(speaker, []) if v]
     st = _tts_voice_state.get(speaker, {})
@@ -1966,7 +1965,6 @@ def _mark_voice_down(speaker: str, primary: str, used: str | None) -> None:
     """聲音失敗：設冷卻 + 只在「剛掉下去」時喊一次通知 + 觸發搞笑梗。
     used=None 表示沒備胎、該主持人暫時靜音。
     """
-    import time
     global _pending_voice_meta
     st = _tts_voice_state.setdefault(speaker, {})
     first_time = st.get("down_until", 0) <= time.time()
@@ -2155,7 +2153,6 @@ def _save_pool(pool: list) -> None:
 
 def _sweep_pool(pool: list) -> list:
     """移除過期段（生成超過 24h）。"""
-    import time
     now = time.time()
     return [s for s in pool if (now - float(s.get("created_at", now))) < _SEG_EXPIRE_SEC]
 
@@ -2265,7 +2262,7 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
         return 0
     _batch_in_progress = True
     try:
-        import uuid, time, random
+        import uuid  # 註：time/random 已是 module-level；不可在此區域 import 否則遮蔽整個函式的 time → 2260 行 UnboundLocalError
         # Step 5.42 多樣性：每批從整個新聞池「洗牌 + 隨機抽 n 條不重複」、
         #   讓 ~30 條新聞全都輪得到（不再固定只用前 n 條）。不足 n 條才循環補。
         pool_topics = list(_news_topics_cache) if _news_topics_cache else [random.choice(_CASUAL_TOPICS)]
@@ -2343,7 +2340,6 @@ async def _generate_batch(n: int = _BATCH_SIZE) -> int:
 def _pick_segment():
     """選下一段：硬限制（不連 2 段同 id/topic/tone）+ 軟權重（近 5 段 tone/angle 降權、quality 加權）。
     選中標 played + 6h cooldown。回 segment dict 或 None。"""
-    import time, random
     global _last_picked, _recent_picks
     now = time.time()
     pool = _sweep_pool(_load_pool())
@@ -2458,7 +2454,6 @@ async def _generate_live_round(topic: str):
 async def _maybe_queue_live_insert():
     """偵測「新出現的焦點新聞」→ 生一輪 live 插隊段放佇列。啟動後第一批只 seed、不觸發。"""
     global _last_live_insert_ts, _live_seeded
-    import time
     if not _LIVE_INSERT_ENABLED:
         return
     fresh = [h for h in _focus_headlines if h and h not in _seen_focus]
@@ -3757,7 +3752,6 @@ async def next_segment():
 @app.get("/api/pool/status")
 def pool_status():
     """pool 健康度 + 多樣性觀察：總段 / pending / cooling / 重播統計。"""
-    import time
     now = time.time()
     pool = _load_pool()
     swept = _sweep_pool(pool)
@@ -4045,7 +4039,6 @@ _TTS_RATE_OPTIONS = ["-6%", "-4%", "-2%", "+0%", "+2%", "+3%", "+5%", "+10%"]
 
 
 def _tts_status_payload() -> dict:
-    import time
     now = time.time()
     speakers = {}
     for spk in _TTS_VOICES:
