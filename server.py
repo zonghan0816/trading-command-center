@@ -3030,8 +3030,12 @@ def _yt_record_metrics(classified: list):
     _yt_metrics[:] = [(t, r) for (t, r) in _yt_metrics if now - t < 300]
     recent = [(t, r) for (t, r) in _yt_metrics if now - t < 180]
     if len(recent) >= 8:
-        unsafe = sum(1 for (_t, r) in recent if r in ("hard_block", "grey"))
-        ratio = unsafe / len(recent)
+        # spike 只算 hard_block（真正危險：仇恨/自殘/人肉/武器毒品/詐騙導流等）。
+        # grey（政治/敏感）不算 —— 政論節目留言本來就大量政治，把 grey 當 unsafe 會讓
+        # 正常聊政治就破 60% 自鎖（跟 2026-06-07「grey 不再擋」決定不一致）。
+        # 安全不靠這層粗篩：每則生成的回覆仍過輸出閘 _safety_gate_segment（審實際播出文字）。
+        danger = sum(1 for (_t, r) in recent if r == "hard_block")
+        ratio = danger / len(recent)
         if ratio >= 0.6 and _yt["mode"] != "LOCKDOWN":
             _yt_set_mode("LOCKDOWN", auto=True)
         elif ratio >= 0.35 and _yt["mode"] == "OPEN":
