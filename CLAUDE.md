@@ -18,6 +18,17 @@
 
 ---
 
+## 💾 找回舊對話（換 session / 換電腦也不會掉）
+
+> **對話紀錄不會不見** — Claude Code 按「資料夾」分開存在 `~/.claude/projects/`。換 session、換電腦、隔幾天再開，舊對話都還在。想叫回**這個資料夾**的舊對話：
+> - 啟動時 `claude --resume`（或 `-r`）→ 列出歷次對話、挑一條接續
+> - `claude --continue`（或 `-c`）→ 直接接最近一條
+> - VSCode 擴充套件裡也有「歷史紀錄 / resume」入口
+>
+> ⚠️ **但接續專案不靠對話紀錄**，靠這份 CLAUDE.md「📍 目前進度」+「存進度」commit。所以開全新空白對話也沒差，說「**接續**」我讀檔就接上。真正會遺失的只有「**只用講過、沒寫進 CLAUDE.md / commit 的決定**」→ 重要的事記得叫我「**這個也記一下**」。
+
+---
+
 ## 一句話介紹
 
 **TDT 天天嘴台灣（Taiwan Daily Talk）** — 一個**「假 24H AI 直播」**、兩位 AI 角色「陳柏偉」「王于安」**不停聊新聞、像 24 小時 live 但其實是預生成內容循環播放**的長時間表演。Phaser 3.60 + FastAPI + Claude Haiku 4.5、設計用於 **OBS Browser Source 串 YouTube 24H 私人/公開直播**。
