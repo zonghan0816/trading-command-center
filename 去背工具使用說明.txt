@@ -1,0 +1,20 @@
+怎麼用（最簡單：拖放）
+把圖檔、或一整個資料夾，拖到 去背工具.bat 上放開。
+
+它會在來源旁邊產生一個 keyed/ 資料夾、裡面是處理好的透明 1254×1254 PNG
+確認 OK 後，把 keyed/ 裡的檔覆蓋到 assets/char_xiaomei/ 同名檔 → 重新整理就換好
+★ 關鍵小撇步：先把 GPT 的圖改成目標檔名
+輸出檔名 = 輸入檔名。 所以生完一張「講話」表情，先把它存成 emo_talk.png 再丟進工具 → 出來就是 emo_talk.png、可直接覆蓋。
+
+批次處理 14 張表情的流程：
+
+GPT 生 14 張（用你那張全身當 reference、只改表情）
+各自命名：emo_talk.png、emo_smile.png…act_pointing.png（照 brief 的清單）
+全部丟進一個資料夾
+把那個資料夾拖到 去背工具.bat → 一次全部去背+對齊
+把 keyed/ 裡的全部複製進 assets/char_xiaomei/ 覆蓋 → 重新整理
+進階（命令列）
+
+python tools/char_keyer.py 圖或資料夾 [--scale 0.9] [--ref 別張.png] [--no-clean]
+它自動對齊 emo_idle.png 的人物高度/腳底位置 → 全套表情位置一致
+⚠️ 唯一要注意：舉手過頭的姿勢（揮手/歡呼）自動縮放可能把人變小 → 那張改用 --scale（例如跟別張一樣的倍率）單獨跑，或生圖時手別舉超過頭頂
