@@ -65,13 +65,16 @@ def keep_largest(alpha):
     return np.where(lbl == big, 255, 0).astype(np.uint8)
 
 
-def key_out(src, dist_thr=120, green_thr=55, clean=True):
+def key_out(src, green_thr=40, dist_thr=55, clean=True):
     a = np.array(src.convert("RGBA")).astype(np.int16)
     R, G, B = a[..., 0], a[..., 1], a[..., 2]
     key = detect_key(a)
-    greenness = G - np.maximum(R, B)
+    greenness = G - np.maximum(R, B)   # 綠色主導程度：綠幕≈+90、深藍/深灰/暗色為負
     dist = np.sqrt((R - key[0]) ** 2 + (G - key[1]) ** 2 + (B - key[2]) ** 2)
-    alpha = np.where((dist < dist_thr) | (greenness > green_thr), 0, 255).astype(np.uint8)
+    # 綠幕判定「主要看 greenness（綠是否明顯主導）」。
+    # ⚠️ 不能靠「離 key 色近(dist 小)」當主判據：深藍/深灰等暗色離綠的歐氏距離也可能 <120、
+    #    會被誤刪 → 衣服破洞、頭從脖子斷開被 keep_largest 丟掉。dist 只留很小門檻當輔助（抓近乎純綠）。
+    alpha = np.where((greenness > green_thr) | (dist < dist_thr), 0, 255).astype(np.uint8)
     if clean:
         alpha = keep_largest(alpha)
     # despill：保留區綠色過強 → 壓回（去綠邊）
@@ -148,8 +151,9 @@ def main():
         return
 
     th, tb, tcx, used_ref = ref_box(a.ref, a.size)
+    ref_label = os.path.join(os.path.basename(os.path.dirname(a.ref)), os.path.basename(a.ref))  # 例：char_3q/emo_idle.png
     print(f"畫布 {a.size}x{a.size}｜對齊：人物高={th} 腳底Y={tb} 中心X={tcx}"
-          f"（{'參考 ' + os.path.basename(a.ref) if used_ref else '無參考圖、用預設比例'}）\n")
+          f"（{'參考 ' + ref_label if used_ref else '無參考圖、用預設比例'}）\n")
 
     ok = 0
     for f in files:
@@ -165,7 +169,7 @@ def main():
         except Exception as e:
             print(f"[失敗] {f}：{e}")
 
-    print(f"\n完成 {ok}/{len(files)} 張。輸出在 keyed/ 資料夾，確認 OK 後覆蓋 assets/char_xiaomei/ 同名檔。")
+    print(f"\n完成 {ok}/{len(files)} 張。輸出在 keyed/ 資料夾，確認 OK 後覆蓋對應角色的 assets 資料夾同名檔。")
 
 
 if __name__ == "__main__":

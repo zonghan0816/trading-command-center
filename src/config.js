@@ -38,7 +38,7 @@ export const CONFIG = {
     //  xRatio：角色左右位置（0=最左、0.5=正中、1=最右）。角色與泡泡會一起移動。
     //  yOffsetFromWall：角色上下位置（數字越大＝越往下、越小＝越往上）。小幅微調可再用下面的 charOffsets.y。
     hosts: {
-      aming:   { xRatio: 0.37, yOffsetFromWall: 460, seat: 'left'  },
+      aming:   { xRatio: 0.33, yOffsetFromWall: 470, seat: 'left'  },
       xiaomei: { xRatio: 0.68, yOffsetFromWall: 490, seat: 'right' },
     },
 
@@ -119,7 +119,7 @@ export const CONFIG = {
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
     characterIndividual:      0.56, // 王于安 individual PNG 1254×1254 用
-    characterIndividualAming: 0.51, // 3Q 陳柏惟 individual PNG 用、獨立調整
+    characterIndividualAming: 0.56, // 3Q 陳柏惟 individual PNG 用、獨立調整
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,
     deskBoss:     1.3,    // 保留避免 OfficeScene 舊路徑 undefined
