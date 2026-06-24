@@ -9,7 +9,7 @@ export const CONFIG = {
   //  bgmVolume：背景音樂音量。0 = 靜音、1 = 最大。預設 0.14（不蓋過主持人語音）。
   //  太小聲就調大（例如 0.2、0.3）、太吵就調小。改完存檔 F5 即可、不用重開伺服器。
   audio: {
-    bgmVolume: 0.14,
+    bgmVolume: 0.12,
   },
 
   // ── 窗外天氣（整張背景替換、不是窗戶圖層）─────────────────────
@@ -36,9 +36,10 @@ export const CONFIG = {
 
     // WWT 主持人座位（OfficeScene.js 更新後使用）
     //  xRatio：角色左右位置（0=最左、0.5=正中、1=最右）。角色與泡泡會一起移動。
+    //  yOffsetFromWall：角色上下位置（數字越大＝越往下、越小＝越往上）。小幅微調可再用下面的 charOffsets.y。
     hosts: {
-      aming:   { xRatio: 0.33, yOffsetFromWall: 460, seat: 'left'  },
-      xiaomei: { xRatio: 0.68, yOffsetFromWall: 460, seat: 'right' },
+      aming:   { xRatio: 0.37, yOffsetFromWall: 460, seat: 'left'  },
+      xiaomei: { xRatio: 0.68, yOffsetFromWall: 490, seat: 'right' },
     },
 
     // ── 對話泡泡上下微調（px）──────────────────────────────────────
@@ -117,7 +118,7 @@ export const CONFIG = {
     character:    4.0,
     characterV2:  0.28,   // Phase 3: 1024×1536 單張 PNG 用
     characterEmotion: 1.7, // Phase 4 Step 5.12: 小美 emotion sheet 256×256 用、目標 ≈ 430 px 高、可微調
-    characterIndividual:      0.49, // 王于安 individual PNG 1254×1254 用
+    characterIndividual:      0.56, // 王于安 individual PNG 1254×1254 用
     characterIndividualAming: 0.51, // 3Q 陳柏惟 individual PNG 用、獨立調整
     characterBoss: 0.33,  // 保留避免 OfficeScene 舊路徑 undefined
     desk:         0.5,

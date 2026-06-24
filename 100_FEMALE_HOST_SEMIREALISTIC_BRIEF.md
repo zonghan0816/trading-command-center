@@ -51,7 +51,7 @@ act_pointing  act_tired  act_walking
 - 知性、專業、但網感重、親和、反差萌、Podcast 控場氣場
 - 髮：及肩深棕、微捲、俐落
 - 妝：自然清透、紅唇點綴
-- 服裝：合身西裝外套 + 簡單內搭（**避開純綠/純洋紅**，否則去背會吃掉）
+- 服裝：合身**及膝連身洋裝** + 素色高跟鞋（**避開純綠/純洋紅**，否則去背會吃掉；顏色選定後每張固定同色）
 - 配件（可選）：細框眼鏡 / 小耳環
 - ⚠️ **不可神似任何真實名人**（避恐怖谷 + 避肖像/deepfake 疑慮；也符合節目「大方承認是 AI」定位）
 
@@ -70,7 +70,7 @@ APPEARANCE (keep identical in every image):
 - intelligent, approachable yet professional; warm "internet-savvy podcast host" vibe
 - shoulder-length dark-brown soft wavy hair, neat
 - light natural makeup, subtle red lip
-- fitted blazer over a simple top (avoid pure green / pure magenta so chroma key works)
+- an elegant tailored knee-length one-piece DRESS, professional yet stylish, with plain heels (avoid pure green / pure magenta so chroma key works)
 - [optional: thin-frame glasses / small earrings]
 
 FRAMING (keep identical in every image):

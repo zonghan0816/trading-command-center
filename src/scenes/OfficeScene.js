@@ -374,10 +374,12 @@ export class OfficeScene extends Phaser.Scene {
       const stOff   = CONFIG.layout.stationOffsets?.[id]  ?? { x: 0, y: 0 };
       const charOff = CONFIG.layout.charOffsets?.[id]     ?? { x: 0, y: 0 };
 
-      const baseX = W * (hostCfg.xRatio ?? 0.5) + (stOff.x ?? 0);
-      const deskY = wallH + (hostCfg.yOffsetFromWall ?? 360) + (stOff.y ?? 0);
-      const charX = baseX + (charOff.x ?? 0);
-      const charY = deskY - 12 + (charOff.y ?? 0);
+      // ── 角色站位計算（要調位置請改 config.js、不是改這裡）──────────────
+      //  角色 sprite 錨點在「底部中央」(setOrigin 0.5,1) → 下面算的 charX/charY 是「腳底中心」的螢幕座標。
+      const baseX = W * (hostCfg.xRatio ?? 0.5) + (stOff.x ?? 0);              // 左右：畫面寬 × xRatio(0最左~1最右) + stationOffsets.x
+      const deskY = wallH + (hostCfg.yOffsetFromWall ?? 360) + (stOff.y ?? 0); // 上下：牆高 + yOffsetFromWall(數字越大越往下) + stationOffsets.y
+      const charX = baseX + (charOff.x ?? 0);                                  // 角色左右 = baseX + charOffsets.x（正=右、負=左）
+      const charY = deskY - 12 + (charOff.y ?? 0);                            // 角色上下(腳底) = deskY -12 + charOffsets.y（正=往下、負=往上）
       const depth = 30;
 
       // 椅背已停用（新背景 studio 內建舞台設備）
